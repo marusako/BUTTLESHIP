@@ -4,7 +4,8 @@
   'use strict';
 
   const WORLD = {w: 4000, h: 3000};
-  const INITIAL_SHIPS = 3000;
+  const INITIAL_SHIPS = 15000;   // 原作の画面に合わせた初期艦艇数
+  const MAX_THROTTLE = 4;        // SPEED の段階の最大 (0〜4)
   const PARAM_TOTAL = 100;
   const PARAM_MIN = 10;
   const SENSOR_RANGE = 450;      // 索敵半径
@@ -100,8 +101,9 @@
     }
   }
 
-  // 射程内の敵 (visible: 見えている敵の一覧) から攻撃対象を選ぶ。攻撃命令の相手を優先する
+  // 射程内の敵 (visible: 見えている敵の一覧) から攻撃対象を選ぶ。攻撃命令の相手を優先する。LASER オフなら撃たない
   function chooseTarget(f, visible){
+    if(!f.weapons.laser) return null;
     const inRange = visible.filter(e => alive(e) && dist(f, e) <= BEAM_RANGE);
     if(f.order && f.order.type === 'attack'){
       const ordered = inRange.find(e => e.id === f.order.targetId);
@@ -112,10 +114,26 @@
     return best;
   }
 
-  // 命令に従って dt 秒ぶん移動する。移動した方向を向く
+  // 命令に従って dt 秒ぶん移動する。移動した方向を向く。
+  // 速さは最大速度 × SPEED の段階 / 4。段階 0 では動かない (命令は残す)
   function moveFleet(f, dt, intel){
     const o = f.order;
-    if(!o) return;
+    if(!o || f.throttle === 0) return;
+    const step = maxSpeed(f.params) * f.throttle / MAX_THROTTLE * dt;
+
+    // WAY: 指定方向へ進み続け、マップの端に着いたら止まる
+    if(o.type === 'course'){
+      // 真北などで cos / sin に出る小さな誤差を 0 にそろえる
+      const ux = Math.abs(Math.cos(o.angle)) < 1e-9 ? 0 : Math.cos(o.angle);
+      const uy = Math.abs(Math.sin(o.angle)) < 1e-9 ? 0 : Math.sin(o.angle);
+      const nx = f.x + ux * step, ny = f.y + uy * step;
+      f.x = clamp(nx, 0, WORLD.w);
+      f.y = clamp(ny, 0, WORLD.h);
+      f.heading = o.angle;
+      if(f.x !== nx || f.y !== ny) f.order = null;
+      return;
+    }
+
     let dest, stopAt;
     if(o.type === 'move'){
       dest = o;
@@ -127,7 +145,6 @@
       stopAt = info.visible ? BEAM_RANGE * ATTACK_STOP_RATIO : 0;
     }
     const d = dist(f, dest);
-    const step = maxSpeed(f.params) * dt;
     if(d > stopAt) f.heading = Math.atan2(dest.y - f.y, dest.x - f.x);
     if(d - stopAt <= step){
       if(d > stopAt){
@@ -166,13 +183,13 @@
       return {type: 'move', x, y};
     }
 
-    // 見えている敵: 近くて弱いほど優先 (距離 100 と艦艇数 500 を同じ重みで比べる)。敵旗艦は最優先
+    // 見えている敵: 近くて弱いほど優先 (距離 100 と初期艦艇数の 1/6 を同じ重みで比べる)。敵旗艦は最優先
     const byId = new Map(fleets.map(e => [e.id, e]));
     let best = null, bestScore = Infinity;
     for(const [id, info] of Object.entries(intel)){
       const e = byId.get(id);
       if(!info.visible || !e || !alive(e)) continue;
-      const score = dist(f, info) / 100 + e.ships / 500 - (e.flagship ? FLAGSHIP_PRIORITY : 0);
+      const score = dist(f, info) / 100 + e.ships / INITIAL_SHIPS * 6 -(e.flagship ? FLAGSHIP_PRIORITY : 0);
       if(score < bestScore){ best = id; bestScore = score; }
     }
     if(best) return {type: 'attack', targetId: best};
@@ -217,6 +234,8 @@
           isPlayer,
           flagship: false,
           missileCooldown: 0,
+          throttle: MAX_THROTTLE,
+          weapons: {laser: true, torpid: true},
           interceptCooldown: 0,
           ai: {nextThink: 0}
         });
@@ -242,7 +261,7 @@
     for(const f of g.fleets){
       if(!alive(f)) continue;
       f.missileCooldown = Math.max(0, f.missileCooldown - dt);
-      if(f.missileCooldown > 0) continue;
+      if(f.missileCooldown > 0 || !f.weapons.torpid) continue;
       let target = null;
       for(const e of visible[f.team]){
         if(dist(f, e) <= MISSILE_RANGE && (!target || dist(f, e) < dist(f, target))) target = e;
@@ -370,7 +389,7 @@
   }
 
   const api = {
-    WORLD, INITIAL_SHIPS, PARAM_TOTAL, PARAM_MIN, SENSOR_RANGE, BEAM_RANGE, GHOST_CLEAR_RANGE, FIREPOWER_FLOOR,
+    WORLD, INITIAL_SHIPS, MAX_THROTTLE, PARAM_TOTAL, PARAM_MIN, SENSOR_RANGE, BEAM_RANGE, GHOST_CLEAR_RANGE, FIREPOWER_FLOOR,
     MISSILE_RANGE, MISSILE_INTERVAL, INTERCEPT_RANGE, INTERCEPT_INTERVAL,
     AI_PRESETS, validateParams, maxSpeed, mitigation, beamDps, missileDamage, visibleEnemies, updateIntel,
     chooseTarget, moveFleet, checkOutcome, aiDecide, createGame, step,

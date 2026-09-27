@@ -8,7 +8,8 @@ function fleet(over){
     id: 'f', team: 'blue', name: 'f', x: 0, y: 0,
     ships: L.INITIAL_SHIPS, params: {speed: 34, defense: 33, attack: 33},
     order: null, isPlayer: false, ai: {nextThink: 0},
-    heading: 0, flagship: false, missileCooldown: 0, interceptCooldown: 0
+    heading: 0, flagship: false, missileCooldown: 0, interceptCooldown: 0,
+    throttle: 4, weapons: {laser: true, torpid: true}
   }, over);
 }
 
@@ -48,8 +49,8 @@ test('ダメージ: 攻撃が高いほど、防御が低いほど大きい', () 
 
 test('ダメージ: 艦艇数が減ると火力も落ちるが、下限がある', () => {
   const target = fleet();
-  const full = L.beamDps(fleet({ships: 3000}), target);
-  const half = L.beamDps(fleet({ships: 1500}), target);
+  const full = L.beamDps(fleet({ships: L.INITIAL_SHIPS}), target);
+  const half = L.beamDps(fleet({ships: L.INITIAL_SHIPS / 2}), target);
   assert.ok(half < full);
   const floorShips = L.INITIAL_SHIPS * L.FIREPOWER_FLOOR;
   assert.equal(L.beamDps(fleet({ships: 10}), target), L.beamDps(fleet({ships: floorShips}), target));
@@ -184,9 +185,9 @@ test('AI: 索敵中は目的地に着くまで目的地を変えない', () => {
 
 test('AI: 見えている敵がいれば近くて弱い敵を狙う', () => {
   const me = fleet({id: 'me', x: 0, y: 0});
-  const strongNear = fleet({id: 'strong', team: 'red', x: 400, y: 0, ships: 3000});
-  const weakNear = fleet({id: 'weak', team: 'red', x: 450, y: 0, ships: 500});
-  const weakFar = fleet({id: 'far', team: 'red', x: 3000, y: 0, ships: 400});
+  const strongNear = fleet({id: 'strong', team: 'red', x: 400, y: 0, ships: L.INITIAL_SHIPS});
+  const weakNear = fleet({id: 'weak', team: 'red', x: 450, y: 0, ships: L.INITIAL_SHIPS / 6});
+  const weakFar = fleet({id: 'far', team: 'red', x: 3000, y: 0, ships: L.INITIAL_SHIPS * 0.13});
   const fleets = [me, strongNear, weakNear, weakFar];
   const intel = {};
   L.updateIntel(intel, fleets, 'blue');
@@ -300,7 +301,7 @@ test('大将戦の勝敗: 敵旗艦を倒せば勝ち、味方旗艦が倒され
 
 test('AI (大将戦): 見えている敵旗艦を、近くて弱い敵より優先して狙う', () => {
   const me = fleet({id: 'me', x: 0, y: 0});
-  const weakNear = fleet({id: 'weak', team: 'red', x: 300, y: 0, ships: 500});
+  const weakNear = fleet({id: 'weak', team: 'red', x: 300, y: 0, ships: L.INITIAL_SHIPS / 6});
   const flag = fleet({id: 'flag', team: 'red', x: 900, y: 0, flagship: true});
   const intel = {weak: {x: 300, y: 0, visible: true}, flag: {x: 900, y: 0, visible: true}};
   assert.deepEqual(L.aiDecide(me, [me, weakNear, flag], intel, seq(0.5)), {type: 'attack', targetId: 'flag'});
@@ -444,4 +445,77 @@ test('迎撃: 迎撃範囲の外のミサイルは撃たない', () => {
   g.missiles.push({id: 1, team: 'blue', from: 'b', targetId: 'r', x: L.INTERCEPT_RANGE + 1, y: 0, life: 5, power: 1});
   L.interceptMissiles(g, 0.1, seq(0));
   assert.equal(g.missiles.length, 1);
+});
+
+// ---------- 第 2.5 段階 ----------
+
+test('艦艇数: 初期艦艇数は原作どおり 15000', () => {
+  assert.equal(L.INITIAL_SHIPS, 15000);
+  const g = L.createGame({speed: 34, defense: 33, attack: 33}, seq(0.5));
+  assert.ok(g.fleets.every(f => f.ships === 15000));
+});
+
+test('AI: 弱さは艦艇数の割合で評価する (初期艦艇数を変えても判断が変わらない)', () => {
+  const me = fleet({id: 'me', x: 0, y: 0});
+  const fullNear = fleet({id: 'full', team: 'red', x: 400, y: 0, ships: L.INITIAL_SHIPS});
+  const halfFar = fleet({id: 'half', team: 'red', x: 1500, y: 0, ships: L.INITIAL_SHIPS / 2});
+  const intel = {full: {x: 400, y: 0, visible: true}, half: {x: 1500, y: 0, visible: true}};
+  // 距離 4 + 割合 1×6 = 10 < 距離 15 + 割合 0.5×6 = 18
+  assert.deepEqual(L.aiDecide(me, [me, fullNear, halfFar], intel, seq(0.5)), {type: 'attack', targetId: 'full'});
+});
+
+test('ゲーム作成: どの艦隊も SPEED 4・LASER と TORPID オンで始まる', () => {
+  const g = L.createGame({speed: 34, defense: 33, attack: 33}, seq(0.5));
+  for(const f of g.fleets){
+    assert.equal(f.throttle, 4);
+    assert.deepEqual(f.weapons, {laser: true, torpid: true});
+  }
+});
+
+test('SPEED: 段階に比例した速さで進み、0 では止まるが命令は残る', () => {
+  const full = L.maxSpeed({speed: 34, defense: 33, attack: 33});
+  const f = fleet({throttle: 2, order: {type: 'move', x: 5000, y: 0}});
+  L.moveFleet(f, 1, {});
+  assert.ok(Math.abs(f.x - full / 2) < 1e-9);
+  f.throttle = 0;
+  L.moveFleet(f, 1, {});
+  assert.ok(Math.abs(f.x - full / 2) < 1e-9);
+  assert.deepEqual(f.order, {type: 'move', x: 5000, y: 0});
+});
+
+test('WAY: 指定した方向へ進み続け、マップの端で止まって命令が消える', () => {
+  const f = fleet({x: 1000, y: 1000, order: {type: 'course', angle: -Math.PI / 2}}); // 北へ
+  L.moveFleet(f, 1, {});
+  assert.equal(f.x, 1000);
+  assert.ok(f.y < 1000);
+  assert.equal(f.heading, -Math.PI / 2);
+  assert.equal(f.order.type, 'course');
+  for(let i = 0; i < 100 && f.order; i++) L.moveFleet(f, 1, {});
+  assert.equal(f.y, 0);
+  assert.equal(f.order, null);
+});
+
+test('WAY: マップの端に沿う向きなら、端に着くまで進む', () => {
+  const f = fleet({x: 100, y: 0, order: {type: 'course', angle: 0}}); // 上の端に沿って東へ
+  L.moveFleet(f, 1, {});
+  assert.ok(f.x > 100);
+  assert.equal(f.y, 0);
+  assert.equal(f.order.type, 'course');
+});
+
+test('LASER オフ: ビームの攻撃対象を選ばない', () => {
+  const me = fleet({id: 'me', weapons: {laser: false, torpid: true}});
+  const e = fleet({id: 'e', team: 'red', x: 50, y: 0});
+  assert.equal(L.chooseTarget(me, [e]), null);
+});
+
+test('TORPID オフ: ミサイルは撃たないが、迎撃はする', () => {
+  const b = fleet({id: 'b', x: 0, y: 0, weapons: {laser: true, torpid: false}});
+  const r = fleet({id: 'r', team: 'red', x: 300, y: 0});
+  const g = game([b, r]);
+  L.launchMissiles(g, 0.1);
+  assert.equal(g.missiles.filter(m => m.from === 'b').length, 0);
+  g.missiles = [{id: 9, team: 'red', from: 'r', targetId: 'b', x: 50, y: 0, life: 5, power: 1}];
+  L.interceptMissiles(g, 0.1, seq(0));
+  assert.equal(g.missiles.length, 0);
 });
