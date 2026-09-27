@@ -131,9 +131,9 @@ test('移動: 目的地へ最大速度で進み、着いたら命令が消える
 
 test('移動: 攻撃命令は見えている相手の射程内まで近づいて止まる', () => {
   const f = fleet({order: {type: 'attack', targetId: 'e'}});
-  const intel = {e: {x: 3000, y: 0, visible: true}};
+  const intel = {e: {x: 2000, y: 0, visible: true}};
   for(let i = 0; i < 400; i++) L.moveFleet(f, 0.1, intel);
-  assert.ok(f.x < 3000 - L.BEAM_RANGE * 0.5 && f.x > 3000 - L.BEAM_RANGE);
+  assert.ok(f.x < 2000 - L.BEAM_RANGE * 0.5 && f.x > 2000 - L.BEAM_RANGE);
   assert.deepEqual(f.order, {type: 'attack', targetId: 'e'});
 });
 
@@ -160,31 +160,31 @@ test('勝敗: 敵全滅で勝ち、味方全滅で負け、同時なら引き分
   assert.equal(L.checkOutcome([b, r]), 'draw');
 });
 
-test('AI: 損害が大きいと味方の近くへ下がる', () => {
+test('AI (護衛): 損害が大きいと隊長のすぐそばへ下がる', () => {
   const me = fleet({id: 'me', x: 2000, y: 1500, ships: L.INITIAL_SHIPS * 0.2});
-  const a1 = fleet({id: 'a1', x: 400, y: 1000});
-  const a2 = fleet({id: 'a2', x: 600, y: 2000});
+  const leader = fleet({id: 'lead', x: 500, y: 1500, leader: true});
   const e = fleet({id: 'e', team: 'red', x: 2100, y: 1500});
-  const order = L.aiDecide(me, [me, a1, a2, e], {e: {x: 2100, y: 1500, visible: true}}, seq(0.5));
+  const order = L.aiDecide(me, [leader, me, e], {e: {x: 2100, y: 1500, visible: true}}, seq(0.5));
   assert.deepEqual(order, {type: 'move', x: 500, y: 1500});
 });
 
-test('AI: 損害が大きくても、味方が残っていなければ後退しない', () => {
-  const me = fleet({id: 'me', x: 2000, y: 1500, ships: L.INITIAL_SHIPS * 0.2});
+test('AI (隊長): 損害が大きくても後退せず戦い続ける', () => {
+  const me = fleet({id: 'me', x: 2000, y: 1500, ships: L.INITIAL_SHIPS * 0.2, leader: true});
+  const escort = fleet({id: 'a', x: 400, y: 1500});
   const e = fleet({id: 'e', team: 'red', x: 2100, y: 1500});
-  const order = L.aiDecide(me, [me, e], {e: {x: 2100, y: 1500, visible: true}}, seq(0.5));
+  const order = L.aiDecide(me, [me, escort, e], {e: {x: 2100, y: 1500, visible: true}}, seq(0.5));
   assert.deepEqual(order, {type: 'attack', targetId: 'e'});
 });
 
-test('AI: 索敵中は目的地に着くまで目的地を変えない', () => {
-  const me = fleet({id: 'me', x: 300, y: 1500});
+test('AI (隊長): 索敵中は目的地に着くまで目的地を変えない', () => {
+  const me = fleet({id: 'me', x: 300, y: 1500, leader: true});
   const first = L.aiDecide(me, [me], {}, seq(0.5));
   me.order = first;
   assert.deepEqual(L.aiDecide(me, [me], {}, seq(0.9)), first);
 });
 
-test('AI: 見えている敵がいれば近くて弱い敵を狙う', () => {
-  const me = fleet({id: 'me', x: 0, y: 0});
+test('AI (隊長): 見えている敵がいれば近くて弱い敵を狙う', () => {
+  const me = fleet({id: 'me', x: 0, y: 0, leader: true});
   const strongNear = fleet({id: 'strong', team: 'red', x: 400, y: 0, ships: L.INITIAL_SHIPS});
   const weakNear = fleet({id: 'weak', team: 'red', x: 450, y: 0, ships: L.INITIAL_SHIPS / 6});
   const weakFar = fleet({id: 'far', team: 'red', x: 3000, y: 0, ships: L.INITIAL_SHIPS * 0.13});
@@ -196,15 +196,15 @@ test('AI: 見えている敵がいれば近くて弱い敵を狙う', () => {
   assert.deepEqual(order, {type: 'attack', targetId: 'weak'});
 });
 
-test('AI: 敵が見えず最終確認位置があれば、最も近いそこへ向かう', () => {
-  const me = fleet({id: 'me', x: 0, y: 0});
+test('AI (隊長): 敵が見えず最終確認位置があれば、最も近いそこへ向かう', () => {
+  const me = fleet({id: 'me', x: 0, y: 0, leader: true});
   const intel = {a: {x: 1000, y: 0, visible: false}, b: {x: 500, y: 0, visible: false}};
   assert.deepEqual(L.aiDecide(me, [me], intel, seq(0.5)), {type: 'move', x: 500, y: 0});
 });
 
-test('AI: 手がかりがなければ敵陣の方向 (青は上・赤は下の半分) へ索敵に出る', () => {
-  const blue = fleet({id: 'b', x: 1200, y: L.WORLD.h - 300});
-  const red = fleet({id: 'r', team: 'red', x: 1200, y: 300});
+test('AI (隊長): 手がかりがなければ敵陣の方向 (青は上・赤は下の半分) へ索敵に出る', () => {
+  const blue = fleet({id: 'b', x: 1200, y: L.WORLD.h - 300, leader: true});
+  const red = fleet({id: 'r', team: 'red', x: 1200, y: 300, leader: true});
   for(const v of [0, 0.5, 0.99]){
     const ob = L.aiDecide(blue, [blue], {}, seq(v));
     const or = L.aiDecide(red, [red], {}, seq(v));
@@ -272,10 +272,10 @@ test('ゲーム進行: 艦艇数が 0 以下になると全滅し、勝敗が決
 // ---------- 第 2 段階 ----------
 
 test('向き: 移動した方向を向き、止まっている間は向きを保つ', () => {
-  const f = fleet({order: {type: 'move', x: 1000, y: 0}});
+  const f = fleet({y: 2000, order: {type: 'move', x: 1000, y: 2000}});
   L.moveFleet(f, 1, {});
   assert.equal(f.heading, 0);
-  f.order = {type: 'move', x: f.x, y: -1000};
+  f.order = {type: 'move', x: f.x, y: 1000};
   L.moveFleet(f, 1, {});
   assert.equal(f.heading, -Math.PI / 2);
   f.order = null;
@@ -318,20 +318,20 @@ test('大将戦の勝敗: 敵旗艦を倒せば勝ち、味方旗艦が倒され
 });
 
 test('AI (大将戦): 見えている敵旗艦を、近くて弱い敵より優先して狙う', () => {
-  const me = fleet({id: 'me', x: 0, y: 0});
+  const me = fleet({id: 'me', x: 0, y: 0, leader: true});
   const weakNear = fleet({id: 'weak', team: 'red', x: 300, y: 0, ships: L.INITIAL_SHIPS / 6});
   const flag = fleet({id: 'flag', team: 'red', x: 900, y: 0, flagship: true});
   const intel = {weak: {x: 300, y: 0, visible: true}, flag: {x: 900, y: 0, visible: true}};
   assert.deepEqual(L.aiDecide(me, [me, weakNear, flag], intel, seq(0.5)), {type: 'attack', targetId: 'flag'});
 });
 
-test('AI (大将戦): AI の旗艦は自陣側の半分だけを索敵し、最終確認位置も追わない', () => {
-  const flag = fleet({id: 'rf', team: 'red', x: 1200, y: 300, flagship: true});
+test('AI (大将戦): AI の旗艦も隊長として、最終確認位置や敵陣へ攻撃に向かう', () => {
+  const flag = fleet({id: 'rf', team: 'red', x: 1200, y: 300, flagship: true, leader: true});
   const intel = {b: {x: 1200, y: 3500, visible: false}};
+  assert.deepEqual(L.aiDecide(flag, [flag], intel, seq(0.5)), {type: 'move', x: 1200, y: 3500});
   for(const r of [0, 0.5, 0.99]){
-    const o = L.aiDecide(flag, [flag], intel, seq(r));
-    assert.equal(o.type, 'move');
-    assert.ok(o.y <= L.WORLD.h / 2, 'y=' + o.y);
+    const o = L.aiDecide(flag, [flag], {}, seq(r));
+    assert.ok(o.y >= L.WORLD.h / 2, 'y=' + o.y);
   }
 });
 
@@ -474,7 +474,7 @@ test('艦艇数: 初期艦艇数は原作どおり 15000', () => {
 });
 
 test('AI: 弱さは艦艇数の割合で評価する (初期艦艇数を変えても判断が変わらない)', () => {
-  const me = fleet({id: 'me', x: 0, y: 0});
+  const me = fleet({id: 'me', x: 0, y: 0, leader: true});
   const fullNear = fleet({id: 'full', team: 'red', x: 400, y: 0, ships: L.INITIAL_SHIPS});
   const halfFar = fleet({id: 'half', team: 'red', x: 1500, y: 0, ships: L.INITIAL_SHIPS / 2});
   const intel = {full: {x: 400, y: 0, visible: true}, half: {x: 1500, y: 0, visible: true}};
@@ -536,4 +536,112 @@ test('TORPID オフ: ミサイルは撃たないが、迎撃はする', () => {
   g.missiles = [{id: 9, team: 'red', from: 'r', targetId: 'b', x: 50, y: 0, life: 5, power: 1}];
   L.interceptMissiles(g, 0.1, seq(0));
   assert.equal(g.missiles.length, 0);
+});
+
+// ---------- 第 2.6 段階 ----------
+
+test('AI (隊長): すでに敵陣側にいて手がかりがなければ、マップ全体から索敵先を選ぶ (すれ違い対策)', () => {
+  const blue = fleet({id: 'b', x: 1200, y: 500, leader: true}); // 青にとって敵陣側 (上半分)
+  const o = L.aiDecide(blue, [blue], {}, seq(0.5, 0.9));
+  assert.equal(o.type, 'move');
+  assert.ok(o.y > L.WORLD.h / 2, '自陣側に戻ることもある y=' + o.y);
+  const red = fleet({id: 'r', team: 'red', x: 1200, y: 4300, leader: true}); // 赤にとって敵陣側 (下半分)
+  const or = L.aiDecide(red, [red], {}, seq(0.5, 0.1));
+  assert.ok(or.y < L.WORLD.h / 2, 'y=' + or.y);
+});
+
+test('ジョブ: アタッカー・スピーダー・タンクの 3 つで、数値は合計 100', () => {
+  assert.deepEqual(Object.keys(L.JOBS), ['attacker', 'speeder', 'tank']);
+  assert.deepEqual(L.JOBS.attacker.params, {speed: 20, defense: 20, attack: 60});
+  assert.deepEqual(L.JOBS.speeder.params, {speed: 60, defense: 20, attack: 20});
+  assert.deepEqual(L.JOBS.tank.params, {speed: 20, defense: 60, attack: 20});
+  for(const job of Object.values(L.JOBS)){
+    assert.ok(L.validateParams(job.params), job.name);
+    assert.ok(job.name && job.description);
+  }
+});
+
+test('ゲーム作成: プレイヤーは選んだジョブ、AI は 3 つのジョブのどれか', () => {
+  const g = L.createGame(L.JOBS.tank.params, seq(0.1, 0.4, 0.7, 0.95));
+  const jobParams = Object.values(L.JOBS).map(j => JSON.stringify(j.params));
+  for(const f of g.fleets) assert.ok(jobParams.includes(JSON.stringify(f.params)), f.id);
+  assert.deepEqual(g.fleets.find(f => f.isPlayer).params, L.JOBS.tank.params);
+  const names = Object.values(L.JOBS).map(j => j.name);
+  assert.ok(g.fleets.every(f => names.includes(f.type)), 'type はジョブ名');
+});
+
+test('隊長: 各チーム 1 つ。青はプレイヤー、どちらも横一列の真ん中から出撃', () => {
+  for(const mode of ['annihilation', 'flagship']){
+    const g = L.createGame(L.JOBS.attacker.params, seq(0.1, 0.5, 0.9, 0.3), mode);
+    for(const team of ['blue', 'red']){
+      const leaders = g.fleets.filter(f => f.team === team && f.leader);
+      assert.equal(leaders.length, 1, mode + ' ' + team);
+      assert.equal(leaders[0].x, L.WORLD.w / 2, mode + ' ' + team);
+      if(mode === 'flagship') assert.ok(leaders[0].flagship);
+      else assert.ok(!leaders[0].flagship);
+    }
+    assert.ok(g.fleets.find(f => f.team === 'blue' && f.leader).isPlayer);
+    const xs = g.fleets.filter(f => f.team === 'red').map(f => f.x);
+    assert.equal(new Set(xs).size, 5);
+  }
+});
+
+test('隊長 (全滅戦): 隊長が全滅したら、生き残りで艦艇数が最も多い艦隊が引き継ぐ', () => {
+  const lead = fleet({id: 'l', leader: true, ships: 0});
+  const a = fleet({id: 'a', ships: 5000});
+  const b = fleet({id: 'b', ships: 9000});
+  const r = fleet({id: 'r', team: 'red', leader: true});
+  L.updateLeaders([lead, a, b, r]);
+  assert.deepEqual([lead.leader, a.leader, b.leader, r.leader], [false, false, true, true]);
+});
+
+test('隊長: 隊長のいないチームでは、艦艇数が最も多い艦隊が隊長になる', () => {
+  const a = fleet({id: 'a', ships: 5000});
+  const b = fleet({id: 'b', ships: 5000});
+  L.updateLeaders([a, b]);
+  assert.deepEqual([a.leader, b.leader], [true, false]); // 同じなら先の艦隊
+});
+
+test('AI (護衛): 隊長から 600 以内に見えている敵がいれば迎え撃つ', () => {
+  const leader = fleet({id: 'lead', x: 1000, y: 3000, leader: true});
+  const me = fleet({id: 'me', x: 800, y: 3100});
+  const near = fleet({id: 'near', team: 'red', x: 1000, y: 2500});
+  const intel = {near: {x: 1000, y: 2500, visible: true}};
+  assert.deepEqual(L.aiDecide(me, [leader, me, near], intel, seq(0.5)), {type: 'attack', targetId: 'near'});
+});
+
+test('AI (護衛): 隊長から遠い敵は追わず、隊長の周りの決まった位置へ付いていく', () => {
+  const leader = fleet({id: 'lead', x: 1200, y: 3000, leader: true, heading: -Math.PI / 2}); // 北向き
+  const escorts = [0, 1, 2, 3].map(i => fleet({id: 'e' + i, x: 1200, y: 4000}));
+  const far = fleet({id: 'far', team: 'red', x: 1200, y: 1000});
+  const intel = {far: {x: 1200, y: 1000, visible: true}};
+  const fleets = [leader, ...escorts, far];
+  const orders = escorts.map(e => L.aiDecide(e, fleets, intel, seq(0.5)));
+  for(const o of orders) assert.equal(o.type, 'move');
+  const pos = orders.map(o => [Math.round(o.x), Math.round(o.y)]);
+  // 北向きの隊長に対して: 左・右・左後ろ・右後ろ
+  assert.ok(pos[0][0] < 1200 && pos[1][0] > 1200, '左右');
+  assert.ok(pos[2][0] < 1200 && pos[3][0] > 1200, '後ろの左右');
+  assert.ok(pos[2][1] > pos[0][1] && pos[3][1] > pos[1][1], '後ろの 2 つは前の 2 つより南');
+  assert.equal(new Set(pos.map(p => p.join(','))).size, 4, '位置は重ならない');
+});
+
+test('AI (護衛): 隊列の位置もマップの内側に収める', () => {
+  const leader = fleet({id: 'lead', x: 0, y: 3000, leader: true, heading: -Math.PI / 2});
+  const me = fleet({id: 'me', x: 500, y: 3000});
+  const o = L.aiDecide(me, [leader, me], {}, seq(0.5));
+  assert.ok(o.x >= 0 && o.x <= L.WORLD.w && o.y >= 0 && o.y <= L.WORLD.h);
+});
+
+test('マップ外: 移動命令の行き先がマップの外なら、最も近い端まで進んで止まる', () => {
+  const f = fleet({x: 100, y: 100, order: {type: 'move', x: -500, y: 100}});
+  for(let i = 0; i < 20 && f.order; i++) L.moveFleet(f, 1, {});
+  assert.deepEqual([f.x, f.y, f.order], [0, 100, null]);
+});
+
+test('マップ外: どの命令でも移動後の位置はマップの内側', () => {
+  const f = fleet({x: 10, y: 10, order: {type: 'attack', targetId: 'e'}});
+  const intel = {e: {x: -3000, y: -3000, visible: false}};
+  for(let i = 0; i < 50 && f.order; i++) L.moveFleet(f, 1, intel);
+  assert.ok(f.x >= 0 && f.y >= 0);
 });

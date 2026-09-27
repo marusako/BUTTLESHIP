@@ -32,13 +32,18 @@
   const COMMANDS = ['scan', 'warp'];
   const TEAMS = ['blue', 'red'];
 
-  // AI 艦隊のパラメータの型
-  const AI_PRESETS = [
-    {name: '高速型', params: {speed: 50, defense: 20, attack: 30}},
-    {name: '重装型', params: {speed: 20, defense: 50, attack: 30}},
-    {name: '攻撃型', params: {speed: 25, defense: 20, attack: 55}},
-    {name: '均等型', params: {speed: 34, defense: 33, attack: 33}}
-  ];
+  // ジョブ (プレイヤーは出撃準備で選び、AI はランダムに選ぶ)
+  const JOBS = {
+    attacker: {name: 'アタッカー', params: {speed: 20, defense: 20, attack: 60}, description: '火力重視。撃ち合いに強いが、守りは薄い'},
+    speeder: {name: 'スピーダー', params: {speed: 60, defense: 20, attack: 20}, description: '最速。索敵や回り込み、逃げるのが得意。撃ち合いは苦手'},
+    tank: {name: 'タンク', params: {speed: 20, defense: 60, attack: 20}, description: '最も頑丈。足は遅いが、受けるダメージが半分以下になる'}
+  };
+  const JOB_LIST = Object.values(JOBS);
+
+  // 隊列: 護衛が付く位置 (隊長から見て [前方, 右方向] の距離)。左・右・左後ろ・右後ろ
+  const ESCORT_SLOTS = [[-40, -260], [-40, 260], [-260, -170], [-260, 170]];
+  const DEFEND_RADIUS = 600;     // 護衛は隊長からこの距離以内の敵を迎え撃つ
+  const SPAWN_XS = [400, 800, 1200, 1600, 2000]; // 横一列の出撃位置。真ん中 (1200) は隊長
 
   const alive = f => f.ships > 0;
   const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
@@ -144,6 +149,8 @@
       dest = info;
       stopAt = info.visible ? BEAM_RANGE * ATTACK_STOP_RATIO : 0;
     }
+    // 行き先はマップの内側に収める (外なら最も近い端へ向かう)
+    dest = {x: clamp(dest.x, 0, WORLD.w), y: clamp(dest.y, 0, WORLD.h)};
     const d = dist(f, dest);
     if(d > stopAt) f.heading = Math.atan2(dest.y - f.y, dest.x - f.x);
     if(d - stopAt <= step){
@@ -156,8 +163,8 @@
       if(o.type === 'move' || !intel[o.targetId].visible) f.order = null;
       return;
     }
-    f.x += (dest.x - f.x) / d * step;
-    f.y += (dest.y - f.y) / d * step;
+    f.x = clamp(f.x + (dest.x - f.x) / d * step, 0, WORLD.w);
+    f.y = clamp(f.y + (dest.y - f.y) / d * step, 0, WORLD.h);
   }
 
   // 勝敗を返す (青チーム視点)。決着前は null。旗艦がいれば大将戦のルールで判定する
@@ -172,47 +179,84 @@
     return 'draw';
   }
 
-  // AI の命令を決める
-  function aiDecide(f, fleets, intel, rng){
-    const allies = fleets.filter(a => a.team === f.team && a !== f && alive(a));
-
-    // 損害が大きければ味方の中心へ下がる (味方がいなければ下がる先がないので戦い続ける)
-    if(f.ships < INITIAL_SHIPS * RETREAT_RATIO && allies.length){
-      const x = allies.reduce((s, a) => s + a.x, 0) / allies.length;
-      const y = allies.reduce((s, a) => s + a.y, 0) / allies.length;
-      return {type: 'move', x, y};
-    }
-
-    // 見えている敵: 近くて弱いほど優先 (距離 100 と初期艦艇数の 1/6 を同じ重みで比べる)。敵旗艦は最優先
+  // 見えている敵のうち、近くて弱いほど優先 (距離 100 と初期艦艇数の 1/6 を同じ重みで比べる)。敵旗艦は最優先。
+  // from からの距離で評価し、accept で対象を絞る
+  function bestVisibleTarget(from, fleets, intel, accept){
     const byId = new Map(fleets.map(e => [e.id, e]));
     let best = null, bestScore = Infinity;
     for(const [id, info] of Object.entries(intel)){
       const e = byId.get(id);
-      if(!info.visible || !e || !alive(e)) continue;
-      const score = dist(f, info) / 100 + e.ships / INITIAL_SHIPS * 6 -(e.flagship ? FLAGSHIP_PRIORITY : 0);
+      if(!info.visible || !e || !alive(e) || (accept && !accept(info))) continue;
+      const score = dist(from, info) / 100 + e.ships / INITIAL_SHIPS * 6 - (e.flagship ? FLAGSHIP_PRIORITY : 0);
       if(score < bestScore){ best = id; bestScore = score; }
     }
-    if(best) return {type: 'attack', targetId: best};
+    return best;
+  }
 
-    // 見失った敵の最終確認位置 (旗艦は前に出ないので追わない)
-    if(!f.flagship){
-      let ghost = null;
-      for(const info of Object.values(intel)){
-        if(!info.visible && (!ghost || dist(f, info) < dist(f, ghost))) ghost = info;
-      }
-      if(ghost) return {type: 'move', x: ghost.x, y: ghost.y};
+  // 各チームの隊長を決める。隊長が全滅していたら、生き残りで艦艇数が最も多い艦隊 (同じなら先の艦隊) が引き継ぐ
+  function updateLeaders(fleets){
+    for(const team of TEAMS){
+      const members = fleets.filter(f => f.team === team);
+      if(members.some(f => f.leader && alive(f))) continue;
+      for(const f of members) f.leader = false;
+      let next = null;
+      for(const f of members) if(alive(f) && (!next || f.ships > next.ships)) next = f;
+      if(next) next.leader = true;
     }
+  }
+
+  // 隊長の AI: 後退せず、敵を攻撃しに行く
+  function leaderDecide(f, fleets, intel, rng){
+    const target = bestVisibleTarget(f, fleets, intel);
+    if(target) return {type: 'attack', targetId: target};
+
+    // 見失った敵の最終確認位置
+    let ghost = null;
+    for(const info of Object.values(intel)){
+      if(!info.visible && (!ghost || dist(f, info) < dist(f, ghost))) ghost = info;
+    }
+    if(ghost) return {type: 'move', x: ghost.x, y: ghost.y};
 
     // 手がかりなし: 索敵中なら目的地に着くまで続け、なければ索敵に出る。
-    // 通常は敵陣側の半分 (青は上、赤は下)、旗艦は自陣側の半分
+    // 自陣側にいるうちは敵陣側の半分 (青は上、赤は下) へ。すでに敵陣側にいればマップ全体から選ぶ
+    // (敵陣側だけを探すと、すれ違った両軍が互いの空の陣地を探し続けて出会わないため)
     if(f.order && f.order.explore) return f.order;
     const half = WORLD.h / 2;
-    const towardEnemy = !f.flagship;
-    const upperHalf = (f.team === 'blue') === towardEnemy;
+    const inEnemyHalf = f.team === 'blue' ? f.y < half : f.y > half;
     const x = rng() * WORLD.w;
-    const y = upperHalf ? rng() * half : half + rng() * half;
+    const y = inEnemyHalf ? rng() * WORLD.h : f.team === 'blue' ? rng() * half : half + rng() * half;
     return {type: 'move', x, y, explore: true};
   }
+
+  // 護衛の位置: 隊長の向きを基準に ESCORT_SLOTS の位置 (マップ内に収める)
+  function escortSlot(leader, index){
+    const [fwd, right] = ESCORT_SLOTS[index % ESCORT_SLOTS.length];
+    const c = Math.cos(leader.heading), s = Math.sin(leader.heading);
+    return {
+      x: clamp(leader.x + fwd * c - right * s, 0, WORLD.w),
+      y: clamp(leader.y + fwd * s + right * c, 0, WORLD.h)
+    };
+  }
+
+  // AI の命令を決める。隊長は攻撃に向かい、護衛は隊長を守って付いていく
+  function aiDecide(f, fleets, intel, rng){
+    const leader = fleets.find(a => a.team === f.team && a.leader && alive(a));
+    if(!leader || leader === f) return leaderDecide(f, fleets, intel, rng);
+
+    // 損害が大きければ隊長のすぐそばへ下がる
+    if(f.ships < INITIAL_SHIPS * RETREAT_RATIO) return {type: 'move', x: leader.x, y: leader.y};
+
+    // 隊長に近づいた敵を迎え撃つ
+    const threat = bestVisibleTarget(f, fleets, intel, info => dist(leader, info) <= DEFEND_RADIUS);
+    if(threat) return {type: 'attack', targetId: threat};
+
+    // 隊長の周りの決まった位置へ付いていく
+    const escorts = fleets.filter(a => a.team === f.team && alive(a) && a !== leader);
+    const slot = escortSlot(leader, escorts.indexOf(f));
+    return {type: 'move', x: slot.x, y: slot.y};
+  }
+
+  const sameParams = (a, b) => a.speed === b.speed && a.defense === b.defense && a.attack === b.attack;
 
   // mode: 'annihilation' (全滅戦) / 'flagship' (大将戦)
   function createGame(playerParams, rng, mode){
@@ -220,20 +264,22 @@
     for(const team of TEAMS){
       for(let i = 0; i < 5; i++){
         const isPlayer = team === 'blue' && i === 0;
-        const preset = AI_PRESETS[Math.floor(rng() * AI_PRESETS.length) % AI_PRESETS.length];
+        const job = JOB_LIST[Math.floor(rng() * JOB_LIST.length) % JOB_LIST.length];
+        const playerJob = JOB_LIST.find(j => sameParams(j.params, playerParams));
         fleets.push({
           id: `${team}${i + 1}`,
           team,
           name: `${team === 'blue' ? '味方' : '敵'}第${i + 1}艦隊`,
-          x: 400 + i * 400,
+          x: 0, // 隊長を決めてから並べる
           y: team === 'blue' ? WORLD.h - 300 : 300,
           heading: team === 'blue' ? -Math.PI / 2 : Math.PI / 2,
           ships: INITIAL_SHIPS,
-          params: Object.assign({}, isPlayer ? playerParams : preset.params),
-          type: isPlayer ? 'プレイヤー' : preset.name,
+          params: Object.assign({}, isPlayer ? playerParams : job.params),
+          type: isPlayer ? (playerJob ? playerJob.name : 'カスタム') : job.name,
           order: null,
           isPlayer,
           flagship: false,
+          leader: false,
           missileCooldown: 0,
           throttle: MAX_THROTTLE,
           weapons: {laser: true, torpid: true},
@@ -242,10 +288,17 @@
         });
       }
     }
-    if(mode === 'flagship'){
-      fleets.find(f => f.isPlayer).flagship = true;
-      const reds = fleets.filter(f => f.team === 'red');
-      reds[Math.floor(rng() * reds.length) % reds.length].flagship = true;
+    // 隊長: 青はプレイヤー、赤はランダム。大将戦では隊長が旗艦
+    fleets.find(f => f.isPlayer).leader = true;
+    const reds = fleets.filter(f => f.team === 'red');
+    reds[Math.floor(rng() * reds.length) % reds.length].leader = true;
+    if(mode === 'flagship') for(const f of fleets) f.flagship = f.leader;
+    // 出撃位置: 隊長は横一列の真ん中、残りは左から順に
+    for(const team of TEAMS){
+      const members = fleets.filter(f => f.team === team);
+      const ordered = members.filter(f => !f.leader);
+      ordered.splice(2, 0, members.find(f => f.leader));
+      ordered.forEach((f, k) => { f.x = SPAWN_XS[k]; });
     }
     return {
       time: 0, mode: mode || 'annihilation', fleets, intel: {blue: {}, red: {}}, beams: [],
@@ -359,6 +412,7 @@
     const refreshIntel = () => { for(const team of TEAMS) updateIntel(g.intel[team], g.fleets, team, revealFor(g, team)); };
 
     refreshIntel();
+    updateLeaders(g.fleets);
 
     for(const f of living){
       if(f.isPlayer || g.time < f.ai.nextThink) continue;
@@ -392,7 +446,7 @@
   const api = {
     WORLD, INITIAL_SHIPS, MAX_THROTTLE, PARAM_TOTAL, PARAM_MIN, SENSOR_RANGE, BEAM_RANGE, GHOST_CLEAR_RANGE, FIREPOWER_FLOOR,
     MISSILE_RANGE, MISSILE_INTERVAL, INTERCEPT_RANGE, INTERCEPT_INTERVAL,
-    AI_PRESETS, validateParams, maxSpeed, mitigation, beamDps, missileDamage, visibleEnemies, updateIntel,
+    JOBS, validateParams, updateLeaders, maxSpeed, mitigation, beamDps, missileDamage, visibleEnemies, updateIntel,
     chooseTarget, moveFleet, checkOutcome, aiDecide, createGame, step,
     launchMissiles, interceptMissiles, moveMissiles,
     newCheatProgress, cheatSequenceStep, parseCommand, applyCommand, warpFleet

@@ -72,13 +72,16 @@
   button:hover:not(:disabled){ border-color: var(--blue); background: #16345f; }
   button:disabled{ opacity: 0.4; cursor: default; }
   .rules{ text-align: left; color: var(--muted); font-size: 14px; line-height: 1.7; margin: 0 0 18px; padding-left: 20px; }
-  .param{ display: grid; grid-template-columns: 60px 1fr 40px; align-items: center; gap: 12px; margin: 10px 0; text-align: left; }
-  .param input{ width: 100%; }
-  .param output{ text-align: right; font-variant-numeric: tabular-nums; }
-  .remain{ margin: 12px 0; font-variant-numeric: tabular-nums; }
-  .remain.bad{ color: var(--red); }
-  .presets{ margin-bottom: 8px; }
-  .presets button{ padding: 4px 12px; font-size: 13px; }
+  .jobs{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 0 0 18px; text-align: left; }
+  .job{ border: 1px solid var(--line); padding: 10px 12px; cursor: pointer; }
+  .job:has(input:checked){ border-color: var(--accent); background: rgba(255, 211, 79, 0.08); }
+  .job input{ margin-right: 6px; }
+  .job .jobName{ font-weight: bold; }
+  .job .jobStats{ display: grid; grid-template-columns: 34px 1fr 24px; align-items: center; gap: 2px 6px; margin: 8px 0 6px; font-size: 12px; color: var(--muted); }
+  .job .bar{ height: 6px; background: #13233f; }
+  .job .bar i{ display: block; height: 100%; background: var(--blue); }
+  .job .jobStats b{ font-weight: normal; text-align: right; color: var(--text); font-variant-numeric: tabular-nums; }
+  .job small{ display: block; color: var(--muted); font-size: 12px; line-height: 1.5; }
   .modes{ display: flex; gap: 8px; justify-content: center; margin: 0 0 18px; }
   .modes label{ border: 1px solid var(--line); padding: 8px 14px; cursor: pointer; text-align: left; width: 50%; }
   .modes label:has(input:checked){ border-color: var(--accent); background: rgba(255, 211, 79, 0.08); }
@@ -105,6 +108,7 @@
       <div class="paneTitle">STATUS</div>
       <div class="body">
         <div class="statusHead"><span id="stName"></span><span class="rule" id="stRule"></span></div>
+        <div class="kv"><span>JOB</span><span id="stJob"></span></div>
         <div class="kv"><span>SHIPS LEFT</span><span id="stShips"></span></div>
         <div class="kv2">
           <div class="kv"><span>SPEED</span><span id="stSpeed"></span></div>
@@ -161,6 +165,7 @@
       <li>ビームは射程内の敵を自動で攻撃する (必中)。ミサイルは射程が長く追尾するが、迎撃されることがある</li>
       <li>全滅戦: 敵 5 艦隊をすべて全滅させたら勝利</li>
       <li>大将戦: 敵の旗艦を倒したら勝利。あなたの艦隊が味方の旗艦</li>
+      <li>味方の 4 艦隊は、隊長 (あなた) の周りに付いてきて守る。敵も隊長を中心に隊列を組む</li>
     </ul>
     <button id="toSetup">出撃準備</button>
   </div>
@@ -174,17 +179,8 @@
       <label><input type="radio" name="mode" value="annihilation" checked>全滅戦<small>敵を全滅させたら勝ち</small></label>
       <label><input type="radio" name="mode" value="flagship">大将戦<small>敵の旗艦を倒したら勝ち</small></label>
     </div>
-    <div class="section">艦隊パラメータ配分</div>
-    <div class="presets">
-      <button data-preset="34,33,33">均等</button>
-      <button data-preset="50,20,30">高速</button>
-      <button data-preset="20,50,30">重装</button>
-      <button data-preset="25,20,55">攻撃</button>
-    </div>
-    <label class="param"><span>速度</span><input id="p-speed" type="range" min="10" max="80" step="1"><output id="o-speed"></output></label>
-    <label class="param"><span>防御</span><input id="p-defense" type="range" min="10" max="80" step="1"><output id="o-defense"></output></label>
-    <label class="param"><span>攻撃</span><input id="p-attack" type="range" min="10" max="80" step="1"><output id="o-attack"></output></label>
-    <div id="remain" class="remain"></div>
+    <div class="section">ジョブ</div>
+    <div class="jobs" id="jobs"></div>
     <button id="backTitle">戻る</button>
     <button id="start">出撃</button>
   </div>
@@ -229,7 +225,9 @@ const MODE_NAMES = {annihilation: '全滅戦', flagship: '大将戦'};
 
 let mode = 'title'; // title | setup | battle | pause | result
 let game = null;
-let playerParams = {speed: 34, defense: 33, attack: 33};
+let playerJob = 'attacker';
+// 長押しでの移動: 押している間はカーソルの位置 (キャンバス内の座標) を移動先にし続ける
+let dragMove = null;
 let ruleMode = 'annihilation';
 // カメラ: 画面中心に映すワールド座標 (cx, cy)、拡大率、回転角 (0 で北が上)
 const camera = {cx: 0, cy: 0, zoom: 1, angle: 0};
@@ -283,48 +281,37 @@ function endGame(){
   setMode('title');
 }
 
-$('toSetup').onclick = () => { setMode('setup'); syncParamInputs(); };
+$('toSetup').onclick = () => setMode('setup');
 $('backTitle').onclick = () => setMode('title');
 $('start').onclick = startBattle;
 $('resume').onclick = () => setMode('battle');
 $('pauseToTitle').onclick = endGame;
-$('retry').onclick = () => { setMode('setup'); syncParamInputs(); };
+$('retry').onclick = () => setMode('setup');
 $('resultToTitle').onclick = endGame;
 
 // ---------- 出撃準備 ----------
-const PARAM_KEYS = ['speed', 'defense', 'attack'];
-function syncParamInputs(){
-  for(const k of PARAM_KEYS){
-    $('p-' + k).value = playerParams[k];
-    $('o-' + k).textContent = playerParams[k];
-  }
-  const total = PARAM_KEYS.reduce((s, k) => s + playerParams[k], 0);
-  const remain = L.PARAM_TOTAL - total;
-  $('remain').textContent = remain === 0 ? '配分完了 (合計 100)'
-    : remain > 0 ? `残り ${remain} ポイント (合計を 100 にしてください)`
-    : `${-remain} ポイント超過 (合計を 100 にしてください)`;
-  $('remain').classList.toggle('bad', remain !== 0);
-  $('start').disabled = !L.validateParams(playerParams);
-}
-for(const k of PARAM_KEYS){
-  $('p-' + k).addEventListener('input', e => {
-    playerParams[k] = Number(e.target.value);
-    syncParamInputs();
-  });
-}
-for(const b of document.querySelectorAll('[data-preset]')){
-  b.onclick = () => {
-    const [speed, defense, attack] = b.dataset.preset.split(',').map(Number);
-    playerParams = {speed, defense, attack};
-    syncParamInputs();
-  };
-}
+// ジョブのカード (名前・数値のバー・説明) を作る
+const STAT_LABELS = [['speed', '速度'], ['defense', '防御'], ['attack', '攻撃']];
+$('jobs').replaceChildren(...Object.entries(L.JOBS).map(([key, job]) => {
+  const card = document.createElement('label');
+  card.className = 'job';
+  const stats = STAT_LABELS.map(([k, label]) =>
+    `<span>${label}</span><span class="bar"><i style="width:${job.params[k]}%"></i></span><b>${job.params[k]}</b>`).join('');
+  card.innerHTML = `<input type="radio" name="job" value="${key}"><span class="jobName"></span>
+    <div class="jobStats">${stats}</div><small></small>`;
+  card.querySelector('.jobName').textContent = job.name;
+  card.querySelector('small').textContent = job.description;
+  card.querySelector('input').checked = key === playerJob;
+  card.querySelector('input').addEventListener('change', () => { playerJob = key; });
+  return card;
+}));
 for(const r of document.querySelectorAll('input[name="mode"]')){
   r.addEventListener('change', () => { ruleMode = r.value; });
 }
 
 function startBattle(){
-  game = L.createGame(Object.assign({}, playerParams), Math.random, ruleMode);
+  game = L.createGame(Object.assign({}, L.JOBS[playerJob].params), Math.random, ruleMode);
+  dragMove = null;
   const me = player();
   camera.zoom = 1;
   camera.angle = 0;
@@ -447,8 +434,24 @@ canvas.addEventListener('mousedown', e => {
     return;
   }
   const target = visibleEnemyAt(w, CLICK_RADIUS / camera.zoom);
-  me.order = target ? {type: 'attack', targetId: target.id} : {type: 'move', x: w.x, y: w.y};
+  if(target){
+    me.order = {type: 'attack', targetId: target.id};
+  }else{
+    me.order = {type: 'move', x: w.x, y: w.y};
+    dragMove = p; // 押している間は移動先を更新し続ける
+  }
 });
+canvas.addEventListener('mousemove', e => { if(dragMove) dragMove = local(e, canvas); });
+window.addEventListener('mouseup', e => { if(e.button === 0) dragMove = null; });
+window.addEventListener('blur', () => { dragMove = null; });
+
+// 長押し中: カーソルの下の地点 (視点を動かしても追従) を移動先にする
+function applyDragMove(){
+  const me = player();
+  if(!dragMove || mode !== 'battle' || !me || me.ships <= 0) return;
+  const w = toWorld(dragMove.x, dragMove.y);
+  me.order = {type: 'move', x: w.x, y: w.y};
+}
 
 canvas.addEventListener('wheel', e => {
   if(mode !== 'battle') return;
@@ -511,7 +514,12 @@ function visibleEnemyAt(w, radius){
 function flagshipKnown(f){
   return f.flagship && (f.team === 'blue' || game.intel.blue[f.id] || f.ships <= 0);
 }
-function displayName(f){ return flagshipKnown(f) ? `${f.name} (旗艦)` : f.name; }
+// 味方の隊長は常に表示 (全滅戦)。大将戦の隊長は旗艦として表示する
+function displayName(f){
+  if(flagshipKnown(f)) return `${f.name} (旗艦)`;
+  if(f.team === 'blue' && f.leader && f.ships > 0) return `${f.name} (隊長)`;
+  return f.name;
+}
 
 // ---------- ログ ----------
 function addLog(text, color){
@@ -552,6 +560,7 @@ function update(dt){
   clampCamera();
   camera.angle += (keys.has('KeyE') - keys.has('KeyQ')) * ROTATE_SPEED * dt;
 
+  applyDragMove();
   L.step(game, dt, Math.random);
   trackEvents();
   if(game.outcome) finish();
@@ -807,14 +816,15 @@ function buildAllyRows(){
     row.className = 'allyRow';
     row.dataset.id = f.id;
     row.innerHTML = '<span class="name"></span><span class="ships"></span>';
-    row.querySelector('.name').textContent = f.name;
+    row.querySelector('.name').textContent = f.name; // 隊長の引き継ぎに合わせて毎フレーム更新する
     return row;
   }));
 }
 function updateSidePanels(me){
   $('mapTitle').textContent = `Map (×${camera.zoom.toFixed(1)})`;
   const alive = me.ships > 0;
-  setText('stName', `${me.name}${me.flagship ? ' (旗艦)' : ''}`);
+  setText('stName', displayName(me));
+  setText('stJob', me.type);
   setText('stRule', `${MODE_NAMES[game.mode]}  ${formatTime(game.time)}`);
   setText('stShips', alive ? `${Math.ceil(me.ships)} / ${L.INITIAL_SHIPS}` : `全滅 / ${L.INITIAL_SHIPS}`);
   setText('stSpeed', String(me.params.speed));
@@ -825,6 +835,8 @@ function updateSidePanels(me){
     const f = fleetById(row.dataset.id);
     const dead = f.ships <= 0;
     row.classList.toggle('dead', dead);
+    const name = displayName(f);
+    if(row.firstChild.textContent !== name) row.firstChild.textContent = name;
     const text = dead ? '全滅' : `${Math.ceil(f.ships)} / ${L.INITIAL_SHIPS}`;
     if(row.lastChild.textContent !== text) row.lastChild.textContent = text;
   }
