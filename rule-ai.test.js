@@ -7,7 +7,7 @@ const R = require('./rule-ai.js');
 function fleet(over){
   return Object.assign({
     id: 'f', team: 'blue', name: 'f', x: 0, y: 0,
-    ships: 50, maxShips: 50, stats: Object.assign({}, L.SHIP_TYPES.cruiser.stats),
+    ships: 50, maxShips: 50, stats: L.fleetStats(3),
     order: null, isPlayer: false, ai: {nextThink: 0},
     heading: 0, flagship: false, shellCooldown: 0, torpedoCooldown: 0, interceptCooldown: 0,
     weapons: {shell: true, torpid: true}
@@ -242,12 +242,13 @@ test('controller: createGame に渡せる形の AI。指定したプロファイ
   assert.equal(g.fleets.find(f => f.isPlayer).ai.nextThink, 0);
 });
 
-test('AI プロファイル (標準): 駆逐艦は撃たれない距離 (どの艦種の砲の射程よりも外) で、敵旗艦が見える距離 (索敵半径の内側) から見張る', () => {
+test('AI プロファイル (標準): 駆逐艦は、戦艦以外の砲の射程より外で、敵旗艦が見える距離 (索敵範囲の内側) から見張る (戦艦の射程 850 は駆逐艦の索敵範囲より長いので避けきれない)', () => {
   const P = R.AI_PROFILES.standard;
-  const maxGun = Math.max(...Object.values(L.SHIP_TYPES).filter(s => s.weapon.kind === 'gun').map(s => s.weapon.range));
+  const g = L.createGame();
+  const maxGun = Math.max(...g.fleets.filter(f => f.role === 'cruiser' || f.role === 'destroyer').map(L.weaponRange));
   assert.ok(P.speederSafeDistance > maxGun);
   assert.ok(P.speederMarkDistance > P.speederSafeDistance);
-  assert.ok(P.speederMarkDistance < L.sensorRange({stats: L.SHIP_TYPES.destroyer.stats}));
+  assert.ok(P.speederMarkDistance < Math.min(L.sensorRange({stats: L.fleetStats(4)}), L.sensorRange({stats: L.fleetStats(5)})));
 });
 
 

@@ -15,7 +15,7 @@ const STAGE_EDGE_RATE = 0.5;    // 端にいる割合がこれ未満の世代が
 const STAGE_STREAK = 5;         // これだけ続き、
 const STAGE_MIN_GENS = 20;      // 同じ広さでこれだけの世代を学んだら次の広さへ
 const EDGE_MARGIN = 250;     // マップの端からこの距離より近ければ「端にいる」
-const TOTAL_SHIPS = L.FORMATION.reduce((sum, role) => sum + L.SHIP_TYPES[role].stats.hp, 0); // チームの最大 HP の合計
+const TOTAL_SHIPS = L.FLEET_STATS.reduce((sum, s) => sum + s.hp, 0); // チームの最大 HP の合計
 
 // 種が近くてもばらつく乱数 (0 以上 1 未満)
 function mulberry32(seed){

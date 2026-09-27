@@ -351,22 +351,31 @@ const STAT_LABELS = [['hp', '耐久'], ['firepower', '火力'], ['armor', '装�
 const RANGE_NAMES = {short: '短', medium: '中', long: '長', veryLong: '超長'};
 const SPEED_NAMES = {slow: '低速', fast: '高速', fastPlus: '高速+'};
 const DAMAGE_NAMES = {none: '', minor: '小破', moderate: '中破', heavy: '大破'};
-const rangeText = ship => ship.weapon.kind === 'bomber' ? `爆撃機 ${ship.weapon.range}` : `${RANGE_NAMES[ship.stats.range]} (${ship.weapon.range})`;
+// 射程の表示。空母は爆撃機の届く距離
+const rangeText = (role, stats) => L.SHIP_TYPES[role].weapon.kind === 'bomber' ? `爆撃機 ${L.weaponRange({role, stats})}` : `${RANGE_NAMES[stats.range]} (${L.RANGES[stats.range]})`;
 const SIZE_NAMES = {large: '大', medium: '中', small: '小'};
-const STAT_MAX = Object.fromEntries(STAT_LABELS.map(([k]) => [k, Math.max(...Object.values(L.SHIP_TYPES).map(s => s.stats[k]))])); // バーの長さの基準 (ステータスごとに、いちばん大きい値で 100%)
+const STAT_MAX = Object.fromEntries(STAT_LABELS.map(([k]) => [k, Math.max(...L.FLEET_STATS.map(s => s[k]))])); // バーの長さの基準 (ステータスごとに、いちばん大きい値で 100%)
 $('jobs').replaceChildren(...Object.entries(L.SHIP_TYPES).map(([key, ship]) => {
   const card = document.createElement('div');
   card.className = 'job';
   card.dataset.type = key;
-  const stats = STAT_LABELS.map(([k, label]) =>
-    `<span>${label}</span><span class="bar"><i style="width:${ship.stats[k] / STAT_MAX[k] * 100}%"></i></span><b>${ship.stats[k]}</b>`).join('');
-  card.innerHTML = `<span class="jobName"></span><div class="jobStats">${stats}</div><small class="spec"></small><small class="desc"></small>`;
-  card.querySelector('.jobName').textContent = ship.name;
-  const w = ship.weapon;
-  card.querySelector('.spec').textContent = `射程 ${rangeText(ship)}・${w.kind === 'bomber' ? '爆撃機' : '砲撃'} ${w.interval} 秒ごと / 速力 ${SPEED_NAMES[ship.stats.speed]} / 大きさ ${SIZE_NAMES[ship.size]}`;
+  card.innerHTML = '<span class="jobName"></span><div class="jobStats"></div><small class="spec"></small><small class="desc"></small>';
   card.querySelector('.desc').textContent = ship.description;
   return card;
 }));
+
+// カードの中身。ステータスは艦隊ごとなので、その艦種の艦隊の番号 (no) の値を出す
+function fillCard(card, no){
+  const role = card.dataset.type;
+  const ship = L.SHIP_TYPES[role];
+  const stats = L.fleetStats(no);
+  card.querySelector('.jobStats').innerHTML = STAT_LABELS.map(([k, label]) =>
+    `<span>${label}</span><span class="bar"><i style="width:${stats[k] / STAT_MAX[k] * 100}%"></i></span><b>${stats[k]}</b>`).join('');
+  const sameRole = L.FORMATION.filter(r => r === role).length > 1;
+  card.querySelector('.jobName').textContent = sameRole ? `${ship.name} (第 ${no} 艦隊)` : ship.name;
+  const w = ship.weapon;
+  card.querySelector('.spec').textContent = `射程 ${rangeText(role, stats)}・${w.kind === 'bomber' ? '爆撃機' : '砲撃'} ${w.interval} 秒ごと / 速力 ${SPEED_NAMES[stats.speed]} / 大きさ ${SIZE_NAMES[ship.size]}`;
+}
 
 // 指揮する艦隊のボタン (番号・艦種)
 $('slots').replaceChildren(...L.FORMATION.map((type, i) => {
@@ -383,7 +392,12 @@ $('slots').replaceChildren(...L.FORMATION.map((type, i) => {
 function renderSetup(){
   const type = L.FORMATION[playerSlot - 1];
   for(const input of document.querySelectorAll('#slots input')) input.checked = Number(input.value) === playerSlot;
-  for(const card of document.querySelectorAll('#jobs .job')) card.classList.toggle('selected', card.dataset.type === type);
+  for(const card of document.querySelectorAll('#jobs .job')){
+    card.classList.toggle('selected', card.dataset.type === type);
+    // 同じ艦種が 2 つある (駆逐艦) ときは、選んだ艦隊の数値を出す。選んでいなければ最初の艦隊
+    const no = card.dataset.type === type ? playerSlot : L.FORMATION.indexOf(card.dataset.type) + 1;
+    fillCard(card, no);
+  }
   $('jobSection').textContent = playerSlot === 1 ? '艦種 (第 1 艦隊は戦艦で、旗艦。倒されたら負け)' : `艦種 (第 ${playerSlot} 艦隊は${L.SHIP_TYPES[type].name}。味方の旗艦 (戦艦) は AI)`;
 }
 renderSetup();
@@ -799,7 +813,7 @@ function draw(){
   if(me && me.ships > 0){
     const p = toScreen(me.x, me.y);
     ctx.strokeStyle = 'rgba(255, 211, 79, 0.3)';
-    ctx.beginPath(); ctx.arc(p.x, p.y, L.SHIP_TYPES[me.role].weapon.range * camera.zoom, 0, Math.PI * 2); ctx.stroke();
+    ctx.beginPath(); ctx.arc(p.x, p.y, L.weaponRange(me) * camera.zoom, 0, Math.PI * 2); ctx.stroke();
   }
 
   drawOrderLine(me);
@@ -1059,13 +1073,12 @@ function buildAllyRows(){
     return row;
   }));
 }
-// STATUS のステータスの表 (艦種で決まるので、自艦隊の艦種が変わったときだけ作り直す)
+// STATUS のステータスの表 (艦隊ごとに決まるので、自艦隊が変わったときだけ作り直す)
 function renderStatTable(me){
-  if($('stStats').dataset.role === me.role) return;
-  $('stStats').dataset.role = me.role;
-  const ship = L.SHIP_TYPES[me.role];
+  if($('stStats').dataset.fleet === me.id) return;
+  $('stStats').dataset.fleet = me.id;
   const rows = [['FIREPOWER', me.stats.firepower], ['ARMOR', me.stats.armor], ['EVASION', me.stats.evasion], ['ANTI-AIR', me.stats.antiAir],
-    ['LOS', me.stats.los], ['RANGE', rangeText(ship)], ['SPEED', SPEED_NAMES[me.stats.speed]]];
+    ['LOS', me.stats.los], ['RANGE', rangeText(me.role, me.stats)], ['SPEED', SPEED_NAMES[me.stats.speed]]];
   $('stStats').replaceChildren(...rows.map(([label, value]) => {
     const row = document.createElement('div');
     row.className = 'kv';

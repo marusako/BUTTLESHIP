@@ -5,12 +5,15 @@
 
   const DEFAULT_WORLD = {w: 10000, h: 20000}; // 原作のミニマップと同じ縦長 (横 1 : 縦 2)。青は下、赤は上に陣取る
   const WORLD = Object.assign({}, DEFAULT_WORLD); // 今のマップの広さ (学習では setWorld で狭くする。ゲームは常に本番の広さ)
-  // ステータスは「艦これ」をもとにした架空の値 (SHIP_TYPES)。耐久 = 最大 HP (艦隊の ships は今の HP)
+  // ステータスは「艦これ」の改装後の艦を参考にした艦隊ごとの値 (FLEET_STATS)。耐久 = 最大 HP (艦隊の ships は今の HP)
   const SENSOR_BASE = 450;       // 索敵範囲 = SENSOR_BASE + 索敵 × SENSOR_PER_LOS
   const SENSOR_PER_LOS = 6;
   const RANGES = {short: 300, medium: 450, long: 650, veryLong: 850}; // 射程 (短・中・長・超長)
   const SPEEDS = {slow: 80, fast: 130, fastPlus: 180};                // 速力 (低速・高速・高速+) の速さ (px/秒)
-  const ATTACK_BONUS = 5;        // 攻撃力 = 火力 + ATTACK_BONUS (艦これの砲撃の基本攻撃力)
+  const ATTACK_BONUS = 5;        // 砲撃の攻撃力 = 火力 + ATTACK_BONUS (艦これの砲撃の基本攻撃力)
+  const BOMB_SCALE = 1.5;        // 空母の爆撃の攻撃力 = 火力 × BOMB_SCALE + BOMB_BONUS (艦これの空母の砲撃の式から、雷装・爆装を除いた形)
+  const BOMB_BONUS = 55;
+  const BOMBER_RANGE = 1100;     // 空母が爆撃機を出す距離
   const ATTACK_CAP = 150;        // 攻撃力の上限。超えた分は √ に縮める
   const ARMOR_BASE = 0.7;        // 防御力 = 装甲 × ARMOR_BASE + (0〜装甲−1 の整数の乱数) × ARMOR_RANDOM
   const ARMOR_RANDOM = 0.6;
@@ -21,7 +24,7 @@
   const HIT_BASE = 0.96;         // 命中率 = HIT_BASE − 回避 × HIT_PER_EVASION
   const HIT_PER_EVASION = 0.005;
   const DAMAGE_STATES = [{maxRatio: 0.25, state: 'heavy', attack: 0.4}, {maxRatio: 0.5, state: 'moderate', attack: 0.7}, {maxRatio: 0.75, state: 'minor', attack: 1}]; // 大破・中破・小破 (残り HP の割合がこれ以下)
-  const AA_DIVISOR = 150;        // 対空射撃で撃ち落とす確率 = 対空 ÷ AA_DIVISOR
+  const AA_DIVISOR = 450;        // 対空射撃で撃ち落とす確率 = 対空 ÷ AA_DIVISOR (対空 59〜108 で 13〜24%)
   const GHOST_CLEAR_RANGE = 150; // 最終確認位置にこの距離まで近づいて敵がいなければ記録を消す
   const ATTACK_STOP_RATIO = 0.8; // 攻撃命令では自分の射程のこの割合まで近づいて止まる
   const AI_THINK_INTERVAL = 1;   // AI が命令を考え直す間隔 (秒)
@@ -54,23 +57,38 @@
   const STEALTH_DURATION = 15;   // 隠しコマンド stealth (透明化) の効果時間 (秒)
   const TEAMS = ['blue', 'red'];
 
-  // 艦種。stats は「艦これ」風のステータス: 耐久 (hp = 最大 HP)・火力・装甲・回避・対空・索敵 (los)・射程 (RANGES のキー。空母は爆撃機なので null)・速力 (SPEEDS のキー)
-  // 武器は艦種ごとに 1 種類 (weapon.kind: 'gun' = 砲撃。射程内のみ必中の追いかけ方の弾 / 'bomber' = 爆撃機を出す)。大きさは当たり判定の半径と見た目に効く
+  // 艦種。速力 (SPEEDS のキー) と武器は艦種で決まる。武器は艦種ごとに 1 種類 (weapon.kind: 'gun' = 砲撃 / 'bomber' = 爆撃機を出す)。
+  // 大きさは当たり判定の半径と見た目に効く。ほかのステータスは艦隊ごと (FLEET_STATS)
   const SHIP_TYPES = {
-    battleship: {name: '戦艦', stats: {hp: 315, firepower: 90, armor: 85, evasion: 30, antiAir: 24, los: 20, range: 'long', speed: 'slow'}, size: 'large', hitRadius: 40,
-      weapon: {kind: 'gun', range: RANGES.long, interval: 3}, description: '旗艦。重装甲・高火力だが遅い。長い射程から重い一撃を撃つ'},
-    carrier: {name: '空母', stats: {hp: 245, firepower: 80, armor: 60, evasion: 40, antiAir: 36, los: 60, range: null, speed: 'fast'}, size: 'large', hitRadius: 40,
-      weapon: {kind: 'bomber', range: 1100, interval: 9}, description: '偵察機で敵を探し、遠くの敵に爆撃機を送る。攻撃を受けると大きな被害が出ることがある'},
-    cruiser: {name: '巡洋艦', stats: {hp: 175, firepower: 80, armor: 50, evasion: 60, antiAir: 24, los: 40, range: 'medium', speed: 'fast'}, size: 'medium', hitRadius: 25,
-      weapon: {kind: 'gun', range: RANGES.medium, interval: 1}, description: '主力。攻守のバランスがよく、連射がきく'},
-    destroyer: {name: '駆逐艦', stats: {hp: 105, firepower: 20, armor: 15, evasion: 80, antiAir: 30, los: 50, range: 'short', speed: 'fastPlus'}, size: 'small', hitRadius: 15,
-      weapon: {kind: 'gun', range: RANGES.short, interval: 0.7}, description: '最速の偵察役。当たりにくいが打たれ弱いので交戦は避ける'}
+    battleship: {name: '戦艦', speed: 'slow', size: 'large', hitRadius: 40, weapon: {kind: 'gun', interval: 3},
+      description: '旗艦。重装甲・高火力で射程も長いが遅い。重い一撃を撃つ'},
+    carrier: {name: '空母', speed: 'fast', size: 'large', hitRadius: 40, weapon: {kind: 'bomber', interval: 9},
+      description: '偵察機で敵を探し、遠くの敵に爆撃機を送る。攻撃を受けると大きな被害が出ることがある'},
+    cruiser: {name: '巡洋艦', speed: 'fast', size: 'medium', hitRadius: 25, weapon: {kind: 'gun', interval: 1},
+      description: '主力。攻守のバランスがよく、連射がきく'},
+    destroyer: {name: '駆逐艦', speed: 'fastPlus', size: 'small', hitRadius: 15, weapon: {kind: 'gun', interval: 0.7},
+      description: '最速の偵察役。当たりにくいが打たれ弱い'}
   };
+
+  // 艦隊ごとのステータス (第 1〜5 艦隊)。艦これの改装後の艦 (Lv99・近代化改修で最大・装備なし) を参考にした:
+  // 第 1 大和改二、第 2 加賀改二、第 3 矢矧改二乙、第 4 時雨改三、第 5 夕立改二。射程は RANGES のキー (空母は表示だけで、爆撃機は BOMBER_RANGE)
+  const FLEET_STATS = [
+    {hp: 98, firepower: 144, armor: 122, evasion: 68, antiAir: 108, los: 59, range: 'veryLong'},
+    {hp: 84, firepower: 56, armor: 80, evasion: 70, antiAir: 84, los: 90, range: 'medium'},
+    {hp: 53, firepower: 81, armor: 74, evasion: 86, antiAir: 89, los: 60, range: 'medium'},
+    {hp: 34, firepower: 67, armor: 57, evasion: 98, antiAir: 87, los: 51, range: 'short'},
+    {hp: 31, firepower: 74, armor: 52, evasion: 89, antiAir: 59, los: 49, range: 'short'}
+  ];
 
   // 連合艦隊の編成 (第 1〜第 5 艦隊の艦種)。第 1 艦隊 (戦艦) が旗艦。敵味方とも同じ
   const FORMATION = ['battleship', 'carrier', 'cruiser', 'destroyer', 'destroyer'];
   const SPAWN_SPACING = 800;      // 出撃位置の間隔 (中央に寄せる。間隔を広げると隣の索敵範囲とすき間ができる)。狭いマップでは幅 ÷ 6 まで詰める
   const SPAWN_ORDER = [4, 3, 1, 2, 5]; // 横一列に (各チームから見て) 左から第 4 (駆逐)・第 3 (巡洋)・第 1 (戦艦・旗艦)・第 2 (空母)・第 5 (駆逐)
+
+  // 第 no 艦隊のステータス (速力は艦種から)。毎回新しいオブジェクトを返す
+  function fleetStats(no){
+    return Object.assign({}, FLEET_STATS[no - 1], {speed: SHIP_TYPES[FORMATION[no - 1]].speed});
+  }
 
   const alive = f => f.ships > 0;
   const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
@@ -100,10 +118,11 @@
     return a > ATTACK_CAP ? ATTACK_CAP + Math.sqrt(a - ATTACK_CAP) : a;
   }
 
-  // 撃つときの攻撃力 (クリティカル前): (火力 + 5) × 損傷の補正 × バフ → 上限
+  // 撃つときの攻撃力 (クリティカル前): 基本の攻撃力 (砲撃は 火力 + 5、空母の爆撃は 火力 × 1.5 + 55) × 損傷の補正 × バフ → 上限
   function attackPower(f){
     const d = DAMAGE_STATES.find(s => hpRatio(f) <= s.maxRatio);
-    return capAttack((f.stats.firepower + ATTACK_BONUS) * (d ? d.attack : 1) * attackBuff(f));
+    const base = weaponOf(f).kind === 'bomber' ? f.stats.firepower * BOMB_SCALE + BOMB_BONUS : f.stats.firepower + ATTACK_BONUS;
+    return capAttack(base * (d ? d.attack : 1) * attackBuff(f));
   }
 
   // 命中率。狙われた艦の回避で決まる
@@ -118,9 +137,14 @@
 
   const weaponOf = f => SHIP_TYPES[f.role].weapon;
 
-  // 狙いを定められる範囲: 索敵範囲と射程の長いほう (空母は味方が見つけた敵なら 1100 まで)
+  // 武器の届く距離: 砲撃は艦隊の射程、空母の爆撃機は BOMBER_RANGE
+  function weaponRange(f){
+    return weaponOf(f).kind === 'bomber' ? BOMBER_RANGE : RANGES[f.stats.range];
+  }
+
+  // 狙いを定められる範囲: 索敵範囲と武器の届く距離の長いほう (空母は味方が見つけた敵なら 1100 まで)
   function lockRange(f){
-    return Math.max(sensorRange(f), weaponOf(f).range);
+    return Math.max(sensorRange(f), weaponRange(f));
   }
 
   // バフ: 空母・巡洋艦は味方の戦艦が、戦艦は味方の空母か巡洋艦が BUFF_RANGE 以内にいると強化される (駆逐艦にはかからない)
@@ -221,7 +245,7 @@
       const info = intel[o.targetId];
       if(!info){ f.order = null; return; }
       dest = info;
-      stopAt = info.visible ? weaponOf(f).range * ATTACK_STOP_RATIO : 0;
+      stopAt = info.visible ? weaponRange(f) * ATTACK_STOP_RATIO : 0;
     }
     // 行き先はマップの内側に収める (外なら最も近い端へ向かう)
     dest = {x: clamp(dest.x, 0, WORLD.w), y: clamp(dest.y, 0, WORLD.h)};
@@ -279,9 +303,9 @@
           x: spawnX(team, no),
           y: team === 'blue' ? WORLD.h - 300 : 300,
           heading: team === 'blue' ? -Math.PI / 2 : Math.PI / 2,
-          ships: ship.stats.hp,    // 今の HP (耐久)
-          maxShips: ship.stats.hp, // 最大 HP
-          stats: Object.assign({}, ship.stats),
+          ships: FLEET_STATS[i].hp,    // 今の HP (耐久)
+          maxShips: FLEET_STATS[i].hp, // 最大 HP
+          stats: fleetStats(no),
           type: ship.name,
           hitRadius: ship.hitRadius,
           order: null,
@@ -328,14 +352,15 @@
       const t = lockTarget(f, vis[f.team]);
       if(!t) continue;
       const w = weaponOf(f);
-      const firing = dist(f, t) <= w.range;
+      const range = weaponRange(f);
+      const firing = dist(f, t) <= range;
       g.locks.push({from: f.id, to: t.id, team: f.team, firing});
       if(!firing || !f.weapons.fire || f.cooldown > EPS) continue;
       const base = {id: g.nextProjectileId++, team: f.team, from: f.id, targetId: t.id, x: f.x, y: f.y, heading: Math.atan2(t.y - f.y, t.x - f.x)};
       if(w.kind === 'bomber'){
         g.aircraft.push(Object.assign({kind: 'bomber', life: BOMBER_LIFE, power: attackPower(f)}, base));
       }else{
-        g.projectiles.push(Object.assign({kind: 'shot', range: w.range, homing: true, life: SHOT_LIFE, power: attackPower(f)}, base));
+        g.projectiles.push(Object.assign({kind: 'shot', range, homing: true, life: SHOT_LIFE, power: attackPower(f)}, base));
       }
       f.cooldown = w.interval;
       record(g, {type: 'fire', kind: w.kind, size: SHIP_TYPES[f.role].size, team: f.team, from: f.id, x: f.x, y: f.y});
@@ -571,7 +596,7 @@
   }
 
   const api = {
-    WORLD, DEFAULT_WORLD, setWorld, BEACON_INTERVAL, BEACON_DURATION, beaconActive, RANGES, SPEEDS, sensorRange, hpRatio, damageState, capAttack, attackPower, hitChance, antiAirChance, resolveHit, GHOST_CLEAR_RANGE,
+    WORLD, DEFAULT_WORLD, setWorld, BEACON_INTERVAL, BEACON_DURATION, beaconActive, RANGES, SPEEDS, FLEET_STATS, fleetStats, weaponRange, AA_DIVISOR, sensorRange, hpRatio, damageState, capAttack, attackPower, hitChance, antiAirChance, resolveHit, GHOST_CLEAR_RANGE,
     STEALTH_DURATION, SHOT_LIFE, BOMBER_LIFE, BOMBER_TURN_RATE, RECON_SPEED, RECON_LIFE, RECON_SENSOR, AA_RANGE,
     BUFF_RANGE, isBuffed, updateBuffs, SHIP_TYPES, FORMATION, AI_THINK_INTERVAL, maxSpeed, lockRange, visibleEnemies, updateIntel,
     lockTarget, moveFleet, checkOutcome, createGame, step,
