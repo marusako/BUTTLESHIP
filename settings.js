@@ -94,8 +94,9 @@
     return code;
   }
 
-  function fleetName(settings){
-    return settings.name || DEFAULT_NAME;
+  // 画面に出す自艦隊の名前。空なら「味方第N艦隊」(no: 選んだ艦隊の番号。省略時は 1)
+  function fleetName(settings, no){
+    return settings.name || (no ? `味方第${no}艦隊` : DEFAULT_NAME);
   }
 
   const api = {STORAGE_KEY, NAME_MAX, DEFAULT_NAME, ACTIONS, CREDITS, isReservedKey, defaults, assignKey, normalize, load, save, keyLabel, fleetName};

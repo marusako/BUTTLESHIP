@@ -113,9 +113,10 @@ test('操作の一覧: 設定画面に出す順番と名前', () => {
   assert.ok(S.ACTIONS.every(a => a.label));
 });
 
-test('自艦隊の名前: 空なら「味方第1艦隊」', () => {
+test('自艦隊の名前: 空なら「味方第N艦隊」(N は選んだ番号。省略時は 1)', () => {
   assert.equal(S.fleetName(S.defaults()), '味方第1艦隊');
-  assert.equal(S.fleetName(Object.assign(S.defaults(), {name: 'ヤマト'})), 'ヤマト');
+  assert.equal(S.fleetName(S.defaults(), 4), '味方第4艦隊');
+  assert.equal(S.fleetName(Object.assign(S.defaults(), {name: 'ヤマト'}), 4), 'ヤマト');
 });
 
 test('クレジット: 原作 → 製作者 → 開発支援 の順', () => {

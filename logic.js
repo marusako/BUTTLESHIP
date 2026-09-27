@@ -3,13 +3,13 @@
 (function(root){
   'use strict';
 
-  const WORLD = {w: 2400, h: 4800}; // 原作のミニマップと同じ縦長 (横 1 : 縦 2)。青は下、赤は上に陣取る
+  const WORLD = {w: 4800, h: 9600}; // 原作のミニマップと同じ縦長 (横 1 : 縦 2)。青は下、赤は上に陣取る
   const INITIAL_SHIPS = 15000;   // 原作の画面に合わせた初期艦艇数
   const PARAM_TOTAL = 100;
   const PARAM_MIN = 10;
-  const SENSOR_RANGE = 450;      // 索敵半径
+  const SENSOR_RANGE = 750;      // 索敵半径
   const LOCK_RANGE = SENSOR_RANGE;   // 狙いを定める範囲 (射程) = 索敵半径
-  const FIRE_RANGE = LOCK_RANGE / 2; // 実際に撃てる範囲 = 射程の半分
+  const FIRE_RANGE = 500;        // 実際に撃てる範囲
   const GHOST_CLEAR_RANGE = 150; // 最終確認位置にこの距離まで近づいて敵がいなければ記録を消す
   const ATTACK_STOP_RATIO = 0.8; // 攻撃命令では撃てる範囲のこの割合まで近づいて止まる
   const ATTACK_COEF = 0.002;     // 通常弾の、1 隻・火力 1 あたりの毎秒ダメージ (艦艇数)
@@ -52,21 +52,21 @@
     {role: 'attacker', job: 'attacker'},
     {role: 'speeder', job: 'speeder'}
   ];
-  const SPAWN_XS = [400, 800, 1200, 1600, 2000];
+  const SPAWN_XS = [800, 1600, 2400, 3200, 4000];
   const SPAWN_ORDER = [3, 2, 1, 4, 5]; // 横一列に (各チームから見て) 左から第 3・第 2・第 1 (旗艦)・第 4・第 5 艦隊
 
   // AI プロファイル: 役割別 AI の判断に使うつまみ。第 2.7 段階 (AI 学習) でこの値を調整する
   const AI_PROFILES = {
     standard: {
-      localRadius: 700,          // 局地的な戦力比を数える半径
+      localRadius: 1200,         // 局地的な戦力比を数える半径
       flagshipRetreatRatio: 1.5, // 旗艦はこの戦力比を超えたら味方の中心へ下がる
-      tankDistance: 150,         // 副艦が旗艦から離れる距離
-      tankDefendRadius: 500,     // 副艦は旗艦からこの距離以内の敵を迎え撃つ
-      attackerDistance: 500,     // アタッカーが普段保つ旗艦との距離 (左右)
-      attackerLeash: 900,        // アタッカーは旗艦からこの距離以内の敵を攻撃する
+      tankDistance: 250,         // 副艦が旗艦から離れる距離
+      tankDefendRadius: 800,     // 副艦は旗艦からこの距離以内の敵を迎え撃つ
+      attackerDistance: 800,     // アタッカーが普段保つ旗艦との距離 (左右)
+      attackerLeash: 1500,       // アタッカーは旗艦からこの距離以内の敵を攻撃する
       attackerRetreatRatio: 1.3, // アタッカーはこの戦力比を超えたら旗艦のもとへ下がる
-      speederMarkDistance: 420,  // スピーダーが敵旗艦を見張る距離 (索敵半径 450 より内側)
-      speederSafeDistance: 350   // スピーダーはこれより近い敵から離れる (撃てる範囲 225 より外)
+      speederMarkDistance: 700,  // スピーダーが敵旗艦を見張る距離 (索敵半径 750 より内側)
+      speederSafeDistance: 600   // スピーダーはこれより近い敵から離れる (撃てる範囲 500 より外)
     }
   };
   // アタッカーの隊列位置の方向 (旗艦から見て [前方, 右方向] の単位ベクトル)。左・右 (副艦の前と合わせて旗艦を囲む)。
@@ -337,18 +337,22 @@
 
   const sameParams = (a, b) => a.speed === b.speed && a.defense === b.defense && a.attack === b.attack;
 
-  // ゲームを作る。ルールはモダン (旗艦を倒したら勝ち)。編成は FORMATION で固定、プレイヤーは青の旗艦で好きなジョブを選べる。
+  // ゲームを作る。ルールはモダン (旗艦を倒したら勝ち)。編成は FORMATION で固定。
+  // options.playerSlot: プレイヤーが指揮する青の艦隊の番号 (1〜5。省略・おかしな値なら 1)。
+  //   1 (旗艦) なら playerParams (好きなジョブ) を使い、2〜5 ならその番号のジョブに固定 (味方の旗艦は AI のバランサー)
   // options.profiles: チームごとの AI プロファイル ({blue, red}。省略時は標準)
-  // options.playerName: 自艦隊の名前 (省略・空なら「味方第1艦隊」)
+  // options.playerName: 自艦隊の名前 (省略・空なら「味方第N艦隊」)
   function createGame(playerParams, options){
     const opts = options || {};
     const profiles = Object.assign({blue: AI_PROFILES.standard, red: AI_PROFILES.standard}, opts.profiles);
+    const playerSlot = Number.isInteger(opts.playerSlot) && opts.playerSlot >= 1 && opts.playerSlot <= FORMATION.length ? opts.playerSlot : 1;
     const fleets = [];
     for(const team of TEAMS){
       FORMATION.forEach((slot, i) => {
         const no = i + 1;
-        const isPlayer = team === 'blue' && no === 1;
+        const isPlayer = team === 'blue' && no === playerSlot;
         const job = JOBS[slot.job];
+        const chooses = isPlayer && no === 1; // ジョブを選べるのは旗艦だけ
         const playerJob = JOB_LIST.find(j => sameParams(j.params, playerParams));
         fleets.push({
           id: `${team}${no}`,
@@ -360,8 +364,8 @@
           y: team === 'blue' ? WORLD.h - 300 : 300,
           heading: team === 'blue' ? -Math.PI / 2 : Math.PI / 2,
           ships: INITIAL_SHIPS,
-          params: Object.assign({}, isPlayer ? playerParams : job.params),
-          type: isPlayer ? (playerJob ? playerJob.name : 'カスタム') : job.name,
+          params: Object.assign({}, chooses ? playerParams : job.params),
+          type: chooses ? (playerJob ? playerJob.name : 'カスタム') : job.name,
           order: null,
           isPlayer,
           flagship: slot.role === 'flagship',

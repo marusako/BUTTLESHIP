@@ -199,8 +199,8 @@ test('AI (旗艦): 手がかりがなければ敵陣の方向 (青は上・赤�
   }
 });
 
-test('マップ: 原作のミニマップと同じ縦長 (横 1 : 縦 2) の 2400 × 4800', () => {
-  assert.deepEqual(L.WORLD, {w: 2400, h: 4800});
+test('マップ: 原作のミニマップと同じ縦長 (横 1 : 縦 2) の 4800 × 9600', () => {
+  assert.deepEqual(L.WORLD, {w: 4800, h: 9600});
 });
 
 test('ゲーム作成: 青は下の端、赤は上の端から、横に並んで出撃する', () => {
@@ -411,7 +411,7 @@ test('AI (旗艦): すでに敵陣側にいて手がかりがなければ、マ�
   const o = L.aiDecide(blue, [blue], {}, seq(0.5, 0.9));
   assert.equal(o.type, 'move');
   assert.ok(o.y > L.WORLD.h / 2, '自陣側に戻ることもある y=' + o.y);
-  const red = fleet({id: 'r', team: 'red', x: 1200, y: 4300, role: 'flagship'}); // 赤にとって敵陣側 (下半分)
+  const red = fleet({id: 'r', team: 'red', x: 1200, y: L.WORLD.h - 500, role: 'flagship'}); // 赤にとって敵陣側 (下半分)
   const or = L.aiDecide(red, [red], {}, seq(0.5, 0.1));
   assert.ok(or.y < L.WORLD.h / 2, 'y=' + or.y);
 });
@@ -472,8 +472,8 @@ test('編成: 第 1 旗艦 (バランサー)・第 2 副艦 (タンク)・第 3 
 test('出撃位置: 各チームから見て左から第 3・第 2・第 1・第 4・第 5 (旗艦が真ん中。赤は南向きなので東から)', () => {
   const g = L.createGame(JOB.balancer.params);
   const xs = team => [3, 2, 1, 4, 5].map(n => g.fleets.find(f => f.id === team + n).x);
-  assert.deepEqual(xs('blue'), [400, 800, 1200, 1600, 2000]);
-  assert.deepEqual(xs('red'), [2000, 1600, 1200, 800, 400]);
+  assert.deepEqual(xs('blue'), [800, 1600, 2400, 3200, 4000]);
+  assert.deepEqual(xs('red'), [4000, 3200, 2400, 1600, 800]);
 });
 
 test('出撃位置: アタッカーは自分の隊列位置 (旗艦の左右) と同じ側から出撃する', () => {
@@ -574,8 +574,8 @@ test('AI (アタッカー): 旗艦から attackerLeash より遠い敵は追わ�
   assert.equal(Math.round(o2.y), 3000);
 });
 
-test('AI (アタッカー): 攻撃対象がいなければ、旗艦から attackerDistance (標準 500) の左右につく', () => {
-  assert.equal(P.attackerDistance, 500);
+test('AI (アタッカー): 攻撃対象がいなければ、旗艦から attackerDistance (標準 800) の左右につく', () => {
+  assert.equal(P.attackerDistance, 800);
   const flag = fleet({id: 'f', x: 1200, y: 3000, role: 'flagship', flagship: true, heading: -Math.PI / 2});
   const a1 = fleet({id: 'a1', x: 1200, y: 3500, role: 'attacker'});
   const a2 = fleet({id: 'a2', x: 1200, y: 3500, role: 'attacker'});
@@ -589,11 +589,11 @@ test('AI (アタッカー): 攻撃対象がいなければ、旗艦から attack
 });
 
 test('AI (アタッカー): 周りの戦力比が不利なら、旗艦のもとへ下がって合流する', () => {
-  const flag = fleet({id: 'f', x: 1200, y: 4000, role: 'flagship', flagship: true});
+  const flag = fleet({id: 'f', x: 1200, y: 4800, role: 'flagship', flagship: true}); // 自分から localRadius の外
   const me = fleet({id: 'a', x: 1200, y: 3200, role: 'attacker', ships: 4000});
   const e = fleet({id: 'e', team: 'red', x: 1200, y: 2900, ships: 15000});
   const intel = {e: {x: 1200, y: 2900, visible: true}};
-  assert.deepEqual(L.aiDecide(me, [flag, me, e], intel, seq(0.5), P), {type: 'move', x: 1200, y: 4000});
+  assert.deepEqual(L.aiDecide(me, [flag, me, e], intel, seq(0.5), P), {type: 'move', x: 1200, y: 4800});
 });
 
 test('AI (スピーダー): 見えている敵が speederSafeDistance より近ければ、まず離れる (戦わない > 見張る)', () => {
@@ -647,9 +647,10 @@ function projectile(over){
   return Object.assign({id: 1, kind: 'shell', team: 'blue', from: 'b', targetId: 'r', x: 0, y: 0, heading: 0, life: 99, power: 1}, over);
 }
 
-test('範囲: 狙いを定める範囲は索敵半径と同じ、撃てる範囲はその半分', () => {
+test('範囲: 索敵半径 750、狙いを定める範囲は索敵半径と同じ、撃てる範囲 500', () => {
+  assert.equal(L.SENSOR_RANGE, 750);
   assert.equal(L.LOCK_RANGE, L.SENSOR_RANGE);
-  assert.equal(L.FIRE_RANGE, L.LOCK_RANGE / 2);
+  assert.equal(L.FIRE_RANGE, 500);
 });
 
 test('発射: 狙える範囲にいても、撃てる範囲の外なら撃たない (狙いの線だけ出る)', () => {
@@ -880,4 +881,72 @@ test('戦績: 戦闘時間・残存艦隊数・残存戦力 (艦艇の合計) �
   assert.deepEqual(s.fleets, {blue: 2, red: 1});
   assert.ok(Math.abs(s.ships.blue - 12300.4) < 1e-9);
   assert.equal(s.ships.red, 5000);
+});
+
+// ---------- 第 2.5 段階 (2.5b) ----------
+
+test('自機の選択: 省略時は第 1 艦隊 (旗艦) で、指定したジョブを使う', () => {
+  const g = L.createGame(JOB.speeder.params);
+  const me = g.fleets.find(f => f.isPlayer);
+  assert.equal(me.id, 'blue1');
+  assert.equal(me.flagship, true);
+  assert.equal(me.type, 'スピーダー');
+});
+
+test('自機の選択: 第 2〜5 艦隊を選ぶとジョブはその番号のものに固定、味方の旗艦は AI のバランサー', () => {
+  const expected = {2: ['タンク', JOB.tank.params], 3: ['アタッカー', JOB.attacker.params], 4: ['アタッカー', JOB.attacker.params], 5: ['スピーダー', JOB.speeder.params]};
+  for(const no of [2, 3, 4, 5]){
+    const g = L.createGame(JOB.speeder.params, {playerSlot: no}); // 指定したジョブは使われない
+    const players = g.fleets.filter(f => f.isPlayer);
+    assert.deepEqual(players.map(f => f.id), ['blue' + no]);
+    assert.equal(players[0].type, expected[no][0]);
+    assert.deepEqual(players[0].params, expected[no][1]);
+    assert.equal(players[0].flagship, false);
+    const flag = g.fleets.find(f => f.id === 'blue1');
+    assert.equal(flag.isPlayer, false);
+    assert.equal(flag.flagship, true);
+    assert.equal(flag.type, 'バランサー');
+    assert.deepEqual(flag.params, JOB.balancer.params);
+  }
+});
+
+test('自機の選択: 出撃位置と役割は番号どおり。名前の既定値は選んだ番号に合わせる', () => {
+  const base = L.createGame(JOB.balancer.params);
+  const g = L.createGame(JOB.balancer.params, {playerSlot: 3});
+  const me = g.fleets.find(f => f.isPlayer);
+  const same = base.fleets.find(f => f.id === 'blue3');
+  assert.deepEqual([me.x, me.y, me.role], [same.x, same.y, same.role]);
+  assert.equal(me.name, '味方第3艦隊');
+  assert.equal(L.createGame(JOB.balancer.params, {playerSlot: 3, playerName: 'ヤマト'}).fleets.find(f => f.isPlayer).name, 'ヤマト');
+  assert.equal(g.fleets.find(f => f.id === 'blue1').name, '味方第1艦隊');
+});
+
+test('自機の選択: おかしな番号なら第 1 艦隊', () => {
+  for(const no of [0, 6, 2.5, '3', null]){
+    assert.equal(L.createGame(JOB.balancer.params, {playerSlot: no}).fleets.find(f => f.isPlayer).id, 'blue1', String(no));
+  }
+});
+
+test('観戦: 旗艦以外の自機が全滅しても、味方の旗艦が残っていれば試合は続く', () => {
+  const g = L.createGame(JOB.balancer.params, {playerSlot: 5});
+  g.fleets.find(f => f.isPlayer).ships = 0;
+  L.step(g, 1 / 60, seq(0.5));
+  assert.equal(g.outcome, null);
+  g.fleets.find(f => f.id === 'blue1').ships = 0;
+  L.step(g, 1 / 60, seq(0.5));
+  assert.equal(g.outcome, 'lose');
+});
+
+test('AI (旗艦以外を選んだとき): 味方の AI 旗艦は自分で判断して動く', () => {
+  const g = L.createGame(JOB.balancer.params, {playerSlot: 2});
+  L.step(g, 1 / 60, seq(0.5));
+  assert.ok(g.fleets.find(f => f.id === 'blue1').order, '旗艦に命令が入る');
+  assert.equal(g.fleets.find(f => f.isPlayer).order, null, '自機には AI の命令が入らない');
+});
+
+test('AI プロファイル (標準): スピーダーは撃たれない距離 (撃てる範囲の外) で、敵旗艦が見える距離 (索敵半径の内側) から見張る', () => {
+  const P = L.AI_PROFILES.standard;
+  assert.ok(P.speederSafeDistance > L.FIRE_RANGE);
+  assert.ok(P.speederMarkDistance > P.speederSafeDistance);
+  assert.ok(P.speederMarkDistance < L.SENSOR_RANGE);
 });
