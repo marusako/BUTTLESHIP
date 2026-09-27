@@ -4,7 +4,7 @@
 (function(root){
   'use strict';
   const L = typeof module !== 'undefined' && module.exports ? require('./logic.js') : root.SagittariusLogic;
-  const {WORLD, INITIAL_SHIPS} = L;
+  const {WORLD, hpRatio} = L;
   const FLAGSHIP_PRIORITY = 20;  // AI が敵旗艦を狙うときにスコアから引く値
 
   // AI プロファイル: 役割別 AI の判断に使うつまみ。値はルール AI の強さを決める
@@ -37,7 +37,7 @@
     for(const [id, info] of Object.entries(intel)){
       const e = byId.get(id);
       if(!info.visible || !e || !alive(e) || (accept && !accept(info))) continue;
-      const score = dist(from, info) / 100 + e.ships / INITIAL_SHIPS * 6 - (e.flagship ? FLAGSHIP_PRIORITY : 0);
+      const score = dist(from, info) / 100 + hpRatio(e) * 6 - (e.flagship ? FLAGSHIP_PRIORITY : 0);
       if(score < bestScore){ best = id; bestScore = score; }
     }
     return best;

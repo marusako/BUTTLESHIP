@@ -3,11 +3,11 @@ const assert = require('node:assert/strict');
 const L = require('./logic.js');
 const R = require('./rule-ai.js');
 
-// テスト用の艦隊を作る
+// テスト用の艦隊を作る (最大 HP 50。「N / 300」は艦艇数 15000 の時代の値を HP 50 の基準に直したもの)
 function fleet(over){
   return Object.assign({
     id: 'f', team: 'blue', name: 'f', x: 0, y: 0,
-    ships: L.INITIAL_SHIPS, params: {speed: 34, defense: 33, attack: 33},
+    ships: 50, maxShips: 50, stats: Object.assign({}, L.SHIP_TYPES.cruiser.stats),
     order: null, isPlayer: false, ai: {nextThink: 0},
     heading: 0, flagship: false, shellCooldown: 0, torpedoCooldown: 0, interceptCooldown: 0,
     weapons: {shell: true, torpid: true}
@@ -31,9 +31,9 @@ test('AI (戦艦・旗艦): 索敵中は目的地に着くまで目的地を変�
 
 test('AI (戦艦・旗艦): 見えている敵がいれば近くて弱い敵を狙う', () => {
   const me = fleet({id: 'me', x: 0, y: 0, role: 'battleship'});
-  const strongNear = fleet({id: 'strong', team: 'red', x: 400, y: 0, ships: L.INITIAL_SHIPS});
-  const weakNear = fleet({id: 'weak', team: 'red', x: 450, y: 0, ships: L.INITIAL_SHIPS / 6});
-  const weakFar = fleet({id: 'far', team: 'red', x: 3000, y: 0, ships: L.INITIAL_SHIPS * 0.13});
+  const strongNear = fleet({id: 'strong', team: 'red', x: 400, y: 0, ships: 50});
+  const weakNear = fleet({id: 'weak', team: 'red', x: 450, y: 0, ships: 50 / 6});
+  const weakFar = fleet({id: 'far', team: 'red', x: 3000, y: 0, ships: 50 * 0.13});
   const fleets = [me, strongNear, weakNear, weakFar];
   const intel = {};
   L.updateIntel(intel, fleets, 'blue');
@@ -63,7 +63,7 @@ test('AI (戦艦・旗艦): 手がかりがなければ敵陣の方向 (青は�
 
 test('AI (戦艦・旗艦): 見えている敵旗艦を、近くて弱い敵より優先して狙う', () => {
   const me = fleet({id: 'me', x: 0, y: 0, role: 'battleship'});
-  const weakNear = fleet({id: 'weak', team: 'red', x: 300, y: 0, ships: L.INITIAL_SHIPS / 6});
+  const weakNear = fleet({id: 'weak', team: 'red', x: 300, y: 0, ships: 50 / 6});
   const flag = fleet({id: 'flag', team: 'red', x: 900, y: 0, flagship: true});
   const intel = {weak: {x: 300, y: 0, visible: true}, flag: {x: 900, y: 0, visible: true}};
   assert.deepEqual(R.aiDecide(me, [me, weakNear, flag], intel, seq(0.5)), {type: 'attack', targetId: 'flag'});
@@ -81,8 +81,8 @@ test('AI (戦艦・旗艦): 最終確認位置や敵陣へ攻撃に向かう', (
 
 test('AI: 弱さは艦艇数の割合で評価する (初期艦艇数を変えても判断が変わらない)', () => {
   const me = fleet({id: 'me', x: 0, y: 0, role: 'battleship'});
-  const fullNear = fleet({id: 'full', team: 'red', x: 400, y: 0, ships: L.INITIAL_SHIPS});
-  const halfFar = fleet({id: 'half', team: 'red', x: 1500, y: 0, ships: L.INITIAL_SHIPS / 2});
+  const fullNear = fleet({id: 'full', team: 'red', x: 400, y: 0, ships: 50});
+  const halfFar = fleet({id: 'half', team: 'red', x: 1500, y: 0, ships: 50 / 2});
   const intel = {full: {x: 400, y: 0, visible: true}, half: {x: 1500, y: 0, visible: true}};
   // 距離 4 + 割合 1×6 = 10 < 距離 15 + 割合 0.5×6 = 18
   assert.deepEqual(R.aiDecide(me, [me, fullNear, halfFar], intel, seq(0.5)), {type: 'attack', targetId: 'full'});
@@ -110,21 +110,21 @@ test('出撃位置: 巡洋艦は自分の隊列位置 (旗艦の左) と同じ�
 });
 
 test('局地的な戦力比: 半径内の見えている敵の艦艇数 ÷ 味方の艦艇数', () => {
-  const me = fleet({id: 'me', x: 0, y: 0, ships: 6000});
-  const ally = fleet({id: 'a', x: 300, y: 0, ships: 4000});
-  const farAlly = fleet({id: 'fa', x: 2000, y: 0, ships: 9000});
-  const e1 = fleet({id: 'e1', team: 'red', x: 400, y: 0, ships: 12000});
-  const e2 = fleet({id: 'e2', team: 'red', x: 500, y: 0, ships: 3000}); // 見えていない
+  const me = fleet({id: 'me', x: 0, y: 0, ships: 6000 / 300});
+  const ally = fleet({id: 'a', x: 300, y: 0, ships: 4000 / 300});
+  const farAlly = fleet({id: 'fa', x: 2000, y: 0, ships: 9000 / 300});
+  const e1 = fleet({id: 'e1', team: 'red', x: 400, y: 0, ships: 12000 / 300});
+  const e2 = fleet({id: 'e2', team: 'red', x: 500, y: 0, ships: 3000 / 300}); // 見えていない
   const intel = {e1: {x: 400, y: 0, visible: true}, e2: {x: 500, y: 0, visible: false}};
   assert.equal(R.localForceRatio(me, 'blue', [me, ally, farAlly, e1, e2], intel, 700), 12000 / 10000);
   assert.equal(R.localForceRatio(me, 'blue', [me], {}, 700), 0);
 });
 
 test('AI (戦艦・旗艦): 周りの戦力比が不利なら、味方の中心へ下がる', () => {
-  const me = fleet({id: 'me', x: 1200, y: 2400, role: 'battleship', flagship: true, ships: 5000});
+  const me = fleet({id: 'me', x: 1200, y: 2400, role: 'battleship', flagship: true, ships: 5000 / 300});
   const a = fleet({id: 'a', x: 1000, y: 4000, role: 'cruiser'});
   const b = fleet({id: 'b', x: 1400, y: 4000, role: 'cruiser'});
-  const e = fleet({id: 'e', team: 'red', x: 1200, y: 2100, ships: 15000});
+  const e = fleet({id: 'e', team: 'red', x: 1200, y: 2100, ships: 15000 / 300});
   const intel = {e: {x: 1200, y: 2100, visible: true}};
   assert.ok(R.localForceRatio(me, 'blue', [me, a, b, e], intel, P.localRadius) > P.flagshipRetreatRatio);
   assert.deepEqual(R.aiDecide(me, [me, a, b, e], intel, seq(0.5), P), {type: 'move', x: 1200, y: 4000});
@@ -132,7 +132,7 @@ test('AI (戦艦・旗艦): 周りの戦力比が不利なら、味方の中心�
 
 test('AI (戦艦・旗艦): 不利でなければ進軍して攻撃する', () => {
   const me = fleet({id: 'me', x: 1200, y: 2400, role: 'battleship', flagship: true});
-  const e = fleet({id: 'e', team: 'red', x: 1200, y: 2100, ships: 8000});
+  const e = fleet({id: 'e', team: 'red', x: 1200, y: 2100, ships: 8000 / 300});
   const intel = {e: {x: 1200, y: 2100, visible: true}};
   assert.deepEqual(R.aiDecide(me, [me, e], intel, seq(0.5), P), {type: 'attack', targetId: 'e'});
 });
@@ -148,7 +148,7 @@ test('AI (戦艦・旗艦): 見失った敵は、近い敵より敵旗艦の最�
 test('AI (巡洋艦): 旗艦から attackerLeash 以内の敵を積極的に攻撃する (自分から遠くても)', () => {
   const flag = fleet({id: 'f', x: 1200, y: 3000, role: 'battleship', flagship: true});
   const me = fleet({id: 'a', x: 1200, y: 3200, role: 'cruiser'});
-  const e = fleet({id: 'e', team: 'red', x: 1200, y: 3000 - P.attackerLeash + 20, ships: 5000});
+  const e = fleet({id: 'e', team: 'red', x: 1200, y: 3000 - P.attackerLeash + 20, ships: 5000 / 300});
   const intel = {e: {x: e.x, y: e.y, visible: true}};
   assert.deepEqual(R.aiDecide(me, [flag, me, e], intel, seq(0.5), P), {type: 'attack', targetId: 'e'});
 });
@@ -184,8 +184,8 @@ test('AI (巡洋艦): 攻撃対象がいなければ、旗艦から attackerDist
 
 test('AI (巡洋艦): 周りの戦力比が不利なら、旗艦のもとへ下がって合流する', () => {
   const flag = fleet({id: 'f', x: 1200, y: 4800, role: 'battleship', flagship: true}); // 自分から localRadius の外
-  const me = fleet({id: 'a', x: 1200, y: 3200, role: 'cruiser', ships: 4000});
-  const e = fleet({id: 'e', team: 'red', x: 1200, y: 2900, ships: 15000});
+  const me = fleet({id: 'a', x: 1200, y: 3200, role: 'cruiser', ships: 4000 / 300});
+  const e = fleet({id: 'e', team: 'red', x: 1200, y: 2900, ships: 15000 / 300});
   const intel = {e: {x: 1200, y: 2900, visible: true}};
   assert.deepEqual(R.aiDecide(me, [flag, me, e], intel, seq(0.5), P), {type: 'move', x: 1200, y: 4800});
 });
@@ -220,7 +220,7 @@ test('AI (駆逐艦): 敵旗艦の位置が分からなければ、敵陣側へ�
 test('AI プロファイル: つまみを変えると判断が変わる (学習で調整できる)', () => {
   const flag = fleet({id: 'f', x: 1200, y: 3000, role: 'battleship', flagship: true, heading: -Math.PI / 2});
   const me = fleet({id: 'a', x: 1200, y: 3200, role: 'cruiser'});
-  const e = fleet({id: 'e', team: 'red', x: 1200, y: 3000 - P.attackerLeash - 50, ships: 5000});
+  const e = fleet({id: 'e', team: 'red', x: 1200, y: 3000 - P.attackerLeash - 50, ships: 5000 / 300});
   const intel = {e: {x: e.x, y: e.y, visible: true}};
   assert.equal(R.aiDecide(me, [flag, me, e], intel, seq(0.5), P).type, 'move');
   const wide = Object.assign({}, P, {attackerLeash: P.attackerLeash + 200});
@@ -230,7 +230,7 @@ test('AI プロファイル: つまみを変えると判断が変わる (学習�
 test('controller: createGame に渡せる形の AI。指定したプロファイルで判断し、省略すると標準', () => {
   const flag = fleet({id: 'f', x: 1200, y: 3000, role: 'battleship', flagship: true});
   const me = fleet({id: 'a', x: 1200, y: 3000, role: 'cruiser'});
-  const e = fleet({id: 'e', team: 'red', x: 1200, y: 3000 - P.attackerLeash - 50, ships: 5000});
+  const e = fleet({id: 'e', team: 'red', x: 1200, y: 3000 - P.attackerLeash - 50, ships: 5000 / 300});
   const intel = {e: {x: e.x, y: e.y, visible: true}};
   const wide = Object.assign({}, P, {attackerLeash: P.attackerLeash + 200});
   assert.deepEqual(R.controller(wide)(me, [flag, me, e], intel, seq(0.5)), R.aiDecide(me, [flag, me, e], intel, seq(0.5), wide));
@@ -247,7 +247,7 @@ test('AI プロファイル (標準): 駆逐艦は撃たれない距離 (どの�
   const maxGun = Math.max(...Object.values(L.SHIP_TYPES).filter(s => s.weapon.kind === 'gun').map(s => s.weapon.range));
   assert.ok(P.speederSafeDistance > maxGun);
   assert.ok(P.speederMarkDistance > P.speederSafeDistance);
-  assert.ok(P.speederMarkDistance < L.SENSOR_RANGE);
+  assert.ok(P.speederMarkDistance < L.sensorRange({stats: L.SHIP_TYPES.destroyer.stats}));
 });
 
 

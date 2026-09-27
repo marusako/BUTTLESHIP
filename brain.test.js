@@ -3,11 +3,11 @@ const assert = require('node:assert/strict');
 const L = require('./logic.js');
 const B = require('./brain.js');
 
-// テスト用の艦隊を作る
+// テスト用の艦隊を作る (最大 HP 50。「N / 300」は艦艇数 15000 の時代の値を HP 50 の基準に直したもの)
 function fleet(over){
   return Object.assign({
     id: 'f', team: 'blue', name: 'f', role: 'cruiser', x: 5000, y: 10000, hitRadius: 25,
-    ships: L.INITIAL_SHIPS, params: {speed: 25, defense: 25, attack: 50},
+    ships: 50, maxShips: 50, stats: Object.assign({}, L.SHIP_TYPES.cruiser.stats),
     order: null, isPlayer: false, ai: {nextThink: 0}, heading: 0, flagship: false,
     cooldown: 0, aaCooldown: 0, stealth: 0, weapons: {fire: true}
   }, over);
@@ -80,9 +80,9 @@ test('入力 (霧を守る): 見えていない敵の本当の位置は入力に
 
 test('入力 (鏡写し): 赤から見た入力は、盤面を鏡写しにした青から見た入力と同じ', () => {
   const me = fleet({id: 'me', x: 3000, y: 12000, cooldown: 0.4});
-  const flag = fleet({id: 'flag', role: 'battleship', flagship: true, x: 3500, y: 12600, ships: 9000});
-  const ally = fleet({id: 'a', x: 2000, y: 13000, ships: 7000});
-  const e = fleet({id: 'e', team: 'red', x: 3400, y: 11500, ships: 4000});
+  const flag = fleet({id: 'flag', role: 'battleship', flagship: true, x: 3500, y: 12600, ships: 9000 / 300});
+  const ally = fleet({id: 'a', x: 2000, y: 13000, ships: 7000 / 300});
+  const e = fleet({id: 'e', team: 'red', x: 3400, y: 11500, ships: 4000 / 300});
   const g = fleet({id: 'g', team: 'red', x: 100, y: 100, flagship: true});
   const intel = {e: {x: e.x, y: e.y, visible: true}, g: {x: 8000, y: 4000, visible: false}};
   const blueObs = B.observe(me, [me, flag, ally, e, g], intel);

@@ -3,7 +3,7 @@
 (function(root){
   'use strict';
   const L = typeof module !== 'undefined' && module.exports ? require('./logic.js') : root.SagittariusLogic;
-  const {WORLD, INITIAL_SHIPS, SHIP_TYPES} = L;
+  const {WORLD, SHIP_TYPES, hpRatio} = L;
 
   const ROLES = ['battleship', 'carrier', 'cruiser', 'destroyer']; // 艦種ごとに 1 つずつ脳を持つ (駆逐艦 2 隻は同じ脳)
   const ALLY_SLOTS = 2;   // 入力に入れる近い味方の数 (自分と旗艦を除く)
@@ -71,18 +71,18 @@
 
     // 自分: 位置 (チームから見て 0〜1)、艦艇数の割合、武器の待ち時間 (発射間隔に対する割合)、バフ中か
     push(s > 0 ? f.x / WORLD.w : 1 - f.x / WORLD.w, s > 0 ? f.y / WORLD.h : 1 - f.y / WORLD.h,
-      f.ships / INITIAL_SHIPS, clamp((f.cooldown || 0) / SHIP_TYPES[ROLES.includes(f.role) ? f.role : 'battleship'].weapon.interval, 0, 1), f.buffed ? 1 : 0);
+      hpRatio(f), clamp((f.cooldown || 0) / SHIP_TYPES[ROLES.includes(f.role) ? f.role : 'battleship'].weapon.interval, 0, 1), f.buffed ? 1 : 0);
 
     // 味方の旗艦 (自分が旗艦なら「いない」)
     const flag = fleets.find(a => a.team === f.team && a.flagship && alive(a) && a !== f);
-    if(flag) push(1, ...relative(f, flag, f.team), flag.ships / INITIAL_SHIPS);
+    if(flag) push(1, ...relative(f, flag, f.team), hpRatio(flag));
     else push(0, 0, 0, 0, 0);
 
     // 近い味方 (自分と旗艦を除く)
     const allies = fleets.filter(a => a.team === f.team && alive(a) && a !== f && !a.flagship).sort(byDistance(f));
     for(let i = 0; i < ALLY_SLOTS; i++){
       const a = allies[i];
-      if(a) push(1, ...relative(f, a, f.team), a.ships / INITIAL_SHIPS);
+      if(a) push(1, ...relative(f, a, f.team), hpRatio(a));
       else push(0, 0, 0, 0, 0);
     }
 
@@ -91,7 +91,7 @@
     for(let i = 0; i < ENEMY_SLOTS; i++){
       const t = targets[i];
       const e = t && byId.get(t.id);
-      if(t) push(1, ...relative(f, t, f.team), e ? e.ships / INITIAL_SHIPS : 0, e && e.flagship ? 1 : 0);
+      if(t) push(1, ...relative(f, t, f.team), e ? hpRatio(e) : 0, e && e.flagship ? 1 : 0);
       else push(0, 0, 0, 0, 0, 0);
     }
 

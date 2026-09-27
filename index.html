@@ -129,12 +129,8 @@
       <div class="body">
         <div class="statusHead"><span id="stName"></span><span class="rule" id="stRule"></span></div>
         <div class="kv"><span>CLASS</span><span id="stJob"></span></div>
-        <div class="kv"><span>SHIPS LEFT</span><span id="stShips"></span></div>
-        <div class="kv2">
-          <div class="kv"><span>SPEED</span><span id="stSpeed"></span></div>
-          <div class="kv"><span>DEFENSIVE POWER</span><span id="stDefense"></span></div>
-          <div class="kv"><span>OFFENSIVE POWER</span><span id="stAttack"></span></div>
-        </div>
+        <div class="kv"><span>HP</span><span id="stShips"></span></div>
+        <div class="kv2" id="stStats"></div>
         <div class="kv"><span>BUFF</span><span id="stBuff"></span></div>
         <div class="kv"><span>ORDER</span><span id="stOrder"></span></div>
       </div>
@@ -178,8 +174,8 @@
     <ul class="rules">
       <li>あなたは味方の<strong>第 1〜5 艦隊のどれか 1 つ</strong>を選んで指揮する。残りの味方 4 艦隊と敵 5 艦隊は AI</li>
       <li>見えるのは味方の索敵範囲の中だけ。見つけた敵は味方全員に共有される</li>
-      <li>索敵範囲の中の敵に自動で狙いを定め、射程に入ると撃つ。戦艦・巡洋艦・駆逐艦の砲弾は、目標が射程の中にいる間は必ず当たる (射程の外に逃げられると外れることがある)</li>
-      <li>空母は偵察機で敵を探し、遠くの敵に爆撃機を送る。艦載機は敵の駆逐艦と空母に撃ち落とされる</li>
+      <li>索敵範囲の中の敵に自動で狙いを定め、射程に入ると撃つ。当たるかは相手の回避で決まり、ダメージは「攻撃力 − 相手の装甲」(硬い相手にはかすり傷しか与えられない)</li>
+      <li>空母は偵察機で敵を探し、遠くの敵に爆撃機を送る。艦載機は敵の対空射撃で撃ち落とされる</li>
       <li>モダン: 敵の旗艦 (第 1 艦隊) を倒したら勝利。味方の旗艦が倒されたら敗北。旗艦以外を選んで先に全滅したら、決着まで観戦できる</li>
       <li>60 秒ごとに 5 秒間、両軍の旗艦の位置が相手に知られる (索敵範囲の外でも)。隠れ続けることはできない</li>
       <li>連合艦隊は戦艦 (旗艦)・空母・巡洋艦・駆逐艦 2 の 5 艦隊。味方はそれぞれの役割で旗艦を支える</li>
@@ -350,19 +346,24 @@ $('resultToTitle').onclick = endGame;
 
 // ---------- 出撃準備 ----------
 // 艦種のカード (名前・数値のバー・射程などの説明)。選んだ艦隊の艦種だけ明るく表示する
-const STAT_LABELS = [['speed', '敏捷'], ['defense', '耐久'], ['attack', '火力']];
+// 艦これ風のステータス (数値のもの)。射程と速力は名前で出す
+const STAT_LABELS = [['hp', '耐久'], ['firepower', '火力'], ['armor', '装甲'], ['evasion', '回避'], ['antiAir', '対空'], ['los', '索敵']];
+const RANGE_NAMES = {short: '短', medium: '中', long: '長', veryLong: '超長'};
+const SPEED_NAMES = {slow: '低速', fast: '高速', fastPlus: '高速+'};
+const DAMAGE_NAMES = {none: '', minor: '小破', moderate: '中破', heavy: '大破'};
+const rangeText = ship => ship.weapon.kind === 'bomber' ? `爆撃機 ${ship.weapon.range}` : `${RANGE_NAMES[ship.stats.range]} (${ship.weapon.range})`;
 const SIZE_NAMES = {large: '大', medium: '中', small: '小'};
-const STAT_MAX = Math.max(...Object.values(L.SHIP_TYPES).flatMap(s => STAT_LABELS.map(([k]) => s.params[k]))); // バーの長さの基準 (いちばん大きい値で 100%)
+const STAT_MAX = Math.max(...Object.values(L.SHIP_TYPES).flatMap(s => STAT_LABELS.map(([k]) => s.stats[k]))); // バーの長さの基準 (いちばん大きい値で 100%)
 $('jobs').replaceChildren(...Object.entries(L.SHIP_TYPES).map(([key, ship]) => {
   const card = document.createElement('div');
   card.className = 'job';
   card.dataset.type = key;
   const stats = STAT_LABELS.map(([k, label]) =>
-    `<span>${label}</span><span class="bar"><i style="width:${ship.params[k] / STAT_MAX * 100}%"></i></span><b>${ship.params[k]}</b>`).join('');
+    `<span>${label}</span><span class="bar"><i style="width:${ship.stats[k] / STAT_MAX * 100}%"></i></span><b>${ship.stats[k]}</b>`).join('');
   card.innerHTML = `<span class="jobName"></span><div class="jobStats">${stats}</div><small class="spec"></small><small class="desc"></small>`;
   card.querySelector('.jobName').textContent = ship.name;
   const w = ship.weapon;
-  card.querySelector('.spec').textContent = `${w.kind === 'bomber' ? '爆撃機' : '砲撃'} 射程 ${w.range}・${w.interval} 秒ごと / 大きさ ${SIZE_NAMES[ship.size]}${ship.antiAir ? ' / 対空射撃' : ''}`;
+  card.querySelector('.spec').textContent = `射程 ${rangeText(ship)}・${w.kind === 'bomber' ? '爆撃機' : '砲撃'} ${w.interval} 秒ごと / 速力 ${SPEED_NAMES[ship.stats.speed]} / 大きさ ${SIZE_NAMES[ship.size]}`;
   card.querySelector('.desc').textContent = ship.description;
   return card;
 }));
@@ -776,7 +777,7 @@ function finish(){
     cell('head', ''), cell('head blue', '味方'), cell('head red', '敵'),
     cell('label', '戦闘時間'), cell('time', formatTime(st.time)),
     cell('label', '残存艦隊数'), cell('blue', `${st.fleets.blue} / ${total}`), cell('red', `${st.fleets.red} / ${total}`),
-    cell('label', '残存戦力'), cell('blue', `${Math.ceil(st.ships.blue)} 隻`), cell('red', `${Math.ceil(st.ships.red)} 隻`)
+    cell('label', '残存戦力 (HP)'), cell('blue', String(Math.ceil(st.ships.blue))), cell('red', String(Math.ceil(st.ships.red)))
   );
   setMode('result');
   Snd.jingle(game.outcome === 'win' ? 'win' : 'lose');
@@ -876,7 +877,7 @@ function drawOrderLine(me){
 }
 
 function seenByBlue(x, y, allies){
-  return game.reveal || allies.some(f => Math.hypot(f.x - x, f.y - y) <= L.SENSOR_RANGE);
+  return game.reveal || allies.some(f => Math.hypot(f.x - x, f.y - y) <= L.sensorRange(f));
 }
 
 // 狙いの線: 撃てる範囲の外は細い点線、撃っているときは実線 (見えていない敵の狙いは描かない)
@@ -926,8 +927,8 @@ function drawFleet(f){
   if(f.stealth > 0) ctx.globalAlpha = 0.35; // 透明化中 (隠しコマンド stealth) は半透明
   const p = toScreen(f.x, f.y);
   const color = COLORS[f.team];
-  // 大きさは艦種の当たり判定 (大 40 / 中 25 / 小 15) に合わせ、艦艇数が減ると少し小さくなる
-  const size = (f.hitRadius * 0.5 + f.hitRadius * 0.25 * f.ships / L.INITIAL_SHIPS) * camera.zoom + 4;
+  // 大きさは艦種の当たり判定 (大 40 / 中 25 / 小 15) に合わせ、HP が減ると少し小さくなる
+  const size = (f.hitRadius * 0.5 + f.hitRadius * 0.25 * L.hpRatio(f)) * camera.zoom + 4;
   const hx = Math.cos(f.heading), hy = Math.sin(f.heading);
   if(f.isPlayer){
     ctx.strokeStyle = COLORS.accent;
@@ -947,8 +948,8 @@ function drawFleet(f){
     ctx.beginPath(); ctx.arc(p.x, p.y, size + 13, 0, Math.PI * 2); ctx.stroke();
     ctx.setLineDash([]);
   }
-  // 艦隊を、向きに沿った小さな三角形の集まりで表す (艦艇数が減ると数も減る)
-  const n = Math.max(1, Math.ceil(7 * f.ships / L.INITIAL_SHIPS));
+  // 艦隊を、向きに沿った小さな三角形の集まりで表す (HP が減ると数も減る)
+  const n = Math.max(1, Math.ceil(7 * L.hpRatio(f)));
   ctx.fillStyle = color;
   for(let i = 0; i < n; i++){
     const ang = i / 7 * Math.PI * 2;
@@ -967,7 +968,8 @@ function drawFleet(f){
   ctx.fillStyle = flagshipKnown(f) ? COLORS.accent : color;
   ctx.fillText(displayName(f), p.x, p.y - size - 16);
   ctx.fillStyle = COLORS.text;
-  ctx.fillText(`${Math.ceil(f.ships)} 隻`, p.x, p.y + size + 20);
+  const state = DAMAGE_NAMES[L.damageState(f)];
+  ctx.fillText(`HP ${Math.ceil(f.ships)}${state ? ` ${state}` : ''}`, p.x, p.y + size + 20);
   ctx.globalAlpha = 1;
 }
 
@@ -979,7 +981,7 @@ function drawSensorArea(allies){
   lightCtx.fillStyle = 'rgb(79, 163, 255)';
   for(const f of allies){
     const p = toScreen(f.x, f.y);
-    lightCtx.beginPath(); lightCtx.arc(p.x, p.y, L.SENSOR_RANGE * camera.zoom, 0, Math.PI * 2); lightCtx.fill();
+    lightCtx.beginPath(); lightCtx.arc(p.x, p.y, L.sensorRange(f) * camera.zoom, 0, Math.PI * 2); lightCtx.fill();
   }
   ctx.globalAlpha = 0.09;
   ctx.drawImage(light, 0, 0);
@@ -988,7 +990,7 @@ function drawSensorArea(allies){
   ctx.lineWidth = 1.5;
   for(const f of allies){
     const p = toScreen(f.x, f.y);
-    ctx.beginPath(); ctx.arc(p.x, p.y, L.SENSOR_RANGE * camera.zoom, 0, Math.PI * 2); ctx.stroke();
+    ctx.beginPath(); ctx.arc(p.x, p.y, L.sensorRange(f) * camera.zoom, 0, Math.PI * 2); ctx.stroke();
   }
   ctx.lineWidth = 1;
 }
@@ -1001,7 +1003,7 @@ function drawFog(allies){
   fogCtx.globalCompositeOperation = 'destination-out';
   for(const f of allies){
     const p = toScreen(f.x, f.y);
-    const r = L.SENSOR_RANGE * camera.zoom;
+    const r = L.sensorRange(f) * camera.zoom;
     const g = fogCtx.createRadialGradient(p.x, p.y, r * 0.85, p.x, p.y, r);
     g.addColorStop(0, 'rgba(0,0,0,1)');
     g.addColorStop(1, 'rgba(0,0,0,0)');
@@ -1057,16 +1059,31 @@ function buildAllyRows(){
     return row;
   }));
 }
+// STATUS のステータスの表 (艦種で決まるので、自艦隊の艦種が変わったときだけ作り直す)
+function renderStatTable(me){
+  if($('stStats').dataset.role === me.role) return;
+  $('stStats').dataset.role = me.role;
+  const ship = L.SHIP_TYPES[me.role];
+  const rows = [['FIREPOWER', me.stats.firepower], ['ARMOR', me.stats.armor], ['EVASION', me.stats.evasion], ['ANTI-AIR', me.stats.antiAir],
+    ['LOS', me.stats.los], ['RANGE', rangeText(ship)], ['SPEED', SPEED_NAMES[me.stats.speed]]];
+  $('stStats').replaceChildren(...rows.map(([label, value]) => {
+    const row = document.createElement('div');
+    row.className = 'kv';
+    row.innerHTML = '<span></span><span></span>';
+    row.firstChild.textContent = label;
+    row.lastChild.textContent = String(value);
+    return row;
+  }));
+}
 function updateSidePanels(me){
+  renderStatTable(me);
   $('mapTitle').textContent = `Map (×${camera.zoom.toFixed(1)})`;
   const alive = me.ships > 0;
   setText('stName', displayName(me));
   setText('stJob', me.type);
   setText('stRule', `${MODE_NAMES[game.mode]}  ${formatTime(game.time)}`);
-  setText('stShips', alive ? `${Math.ceil(me.ships)} / ${L.INITIAL_SHIPS}` : `全滅 / ${L.INITIAL_SHIPS}`);
-  setText('stSpeed', String(me.params.speed));
-  setText('stDefense', String(me.params.defense));
-  setText('stAttack', String(me.params.attack));
+  const damage = alive ? DAMAGE_NAMES[L.damageState(me)] : '';
+  setText('stShips', alive ? `${Math.ceil(me.ships)} / ${me.maxShips}${damage ? ` (${damage})` : ''}` : `撃沈 / ${me.maxShips}`);
   setText('stBuff', me.buffed ? 'ON (火力 +20% / 耐久 +20%)' : me.role === 'destroyer' ? '-' : 'OFF');
   setText('stOrder', alive ? orderText(me) : '観戦中');
   for(const row of $('allies').children){
@@ -1075,7 +1092,7 @@ function updateSidePanels(me){
     row.classList.toggle('dead', dead);
     const name = displayName(f);
     if(row.firstChild.textContent !== name) row.firstChild.textContent = name;
-    const text = dead ? '全滅' : `${Math.ceil(f.ships)} / ${L.INITIAL_SHIPS}`;
+    const text = dead ? '撃沈' : `${Math.ceil(f.ships)} / ${f.maxShips}`;
     if(row.lastChild.textContent !== text) row.lastChild.textContent = text;
   }
   $('command').classList.toggle('disabled', !alive);
@@ -1101,7 +1118,7 @@ function drawMinimap(){
   mctx.strokeStyle = 'rgba(120, 190, 255, 0.6)';
   for(const f of game.fleets){
     if(f.team !== 'blue' || f.ships <= 0) continue;
-    mctx.beginPath(); mctx.ellipse(r.x + f.x * sx, r.y + f.y * sy, L.SENSOR_RANGE * sx, L.SENSOR_RANGE * sy, 0, 0, Math.PI * 2); mctx.fill(); mctx.stroke();
+    mctx.beginPath(); mctx.ellipse(r.x + f.x * sx, r.y + f.y * sy, L.sensorRange(f) * sx, L.sensorRange(f) * sy, 0, 0, Math.PI * 2); mctx.fill(); mctx.stroke();
   }
   for(const f of game.fleets){
     if(f.team !== 'blue' || f.ships <= 0) continue;

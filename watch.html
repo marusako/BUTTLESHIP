@@ -216,7 +216,7 @@ function draw(){
     for(const f of living){
       const p = toS(f.x, f.y);
       ctx.strokeStyle = f.team === 'blue' ? 'rgba(79,163,255,0.25)' : 'rgba(255,90,90,0.25)';
-      ctx.beginPath(); ctx.arc(p.x, p.y, L.SENSOR_RANGE * cam.scale, 0, Math.PI * 2); ctx.stroke();
+      ctx.beginPath(); ctx.arc(p.x, p.y, L.sensorRange(f) * cam.scale, 0, Math.PI * 2); ctx.stroke();
     }
   }
   if(showOrders){
@@ -249,7 +249,7 @@ function draw(){
   ctx.textAlign = 'center'; ctx.font = '11px sans-serif';
   for(const f of game.fleets){
     const p = toS(f.x, f.y);
-    const r = Math.max(4, (f.hitRadius * 0.4 + f.hitRadius * 0.2 * f.ships / L.INITIAL_SHIPS) * Math.max(cam.scale * 8, 0.6)); // 艦種の大きさに合わせる
+    const r = Math.max(4, (f.hitRadius * 0.4 + f.hitRadius * 0.2 * L.hpRatio(f)) * Math.max(cam.scale * 8, 0.6)); // 艦種の大きさに合わせる
     ctx.fillStyle = f.ships > 0 ? COLORS[f.team] : '#44506a';
     ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2); ctx.fill();
     if(f.flagship){ ctx.strokeStyle = COLORS.accent; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(p.x, p.y, r + 4, 0, Math.PI * 2); ctx.stroke(); ctx.lineWidth = 1; }
@@ -262,7 +262,7 @@ function renderStat(){
   const outcome = {win: '青の勝ち', lose: '赤の勝ち', draw: '引き分け'}[game.outcome] || (game.time >= MAX_TIME ? '時間切れ' : '試合中');
   const rows = game.fleets.map(f => `<div class="fl ${f.ships > 0 ? f.team : 'dead'}"><span>${f.id} ${ROLE_MARK[f.role]}</span><span>${Math.ceil(f.ships)}</span></div>`).join('');
   $('stat').innerHTML = `<div>時間 ${Math.floor(st.time / 60)}:${String(Math.floor(st.time % 60)).padStart(2, '0')}  (種 ${seed})</div>
-    <div><span class="blue">青 ${Math.ceil(st.ships.blue)} 隻 (${st.fleets.blue})</span> / <span class="red">赤 ${Math.ceil(st.ships.red)} 隻 (${st.fleets.red})</span></div>
+    <div><span class="blue">青 HP ${Math.ceil(st.ships.blue)} (${st.fleets.blue})</span> / <span class="red">赤 HP ${Math.ceil(st.ships.red)} (${st.fleets.red})</span></div>
     <div>${outcome}</div>${rows}`;
 }
 
