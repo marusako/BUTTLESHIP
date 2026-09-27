@@ -33,7 +33,7 @@ const mirrorInfo = i => Object.assign({}, i, {x: L.WORLD.w - i.x, y: L.WORLD.h -
 
 test('脳の大きさ: 入力 → 中間層 → 出力の重みとバイアスの数', () => {
   assert.equal(B.paramCount(), B.HIDDEN * B.INPUTS + B.HIDDEN + B.OUTPUTS * B.HIDDEN + B.OUTPUTS);
-  assert.equal(B.INPUTS, 47);
+  assert.equal(B.INPUTS, 48);
   assert.equal(B.OUTPUTS, 6);
   assert.deepEqual(B.ROLES, ['battleship', 'carrier', 'cruiser', 'destroyer']);
 });
@@ -166,4 +166,13 @@ test('ゲームで使える: 学習前のランダムな脳でも、試合を最
   for(const f of g.fleets){
     assert.ok(f.x >= 0 && f.x <= L.WORLD.w && f.y >= 0 && f.y <= L.WORLD.h, f.id);
   }
+});
+
+test('入力: 自分にバフがかかっているかが入る', () => {
+  const me = fleet({id: 'me', buffed: true});
+  const off = fleet({id: 'me', buffed: false});
+  const a = B.observe(me, [me], {}), c = B.observe(off, [off], {});
+  const diff = a.map((v, i) => v !== c[i] ? i : -1).filter(i => i >= 0);
+  assert.equal(diff.length, 1);
+  assert.deepEqual([a[diff[0]], c[diff[0]]], [1, 0]);
 });

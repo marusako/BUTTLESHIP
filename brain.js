@@ -9,7 +9,7 @@
   const ALLY_SLOTS = 2;   // 入力に入れる近い味方の数 (自分と旗艦を除く)
   const ENEMY_SLOTS = 3;  // 入力に入れる近い見えている敵の数 (= 攻撃の相手の候補)
   const GHOST_SLOTS = 2;  // 入力に入れる近いゴースト (見失った敵の最終確認位置) の数
-  const INPUTS = 4 + 5 + ALLY_SLOTS * 5 + ENEMY_SLOTS * 6 + GHOST_SLOTS * 5;
+  const INPUTS = 5 + 5 + ALLY_SLOTS * 5 + ENEMY_SLOTS * 6 + GHOST_SLOTS * 5;
   const HIDDEN = 24;
   const OUT = {moveX: 0, moveY: 1, attackNone: 2, attack0: 3, attack1: 4, attack2: 5};
   const OUTPUTS = 3 + ENEMY_SLOTS;
@@ -69,9 +69,9 @@
     const s = flip(f.team);
     const byId = new Map(fleets.map(e => [e.id, e]));
 
-    // 自分: 位置 (チームから見て 0〜1)、艦艇数の割合、武器の待ち時間 (発射間隔に対する割合)
+    // 自分: 位置 (チームから見て 0〜1)、艦艇数の割合、武器の待ち時間 (発射間隔に対する割合)、バフ中か
     push(s > 0 ? f.x / WORLD.w : 1 - f.x / WORLD.w, s > 0 ? f.y / WORLD.h : 1 - f.y / WORLD.h,
-      f.ships / INITIAL_SHIPS, clamp((f.cooldown || 0) / SHIP_TYPES[ROLES.includes(f.role) ? f.role : 'battleship'].weapon.interval, 0, 1));
+      f.ships / INITIAL_SHIPS, clamp((f.cooldown || 0) / SHIP_TYPES[ROLES.includes(f.role) ? f.role : 'battleship'].weapon.interval, 0, 1), f.buffed ? 1 : 0);
 
     // 味方の旗艦 (自分が旗艦なら「いない」)
     const flag = fleets.find(a => a.team === f.team && a.flagship && alive(a) && a !== f);

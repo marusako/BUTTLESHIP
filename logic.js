@@ -32,6 +32,9 @@
   const AA_CHANCE = 0.4;         // 対空射撃で艦載機を撃ち落とす確率
   const CARRIER_CRIT_CHANCE = 0.15; // 空母が攻撃を受けたとき、ダメージが増える確率 (空母の弱点)
   const CARRIER_CRIT_MULTIPLIER = 2;
+  const BUFF_RANGE = 1000;       // バフ: この距離以内に組む相手 (戦艦 ⇔ 空母・巡洋艦) がいると強化される
+  const BUFF_ATTACK = 1.2;       // バフ中の与えるダメージの倍率
+  const BUFF_DEFENSE = 1.2;      // バフ中の受けるダメージの割る数
   const EPS = 1e-9;              // 小数の誤差を吸収する (待ち時間の判定など)
   const CHEAT_SEQUENCE = ['KeyY', 'KeyU', 'KeyK', 'KeyI']; // 隠しコマンド入力欄を開くキー列
   const CHEAT_WINDOW = 2;        // キー列を押し切るまでの制限時間 (秒)
@@ -84,14 +87,28 @@
     return Math.max(SENSOR_RANGE, weaponOf(f).range);
   }
 
-  // 砲弾 1 発の威力 (耐久による軽減前)。毎秒ダメージ × 発射間隔
-  function shotPower(f){
-    return firepower(f) * ATTACK_COEF * f.params.attack * weaponOf(f).interval;
+  // バフ: 空母・巡洋艦は味方の戦艦が、戦艦は味方の空母か巡洋艦が BUFF_RANGE 以内にいると強化される (駆逐艦にはかからない)
+  const BUFF_PARTNERS = {battleship: ['carrier', 'cruiser'], carrier: ['battleship'], cruiser: ['battleship']};
+  function isBuffed(f, fleets){
+    const partners = BUFF_PARTNERS[f.role];
+    return !!partners && alive(f) && fleets.some(a => a !== f && a.team === f.team && alive(a) && partners.includes(a.role) && dist(a, f) <= BUFF_RANGE);
   }
 
-  // 爆撃 1 回の威力 (耐久による軽減前)
+  // 全艦隊のバフを付け直す (1 ステップごと)
+  function updateBuffs(g){
+    for(const f of g.fleets) f.buffed = isBuffed(f, g.fleets);
+  }
+
+  const attackBuff = f => (f.buffed ? BUFF_ATTACK : 1);
+
+  // 砲弾 1 発の威力 (耐久による軽減前)。毎秒ダメージ × 発射間隔。バフ中は × BUFF_ATTACK
+  function shotPower(f){
+    return firepower(f) * ATTACK_COEF * f.params.attack * weaponOf(f).interval * attackBuff(f);
+  }
+
+  // 爆撃 1 回の威力 (耐久による軽減前)。バフ中は × BUFF_ATTACK
   function bombPower(f){
-    return firepower(f) * BOMB_COEF * f.params.attack;
+    return firepower(f) * BOMB_COEF * f.params.attack * attackBuff(f);
   }
 
   // team から見えている (味方のどれかの索敵範囲内の) 生存中の敵。reveal なら全部見える
@@ -242,6 +259,7 @@
           aaCooldown: 0, // 対空射撃の次の発射までの秒数
           weapons: {fire: true},
           stealth: 0, // 透明化の残り秒数 (隠しコマンド stealth)
+          buffed: false, // バフ中か (1 ステップごとに付け直す)
           ai: {nextThink: 0}
         });
         if(role === 'carrier') fleets[fleets.length - 1].recon = {launched: 0, next: 0}; // 偵察機: 射出した数と、次に射出する時刻
@@ -334,10 +352,10 @@
     return Math.hypot(a.x + vx * k - c.x, a.y + vy * k - c.y);
   }
 
-  // 命中: ダメージを damage (Map: 艦隊 → ダメージ) に足す。空母は確率でダメージが増える (弱点)
+  // 命中: ダメージを damage (Map: 艦隊 → ダメージ) に足す。空母は確率でダメージが増える (弱点)。バフ中の目標は ÷ BUFF_DEFENSE
   function applyHit(g, damage, p, t, kind, rng){
     const crit = t.role === 'carrier' && rng() < CARRIER_CRIT_CHANCE;
-    damage.set(t, (damage.get(t) || 0) + p.power * mitigation(t.params) * (crit ? CARRIER_CRIT_MULTIPLIER : 1));
+    damage.set(t, (damage.get(t) || 0) + p.power * mitigation(t.params) * (crit ? CARRIER_CRIT_MULTIPLIER : 1) / (t.buffed ? BUFF_DEFENSE : 1));
     record(g, {type: 'hit', kind, team: p.team, targetId: t.id, critical: crit, x: t.x, y: t.y});
   }
 
@@ -476,6 +494,7 @@
     }
 
     for(const f of living) moveFleet(f, dt, g.intel[f.team]);
+    updateBuffs(g);
     launchRecon(g, rng);
     refreshIntel();
 
@@ -498,7 +517,7 @@
   const api = {
     WORLD, DEFAULT_WORLD, setWorld, BEACON_INTERVAL, BEACON_DURATION, beaconActive, INITIAL_SHIPS, SENSOR_RANGE, GHOST_CLEAR_RANGE, FIREPOWER_FLOOR,
     STEALTH_DURATION, SHOT_LIFE, BOMBER_LIFE, BOMBER_TURN_RATE, RECON_SPEED, RECON_LIFE, RECON_SENSOR, AA_RANGE,
-    SHIP_TYPES, FORMATION, AI_THINK_INTERVAL, maxSpeed, mitigation, lockRange, visibleEnemies, updateIntel,
+    BUFF_RANGE, isBuffed, updateBuffs, SHIP_TYPES, FORMATION, AI_THINK_INTERVAL, maxSpeed, mitigation, lockRange, visibleEnemies, updateIntel,
     lockTarget, moveFleet, checkOutcome, createGame, step,
     fireWeapons, launchRecon, antiAir, moveProjectiles, moveAircraft, keyCourse, battleStats,
     newCheatProgress, cheatSequenceStep, parseCommand, applyCommand, warpFleet

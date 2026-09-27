@@ -135,6 +135,7 @@
           <div class="kv"><span>DEFENSIVE POWER</span><span id="stDefense"></span></div>
           <div class="kv"><span>OFFENSIVE POWER</span><span id="stAttack"></span></div>
         </div>
+        <div class="kv"><span>BUFF</span><span id="stBuff"></span></div>
         <div class="kv"><span>ORDER</span><span id="stOrder"></span></div>
       </div>
     </section>
@@ -930,6 +931,12 @@ function drawFleet(f){
     ctx.beginPath(); ctx.arc(p.x, p.y, size + 8, 0, Math.PI * 2); ctx.stroke();
     ctx.lineWidth = 1;
   }
+  if(f.buffed){ // バフ中: 艦隊のまわりに淡い光の輪
+    ctx.strokeStyle = f.team === 'blue' ? 'rgba(120, 220, 255, 0.55)' : 'rgba(255, 170, 120, 0.55)';
+    ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(p.x, p.y, size + 3, 0, Math.PI * 2); ctx.stroke();
+    ctx.lineWidth = 1;
+  }
   if(flagshipKnown(f)){
     ctx.strokeStyle = COLORS.accent;
     ctx.setLineDash([2, 3]);
@@ -1056,6 +1063,7 @@ function updateSidePanels(me){
   setText('stSpeed', String(me.params.speed));
   setText('stDefense', String(me.params.defense));
   setText('stAttack', String(me.params.attack));
+  setText('stBuff', me.buffed ? 'ON (火力 +20% / 耐久 +20%)' : me.role === 'destroyer' ? '-' : 'OFF');
   setText('stOrder', alive ? orderText(me) : '観戦中');
   for(const row of $('allies').children){
     const f = fleetById(row.dataset.id);

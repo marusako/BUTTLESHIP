@@ -819,3 +819,77 @@ test('移動: 攻撃命令は見えている相手に、自分の射程の内側
   for(let i = 0; i < 100; i++) L.moveFleet(f, 0.5, intel);
   assert.ok(Math.abs(f.x - (2000 - 450 * 0.8)) < 1e-6, String(f.x));
 });
+
+// ---------- 第 2.6 段階 (2.6b): バフ ----------
+
+test('バフ: 空母と巡洋艦は、味方の戦艦から 1000 以内で強化される', () => {
+  assert.equal(L.BUFF_RANGE, 1000);
+  const bb = ship('battleship', {id: 'bb', x: 0, y: 0, flagship: true});
+  const cv = ship('carrier', {id: 'cv', x: 1000, y: 0});
+  const cr = ship('cruiser', {id: 'cr', x: 0, y: 1001});
+  const dd = ship('destroyer', {id: 'dd', x: 10, y: 0});
+  const fleets = [bb, cv, cr, dd];
+  assert.equal(L.isBuffed(cv, fleets), true, 'ちょうど 1000 はかかる');
+  assert.equal(L.isBuffed(cr, fleets), false, '1000 を超えるとかからない');
+  assert.equal(L.isBuffed(dd, fleets), false, '駆逐艦はかからない');
+  bb.ships = 0;
+  assert.equal(L.isBuffed(cv, fleets), false, '戦艦が全滅したらかからない');
+  const enemyBb = ship('battleship', {id: 'e', team: 'red', x: 0, y: 0});
+  assert.equal(L.isBuffed(cv, [cv, enemyBb]), false, '敵の戦艦ではかからない');
+});
+
+test('バフ: 戦艦は、味方の空母か巡洋艦が 1000 以内にいると強化される (駆逐艦ではかからない)', () => {
+  const bb = ship('battleship', {id: 'bb', x: 0, y: 0});
+  assert.equal(L.isBuffed(bb, [bb, ship('destroyer', {id: 'dd', x: 10, y: 0})]), false);
+  assert.equal(L.isBuffed(bb, [bb, ship('cruiser', {id: 'cr', x: 900, y: 0})]), true);
+  assert.equal(L.isBuffed(bb, [bb, ship('carrier', {id: 'cv', x: 0, y: 999})]), true);
+  assert.equal(L.isBuffed(bb, [bb, ship('carrier', {id: 'cv', x: 0, y: 999, ships: 0})]), false);
+});
+
+test('バフ: 強化中は与えるダメージ × 1.2 (砲弾と爆撃の威力)', () => {
+  const run = buffedShooter => {
+    const bb = ship('battleship', {id: 'bb', x: 0, y: 5000});
+    const cr = ship('cruiser', {id: 'b', x: 0, y: buffedShooter ? 4500 : 3000});
+    const r = ship('destroyer', {id: 'r', team: 'red', x: 0, y: cr.y - 300}); // いつも射程 (450) の中
+    const g = game([bb, cr, r]);
+    L.updateBuffs(g);
+    L.fireWeapons(g, 0.1, {blue: [r], red: []});
+    return g.projectiles.find(p => p.from === 'b').power;
+  };
+  assert.ok(Math.abs(run(true) / run(false) - 1.2) < 1e-9);
+  const cv = ship('carrier', {id: 'v', x: 0, y: 0});
+  const bb = ship('battleship', {id: 'bb', x: 500, y: 0});
+  const e = ship('cruiser', {id: 'e', team: 'red', x: 0, y: 1000});
+  const g = game([cv, bb, e]);
+  L.updateBuffs(g);
+  L.fireWeapons(g, 0.1, {blue: [e], red: []});
+  const bomber = g.aircraft.find(a => a.kind === 'bomber');
+  assert.ok(Math.abs(bomber.power - 15000 * 0.018 * 30 * 1.2) < 1e-9);
+});
+
+test('バフ: 強化中は受けるダメージ ÷ 1.2', () => {
+  const run = buffedTarget => {
+    const b = ship('destroyer', {id: 'b', x: 0, y: 0});
+    const t = ship('cruiser', {id: 'r', team: 'red', x: 10, y: 0});
+    const bb = ship('battleship', {id: 'rb', team: 'red', x: buffedTarget ? 500 : 5000, y: 0});
+    const g = game([b, t, bb]);
+    L.updateBuffs(g);
+    g.projectiles.push(shot({x: 0, y: 0}));
+    const damage = new Map();
+    L.moveProjectiles(g, 1 / 60, damage, seq(0.9));
+    return damage.get(t);
+  };
+  assert.ok(Math.abs(run(false) / run(true) - 1.2) < 1e-9);
+});
+
+test('バフ: 1 ステップごとに付け直す (離れたら外れる)', () => {
+  const bb = ship('battleship', {id: 'bb', x: 5000, y: 10000, flagship: true});
+  const cr = ship('cruiser', {id: 'cr', x: 5500, y: 10000});
+  const far = ship('cruiser', {id: 'far', team: 'red', x: 100, y: 100, flagship: true});
+  const g = game([bb, cr, far]);
+  L.step(g, 0.01, seq(0.5));
+  assert.deepEqual([bb.buffed, cr.buffed, far.buffed], [true, true, false]);
+  cr.x = 7000;
+  L.step(g, 0.01, seq(0.5));
+  assert.deepEqual([bb.buffed, cr.buffed], [false, false]);
+});
