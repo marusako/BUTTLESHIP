@@ -336,6 +336,7 @@
           aaCooldown: 0, // 対空射撃の次の発射までの秒数
           charge: 0,     // 特殊攻撃のゲージ (0〜CHARGE_MAX)
           boost: 0,      // 巡洋艦の強化の残り秒数
+          autoSpecial: false, // プレイヤーの艦: 特殊攻撃を自動で使うか (AUTO。AI の艦隊はいつも自動)
           lockId: null,  // ロックオンしている敵の id
           lockRef: null,
           weapons: {fire: true},
@@ -451,7 +452,7 @@
     return true;
   }
 
-  // AI の艦隊の特殊攻撃: NP が満タンで使える状況なら使う (巡洋艦の強化は、何かにロックオンしているとき)
+  // 特殊攻撃の自動使用 (AI の艦隊と、AUTO がオンのプレイヤーの艦): NP が満タンで使える状況なら使う (巡洋艦の強化は、何かにロックオンしているとき)
   function autoSpecial(g, f){
     if(!f.special || !(f.charge >= CHARGE_MAX - EPS)) return;
     if(f.special === 'boost' && !(f.lockRef && f.lockRef.id === f.lockId && alive(f.lockRef))) return;
@@ -676,7 +677,7 @@
 
     fireWeapons(g, dt);
     for(const f of living){
-      if(!f.isPlayer && g.controllers && g.controllers[f.team]) autoSpecial(g, f);
+      if(f.isPlayer ? f.autoSpecial : g.controllers && g.controllers[f.team]) autoSpecial(g, f);
     }
     antiAir(g, dt, rng);
 

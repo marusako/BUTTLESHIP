@@ -53,7 +53,7 @@
   .way [data-way="left"]{ grid-column: 1; grid-row: 2; }
   .way [data-way="right"]{ grid-column: 3; grid-row: 2; }
   .way [data-way="down"]{ grid-column: 2; grid-row: 3; }
-  #command.disabled [data-weapon], #command.disabled [data-special]{ opacity: 0.35; pointer-events: none; } /* 自艦隊が全滅したら射撃の切り替えだけ使えない (視点移動は使える) */
+  #command.disabled [data-weapon], #command.disabled [data-auto], #command.disabled [data-special]{ opacity: 0.35; pointer-events: none; } /* 自艦隊が全滅したら射撃の切り替えだけ使えない (視点移動は使える) */
   #location .mini{ position: relative; flex: 1; min-height: 120px; }
   #location canvas{ position: absolute; inset: 0; cursor: pointer; }
   .screen{ position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
@@ -144,6 +144,7 @@
         <div class="cmdGroup">
           <div class="cmdHead">ATTACK</div>
           <button class="cmdBtn" data-weapon="fire">FIRE</button>
+          <button class="cmdBtn" data-auto="1">AUTO</button>
           <button class="cmdBtn" data-special="1">SPECIAL</button>
         </div>
         <div class="cmdGroup">
@@ -170,16 +171,6 @@
   <div class="box">
     <h1>The Day Of Sagittarius</h1>
     <div class="sub">海上艦隊チーム対戦シミュレーション (5 vs 5)</div>
-    <ul class="rules">
-      <li>あなたは味方の<strong>第 1〜5 艦隊のどれか 1 つ</strong>を選んで指揮する。残りの味方 4 艦隊と敵 5 艦隊は AI</li>
-      <li>見えるのは味方の索敵範囲の中だけ。見つけた敵は味方全員に共有される</li>
-      <li>索敵範囲の中の敵に自動で狙いを定め、射程に入ると通常攻撃を撃つ。当たるかは相手の回避で決まり、ダメージは「火力 + 5 − 相手の装甲 × 0.7」(硬い相手にはかすり傷しか与えられない)。狙った敵が射程の外に出ると攻撃は消える</li>
-      <li>NP がたまると特殊攻撃・特殊行動 (戦艦: 全艦一斉射撃 / 巡洋艦: 強化 / 駆逐艦Ⅰ型: 精密射撃 / 駆逐艦Ⅱ型: 魚雷) が使える</li>
-      <li>空母は偵察機で敵を探し、遠くの敵に爆撃機を送る。艦載機は敵の対空射撃で撃ち落とされる</li>
-      <li>モダン: 敵の旗艦 (戦艦) を倒したら勝利。味方の旗艦が倒されたら敗北。旗艦以外を選んで先に全滅したら、決着まで観戦できる</li>
-      <li>60 秒ごとに 5 秒間、両軍の旗艦の位置が相手に知られる (索敵範囲の外でも)。隠れ続けることはできない</li>
-      <li>連合艦隊は戦艦 (旗艦)・空母・巡洋艦・駆逐艦Ⅰ型・駆逐艦Ⅱ型の 5 艦隊。味方はそれぞれの役割で旗艦を支える</li>
-    </ul>
     <div class="titleMenu">
       <button id="toModern">モダン</button>
       <button id="toClassic" disabled>クラシック</button>
@@ -202,16 +193,27 @@
   <div class="box settingsBox">
     <h2>設定</h2>
     <h3>キー配置</h3>
-    <p class="hint">変えたい操作のボタンを押してから、割り当てたいキーを押してください (Esc で取り消し)。ほかの操作と同じキーなら入れ替わります。矢印キー (自艦隊の移動) と Esc (一時停止) はいつでも使えます。</p>
+    <p class="hint">変えたい操作のボタンを押してから、割り当てたいキーを押してください (Esc で取り消し)。ほかの操作と同じキーなら入れ替わります。一時停止は Esc で固定です (割り当ては変えられません)。</p>
     <div class="keyList" id="keyList"></div>
     <p class="hint" id="keyMessage"></p>
     <button id="resetKeys">キー配置を初期設定に戻す</button>
     <h3>音量</h3>
-    <label class="volRow"><span>BGM</span><input id="volBgm" type="range" min="0" max="100" step="1"><output id="volBgmOut"></output></label>
-    <label class="volRow"><span>効果音</span><input id="volSfx" type="range" min="0" max="100" step="1"><output id="volSfxOut"></output></label>
+    <label class="volRow"><span>BGM</span><input id="volBgm" type="range" min="0" max="10" step="1"><output id="volBgmOut"></output></label>
+    <label class="volRow"><span>効果音</span><input id="volSfx" type="range" min="0" max="10" step="1"><output id="volSfxOut"></output></label>
     <h3>自艦隊の名前</h3>
     <input id="fleetName" type="text" autocomplete="off" spellcheck="false">
     <p class="hint" id="fleetNamePreview"></p>
+    <h3>ゲームのルール</h3>
+    <ul class="rules">
+      <li>あなたは味方の<strong>第 1〜5 艦隊のどれか 1 つ</strong>を選んで指揮する。残りの味方 4 艦隊と敵 5 艦隊は AI</li>
+      <li>見えるのは味方の索敵範囲の中だけ。見つけた敵は味方全員に共有される</li>
+      <li>索敵範囲の中の敵に自動で狙いを定め、射程に入ると通常攻撃を撃つ。当たるかは相手の回避で決まり、ダメージは「火力 + 5 − 相手の装甲 × 0.7」(硬い相手にはかすり傷しか与えられない)。狙った敵が射程の外に出ると攻撃は消える</li>
+      <li>NP がたまると特殊攻撃・特殊行動 (戦艦: 全艦一斉射撃 / 巡洋艦: 強化 / 駆逐艦Ⅰ型: 精密射撃 / 駆逐艦Ⅱ型: 魚雷) が使える</li>
+      <li>空母は偵察機で敵を探し、遠くの敵に爆撃機を送る。艦載機は敵の対空射撃で撃ち落とされる</li>
+      <li>モダン: 敵の旗艦 (戦艦) を倒したら勝利。味方の旗艦が倒されたら敗北。旗艦以外を選んで先に全滅したら、決着まで観戦できる</li>
+      <li>60 秒ごとに 5 秒間、両軍の旗艦の位置が相手に知られる (索敵範囲の外でも)。隠れ続けることはできない</li>
+      <li>連合艦隊は戦艦 (旗艦)・空母・巡洋艦・駆逐艦Ⅰ型・駆逐艦Ⅱ型の 5 艦隊。味方はそれぞれの役割で旗艦を支える</li>
+    </ul>
     <h3>クレジット</h3>
     <dl class="credits" id="credits"></dl>
     <div class="settingsFoot"><button id="settingsBack">タイトルへ戻る</button></div>
@@ -460,8 +462,11 @@ function renderSettings(){
     row.append(label, btn);
     return row;
   }));
-  $('volBgm').value = settings.volume.bgm; $('volBgmOut').textContent = settings.volume.bgm;
-  $('volSfx').value = settings.volume.sfx; $('volSfxOut').textContent = settings.volume.sfx;
+  // 音量は 10 段階で表示する (保存する値は 0〜100)
+  for(const [id, key] of [['volBgm', 'bgm'], ['volSfx', 'sfx']]){
+    $(id).value = S.volumeStep(settings.volume[key]);
+    $(id + 'Out').textContent = `${S.volumeStep(settings.volume[key])} / 10`;
+  }
   if(document.activeElement !== $('fleetName')) $('fleetName').value = settings.name;
   $('fleetName').placeholder = S.DEFAULT_NAME;
   $('fleetName').maxLength = S.NAME_MAX;
@@ -471,7 +476,7 @@ function renderSettings(){
     const dd = document.createElement('dd'); dd.textContent = c.name;
     return [dt, dd];
   }));
-  $('pauseHint').textContent = `${S.keyLabel(settings.keys.pause)} / Esc でも再開できます`;
+  $('pauseHint').textContent = 'Esc でも再開できます';
 }
 $('resetKeys').onclick = () => {
   settings = S.normalize(Object.assign({}, settings, {keys: S.defaults().keys}));
@@ -481,7 +486,7 @@ $('resetKeys').onclick = () => {
 };
 for(const [id, key] of [['volBgm', 'bgm'], ['volSfx', 'sfx']]){
   $(id).addEventListener('input', e => {
-    settings = S.normalize(Object.assign({}, settings, {volume: Object.assign({}, settings.volume, {[key]: Number(e.target.value)})}));
+    settings = S.normalize(Object.assign({}, settings, {volume: Object.assign({}, settings.volume, {[key]: S.volumeFromStep(Number(e.target.value))})}));
     saveSettings(); renderSettings();
     Snd.setVolumes(settings.volume);
     if(key === 'sfx') sfxPreview();
@@ -551,17 +556,19 @@ window.addEventListener('keydown', e => {
       return;
     }
   }
-  if(isAction(e.code, 'pause') || e.code === 'Escape'){
+  if(e.code === 'Escape'){ // 一時停止は Esc で固定
     if(mode === 'battle'){ setMode('pause'); e.preventDefault(); return; }
     if(mode === 'pause'){ setMode('battle'); e.preventDefault(); return; }
   }
   if(mode === 'battle'){
     if(isAction(e.code, 'center')) centerOnPlayer();
+    if(isAction(e.code, 'centerFlagship')) centerOnFlagship();
     if(!e.repeat && isAction(e.code, 'fire')) toggleWeapon('fire');
+    if(!e.repeat && isAction(e.code, 'autoSpecial')) toggleAutoSpecial();
     if(!e.repeat && isAction(e.code, 'special')) triggerSpecial();
   }
   keys.add(e.code);
-  if(e.code.startsWith('Arrow') || e.code === 'Space' || isAction(e.code, 'pause')) e.preventDefault();
+  if(e.code.startsWith('Arrow') || e.code === 'Space') e.preventDefault(); // ページがスクロールしないように
 });
 window.addEventListener('keyup', e => keys.delete(e.code));
 window.addEventListener('blur', () => { keys.clear(); wayHeld.clear(); });
@@ -574,6 +581,13 @@ function commandable(){
 function toggleWeapon(kind){
   const me = commandable();
   if(me) me.weapons[kind] = !me.weapons[kind];
+}
+// AUTO: 特殊攻撃の自動使用のオン / オフ (オンなら NP が満タンで使える状況になると自動で使う。空母にはない)
+function toggleAutoSpecial(){
+  const me = commandable();
+  if(!me || !me.special) return;
+  me.autoSpecial = !me.autoSpecial;
+  addLog(`特殊攻撃の自動使用: ${me.autoSpecial ? 'オン' : 'オフ'}`);
 }
 // 特殊攻撃: ゲージが満タンで使える状況なら使う。使えなければ理由をログに出す
 function triggerSpecial(){
@@ -592,6 +606,7 @@ for(const b of document.querySelectorAll('.cmdBtn')){
   if(b.dataset.way) b.addEventListener('mouseleave', () => wayHeld.delete(b.dataset.way));
   if(b.dataset.weapon) b.addEventListener('click', () => toggleWeapon(b.dataset.weapon));
   if(b.dataset.special) b.addEventListener('click', triggerSpecial);
+  if(b.dataset.auto) b.addEventListener('click', toggleAutoSpecial);
 }
 window.addEventListener('mouseup', e => { if(e.button === 0) wayHeld.clear(); });
 
@@ -631,13 +646,12 @@ canvas.addEventListener('mousemove', e => { if(dragMove) dragMove = local(e, can
 window.addEventListener('mouseup', e => { if(e.button === 0) dragMove = null; });
 window.addEventListener('blur', () => { dragMove = null; });
 
-// 移動キー (矢印と設定したキー): 押している間はその向きへ進み、離すと止まる。キーで動いていれば true
+// 移動キー (設定したキー。初期は矢印): 押している間はその向きへ進み、離すと止まる。キーで動いていれば true
 function applyKeyMove(){
   const me = commandable();
   if(!me) return false;
   const angle = L.keyCourse({
-    up: held('moveUp') || keys.has('ArrowUp'), down: held('moveDown') || keys.has('ArrowDown'),
-    left: held('moveLeft') || keys.has('ArrowLeft'), right: held('moveRight') || keys.has('ArrowRight')
+    up: held('moveUp'), down: held('moveDown'), left: held('moveLeft'), right: held('moveRight')
   });
   if(angle !== null){
     me.order = {type: 'course', angle, key: true};
@@ -693,6 +707,13 @@ function centerOnPlayer(){
   if(!me) return;
   camera.cx = me.x;
   camera.cy = me.y;
+}
+// 味方の旗艦へ視点を移す (沈んでいても最後の位置へ)
+function centerOnFlagship(){
+  const flag = game && game.fleets.find(f => f.team === 'blue' && f.flagship);
+  if(!flag) return;
+  camera.cx = flag.x;
+  camera.cy = flag.y;
 }
 
 function player(){ return game && game.fleets.find(f => f.isPlayer); }
@@ -1068,8 +1089,8 @@ function drawMapOverlay(){
   ctx.fillStyle = COLORS.muted;
   ctx.font = '12px sans-serif';
   const k = a => S.keyLabel(settings.keys[a]);
-  ctx.fillText(`矢印・${k('moveUp')}${k('moveLeft')}${k('moveDown')}${k('moveRight')}: 移動   左クリック: 移動 / 敵をクリック: 攻撃   ${k('fire')}: FIRE   ${k('special')}: SPECIAL   ${k('pause')}・Esc: 一時停止`, 14, canvas.height - 30);
-  ctx.fillText(`${k('camUp')}${k('camLeft')}${k('camDown')}${k('camRight')}・WAY: 視点移動   ホイール: 拡大縮小   ${k('center')}: 自艦隊へ`, 14, canvas.height - 12);
+  ctx.fillText(`${k('moveUp')}${k('moveLeft')}${k('moveDown')}${k('moveRight')}: 移動   左クリック: 移動 / 敵をクリック: 攻撃   ${k('fire')}: FIRE   ${k('autoSpecial')}: AUTO   ${k('special')}: SPECIAL   Esc: 一時停止`, 14, canvas.height - 30);
+  ctx.fillText(`${k('camUp')}${k('camLeft')}${k('camDown')}${k('camRight')}・WAY: 視点移動   ホイール: 拡大縮小   ${k('center')}: 自艦へ   ${k('centerFlagship')}: 味方旗艦へ`, 14, canvas.height - 12);
 }
 
 // ---------- 右側のパネル ----------
@@ -1114,7 +1135,8 @@ function specialText(me){
   if(!me.special) return '偵察機 (自動)';
   const name = L.SPECIALS[me.special].name;
   if(me.boost > 0) return `${name} 中 (あと ${Math.ceil(me.boost)} 秒)`;
-  return me.charge >= L.CHARGE_MAX ? `${name} READY` : `${name} ${Math.floor(me.charge)}%`;
+  const auto = me.autoSpecial ? ' / AUTO' : '';
+  return (me.charge >= L.CHARGE_MAX ? `${name} READY` : `${name} ${Math.floor(me.charge)}%`) + auto;
 }
 function updateSidePanels(me){
   renderStatTable(me);
@@ -1142,6 +1164,7 @@ function updateSidePanels(me){
     let on = false;
     if(b.dataset.weapon) on = me.weapons[b.dataset.weapon];
     if(b.dataset.special) on = !!me.special && me.charge >= L.CHARGE_MAX;
+    if(b.dataset.auto) on = !!me.autoSpecial;
     if(b.dataset.way) on = wayHeld.has(b.dataset.way);
     b.classList.toggle('on', on);
   }

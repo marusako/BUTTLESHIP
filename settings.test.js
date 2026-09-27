@@ -18,11 +18,13 @@ test('初期設定: 操作ごとのキー、音量、名前 (空)', () => {
   assert.equal(d.keys.camDown, 'KeyS');
   assert.equal(d.keys.camLeft, 'KeyA');
   assert.equal(d.keys.camRight, 'KeyD');
-  assert.deepEqual([d.keys.moveUp, d.keys.moveLeft, d.keys.moveDown, d.keys.moveRight], ['KeyO', 'KeyK', 'KeyL', 'Semicolon']);
-  assert.equal(d.keys.fire, 'Digit1');
-  assert.equal(d.keys.special, 'Digit2', '特殊攻撃 (第 2.8 段階)');
-  assert.equal(d.keys.center, 'KeyC');
-  assert.equal(d.keys.pause, 'Space');
+  assert.deepEqual([d.keys.moveUp, d.keys.moveLeft, d.keys.moveDown, d.keys.moveRight], ['ArrowUp', 'ArrowLeft', 'ArrowDown', 'ArrowRight'], '移動は矢印キー (第 2.10 段階)');
+  assert.equal(d.keys.fire, 'KeyZ');
+  assert.equal(d.keys.autoSpecial, 'KeyX', '特殊攻撃の自動使用 オン / オフ');
+  assert.equal(d.keys.special, 'Space', '特殊攻撃を今使う');
+  assert.equal(d.keys.center, 'KeyQ');
+  assert.equal(d.keys.centerFlagship, 'KeyE', '味方旗艦へ視点移動');
+  assert.equal('pause' in d.keys, false, '一時停止は Esc で固定 (設定の一覧に出さない)');
   assert.deepEqual(d.volume, {bgm: 70, sfx: 80});
   assert.equal(d.name, '');
   assert.equal(new Set(Object.values(d.keys)).size, Object.keys(d.keys).length, 'キーは重ならない');
@@ -57,7 +59,7 @@ test('読み込み: 壊れたデータや保存先の例外でも初期設定で
 
 test('読み込み: おかしな値は直す (音量は 0〜100 の整数、名前は 12 文字まで、知らない・重なったキーは初期値)', () => {
   const raw = {
-    keys: {camUp: 'KeyD', camRight: 'KeyD', center: 123, unknownAction: 'KeyZ', pause: 'ArrowUp'},
+    keys: {camUp: 'KeyD', camRight: 'KeyD', center: 123, unknownAction: 'KeyZ', fire: 'Escape'},
     volume: {bgm: 150, sfx: -3.7},
     name: '  とても長い艦隊の名前をつけてみた  '
   };
@@ -66,8 +68,8 @@ test('読み込み: おかしな値は直す (音量は 0〜100 の整数、名�
   assert.equal(s.keys.camRight, 'KeyD');
   assert.equal(s.keys.camUp, 'KeyW');
   assert.equal(new Set(Object.values(s.keys)).size, Object.keys(s.keys).length, '重ならない');
-  assert.equal(s.keys.center, 'KeyC');
-  assert.equal(s.keys.pause, 'Space', '予約されたキー (矢印) は使えない');
+  assert.equal(s.keys.center, 'KeyQ');
+  assert.equal(s.keys.fire, 'KeyZ', '予約されたキー (Esc) は使えない');
   assert.equal('unknownAction' in s.keys, false);
   assert.deepEqual(s.volume, {bgm: 100, sfx: 0});
   assert.equal(s.name, 'とても長い艦隊の名前をつ');
@@ -76,7 +78,7 @@ test('読み込み: おかしな値は直す (音量は 0〜100 の整数、名�
 
 test('保存: 保存して読み込むと同じ設定になる', () => {
   const st = memoryStorage();
-  const s = S.assignKey(S.defaults(), 'pause', 'KeyP');
+  const s = S.assignKey(S.defaults(), 'center', 'KeyP');
   s.volume.bgm = 35;
   s.name = 'ヤマト';
   S.save(st, s);
@@ -90,8 +92,11 @@ test('キーの割り当て: 別の操作と同じキーなら入れ替える', 
   assert.equal(S.defaults().keys.camUp, 'KeyW', '元の設定は変えない');
 });
 
-test('キーの割り当て: 矢印・Esc・Tab・Enter・修飾キーは割り当てられない', () => {
-  for(const code of ['ArrowUp', 'ArrowLeft', 'Escape', 'Tab', 'Enter', 'ShiftLeft', 'ControlRight', 'AltLeft', 'MetaLeft']){
+test('キーの割り当て: Esc (一時停止で固定)・Tab・Enter・修飾キーは割り当てられない。矢印キーは割り当てられる', () => {
+  assert.equal(S.assignKey(S.defaults(), 'camUp', 'ArrowUp').keys.camUp, 'ArrowUp');
+  assert.equal(S.assignKey(S.defaults(), 'camUp', 'ArrowUp').keys.moveUp, 'KeyW', '入れ替わる');
+  assert.equal(S.isReservedKey('ArrowUp'), false);
+  for(const code of ['Escape', 'Tab', 'Enter', 'ShiftLeft', 'ControlRight', 'AltLeft', 'MetaLeft']){
     assert.equal(S.assignKey(S.defaults(), 'camUp', code).keys.camUp, 'KeyW', code);
     assert.equal(S.isReservedKey(code), true, code);
   }
@@ -105,11 +110,12 @@ test('キーの表示名: 画面に出す短い名前', () => {
   assert.equal(S.keyLabel('Space'), 'Space');
   assert.equal(S.keyLabel('Semicolon'), ';');
   assert.equal(S.keyLabel('Enter'), 'Enter');
+  assert.deepEqual(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].map(S.keyLabel), ['↑', '↓', '←', '→']);
 });
 
 test('操作の一覧: 設定画面に出す順番と名前', () => {
   const ids = S.ACTIONS.map(a => a.id);
-  assert.deepEqual(ids, ['moveUp', 'moveDown', 'moveLeft', 'moveRight', 'fire', 'special', 'camUp', 'camDown', 'camLeft', 'camRight', 'center', 'pause']);
+  assert.deepEqual(ids, ['moveUp', 'moveDown', 'moveLeft', 'moveRight', 'fire', 'autoSpecial', 'special', 'camUp', 'camDown', 'camLeft', 'camRight', 'center', 'centerFlagship']);
   assert.ok(S.ACTIONS.every(a => a.label));
 });
 
@@ -130,10 +136,33 @@ test('読み込み: 前の版の保存データ (回転・SPEED のキーがあ�
   const s = S.load(memoryStorage({[S.STORAGE_KEY]: JSON.stringify(old)}));
   assert.deepEqual(Object.keys(s.keys).sort(), S.ACTIONS.map(a => a.id).sort());
   assert.equal(s.keys.camUp, 'KeyO');
-  assert.equal(s.keys.moveUp, 'KeyW', '重なった移動キーは入れ替わる');
-  assert.equal(s.keys.fire, 'Digit1');
+  assert.equal(s.keys.fire, 'KeyZ');
   assert.equal(new Set(Object.values(s.keys)).size, Object.keys(s.keys).length);
   assert.deepEqual(s.volume, {bgm: 40, sfx: 60});
+});
+
+test('読み込み: 第 2.10 段階より前の保存データは、前の初期のキーのままの操作を新しい初期のキーにする (自分で変えたキーは残す)。一時停止は捨てる', () => {
+  const old = {keys: {moveUp: 'KeyO', moveDown: 'KeyL', moveLeft: 'KeyK', moveRight: 'Semicolon', fire: 'Digit1', special: 'Digit2', center: 'KeyC', pause: 'Space', camUp: 'KeyI'}, volume: {bgm: 0, sfx: 80}, name: ''};
+  const s = S.load(memoryStorage({[S.STORAGE_KEY]: JSON.stringify(old)}));
+  assert.deepEqual(s.keys, Object.assign(S.defaults().keys, {camUp: 'KeyI'}));
+  assert.deepEqual(s.volume, {bgm: 0, sfx: 80}, '音量はそのまま');
+  const custom = S.load(memoryStorage({[S.STORAGE_KEY]: JSON.stringify({keys: {fire: 'KeyF', center: 'KeyC'}})}));
+  assert.deepEqual([custom.keys.fire, custom.keys.center], ['KeyF', 'KeyQ']);
+});
+
+test('保存: 設定の版 (SETTINGS_VERSION) を一緒に保存し、今の版のデータは移し替えずにそのまま読む', () => {
+  const st = memoryStorage();
+  const s = S.assignKey(S.defaults(), 'center', 'KeyC'); // 前の初期のキーと同じでも、今の版で選んだものは残す
+  S.save(st, s);
+  assert.equal(S.SETTINGS_VERSION, 2);
+  assert.equal(JSON.parse(st.data[S.STORAGE_KEY]).version, S.SETTINGS_VERSION);
+  assert.equal(S.load(st).keys.center, 'KeyC');
+});
+
+test('音量の表示: 保存する値 (0〜100) と画面の 10 段階 (0〜10) の変換。10 刻みでない値は近い段階に丸める', () => {
+  assert.deepEqual([0, 70, 100, 35, 44, 5].map(S.volumeStep), [0, 7, 10, 4, 4, 1]);
+  assert.deepEqual([0, 7, 10].map(S.volumeFromStep), [0, 70, 100]);
+  assert.deepEqual([-1, 11, 3.6].map(S.volumeFromStep), [0, 100, 40], '範囲外・小数は直す');
 });
 
 test('読み込み: 第 2.5 段階の保存データ (SHELL / TORPID のキー) も読める。FIRE は初期のキーになる', () => {
@@ -141,6 +170,6 @@ test('読み込み: 第 2.5 段階の保存データ (SHELL / TORPID のキー) 
   const s = S.load(memoryStorage({[S.STORAGE_KEY]: JSON.stringify(old)}));
   assert.deepEqual(Object.keys(s.keys).sort(), S.ACTIONS.map(a => a.id).sort());
   assert.equal('shell' in s.keys || 'torpid' in s.keys, false);
-  assert.equal(s.keys.fire, 'Digit1');
+  assert.equal(s.keys.fire, 'KeyZ');
   assert.equal(s.keys.camUp, 'KeyI');
 });

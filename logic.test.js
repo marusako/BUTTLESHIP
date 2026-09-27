@@ -941,6 +941,19 @@ test('特殊攻撃 (AI): 満タンで使える相手がいれば、AI の艦隊�
   assert.ok(me.charge >= 100, 'プレイヤーは使わない');
 });
 
+test('特殊攻撃の自動使用 (プレイヤー): autoSpecial がオンなら、AI と同じ条件で自動で使う (第 2.10 段階)', () => {
+  const me = ship('destroyer', {id: 'm', x: 0, y: 100, charge: 100, isPlayer: true, autoSpecial: true});
+  const r = ship('battleship', {id: 'r', team: 'red', x: 200, y: 0, flagship: true});
+  const g = game([me, r]);
+  L.step(g, 0.01, seq(0.99));
+  assert.ok(me.charge < 1, 'オンなら使う (controllers がなくても)');
+  const cr = ship('cruiser', {id: 'c', x: 0, y: 0, charge: 100, isPlayer: true, autoSpecial: true});
+  const g2 = game([cr, ship('destroyer', {id: 'far', team: 'red', x: 5000, y: 5000})]);
+  L.step(g2, 0.01, seq(0.99));
+  assert.equal(cr.boost, 0, '巡洋艦の強化は、何かにロックオンしているときだけ (AI と同じ)');
+  assert.equal(L.createGame().fleets.find(f => f.isPlayer).autoSpecial, false, '初めはオフ');
+});
+
 test('出来事: 砲撃・爆撃機・偵察機の射出、命中、撃墜、全滅が記録される', () => {
   const b = ship('battleship', {id: 'b', flagship: true, isPlayer: true});
   const r = ship('destroyer', {id: 'r', team: 'red', x: 200, y: 0, ships: 1, flagship: true});
