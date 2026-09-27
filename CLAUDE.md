@@ -11,6 +11,7 @@
 - `DESIGN.md` … 設計書。**作業に入る前に必ず読む**
 - `PLAN.md` … MVP の計画
 - `scripts/serve.js` … 依存なしの開発用サーバー
+- `scripts/package.js` … バージョン別の配布用 zip を作る (テストは `scripts/package.test.js`)
 
 ## 設計書 (DESIGN.md) の管理
 - コードを変えたら、**同じコミットで** DESIGN.md の該当箇所と「変更履歴」を更新する
@@ -30,3 +31,4 @@
 ## コマンド
 - `npm test` … テストを実行
 - `npm run serve` … http://localhost:8080/ で配信
+- `npm run package -- vX.Y` … そのタグの配布用 zip を `dist/` に作る (引数なしなら全タグ分)。GitHub Releases に添付する手順は DESIGN.md の「配布」
