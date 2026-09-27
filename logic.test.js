@@ -414,6 +414,27 @@ test('AI (旗艦以外を選んだとき): 味方の AI 旗艦は AI の命令�
   assert.equal(g.fleets.find(f => f.isPlayer).order, null, '自機には AI の命令が入らない');
 });
 
+// ---------- 第 2.10 段階 (2.10b) ----------
+
+test('観戦 (spectate): プレイヤーの艦はなく、10 隻すべてを AI が動かす。自艦の名前は使わない', () => {
+  const g = L.createGame({spectate: true, playerName: 'ヤマト', controllers: {blue: goNorth, red: goNorth}});
+  assert.equal(g.fleets.some(f => f.isPlayer), false);
+  assert.equal(g.fleets.some(f => f.name === 'ヤマト'), false);
+  L.step(g, 1 / 60, seq(0.5));
+  assert.ok(g.fleets.every(f => f.order), '全艦に AI の命令が入る');
+  assert.equal(L.createGame({spectate: false}).fleets.filter(f => f.isPlayer).length, 1, 'false ならいつもどおり');
+});
+
+test('戦績: 各艦の HP の残り (units。チームごとに第 1〜第 5 の順、沈んだ艦は 0)', () => {
+  const g = L.createGame();
+  g.fleets.find(f => f.id === 'blue1').ships = 180.4;
+  g.fleets.find(f => f.id === 'red4').ships = -3;
+  const u = L.battleStats(g).units;
+  assert.deepEqual(u.blue.map(x => x.type), L.FLEET_CLASSES.map(c => c.name));
+  assert.deepEqual(u.blue[0], {id: 'blue1', type: '戦艦', ships: 181, maxShips: 300}, 'HP は切り上げ');
+  assert.deepEqual(u.red[3], {id: 'red4', type: '駆逐艦Ⅰ型', ships: 0, maxShips: 30}, '沈んだ艦は 0');
+});
+
 // ---------- 第 2.5 段階 (2.5c) ----------
 
 test('隠しコマンド: repair と stealth を読み取る (大文字・前後の空白は無視)', () => {

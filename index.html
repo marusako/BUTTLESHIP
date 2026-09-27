@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="utf-8">
-<title>The Day Of Sagittarius</title>
+<title>BATTLESHIP</title>
 <style>
   :root{
     --bg: #021220;
@@ -77,6 +77,7 @@
   button.job:hover:not(:disabled){ opacity: 0.85; border-color: var(--blue); background: rgba(79, 163, 255, 0.06); }
   button.job.selected, button.job.selected:hover:not(:disabled){ opacity: 1; border-color: var(--accent); background: rgba(255, 211, 79, 0.08); }
   .job .jobName{ font-weight: bold; }
+  .job.watch small{ display: block; margin-top: 8px; color: var(--muted); }
   .job .jobStats{ display: grid; grid-template-columns: 34px 1fr 24px; align-items: center; gap: 2px 6px; margin: 8px 0 6px; font-size: 12px; color: var(--muted); }
   .job .bar{ height: 6px; background: #13233f; }
   .job .bar i{ display: block; height: 100%; background: var(--blue); }
@@ -104,6 +105,7 @@
   .stats .blue{ color: var(--blue); text-align: right; }
   .stats .red{ color: var(--red); text-align: right; }
   .stats .time{ grid-column: span 2; text-align: center; }
+  .stats .sunk{ opacity: 0.5; }
   .section{ color: var(--muted); font-size: 13px; text-align: left; margin: 14px 0 6px; }
   .hint{ color: var(--muted); font-size: 13px; }
   #console{ position: fixed; left: 50%; bottom: 64px; transform: translateX(-50%); display: none;
@@ -169,7 +171,7 @@
 
 <div id="title" class="screen show">
   <div class="box">
-    <h1>The Day Of Sagittarius</h1>
+    <h1>BATTLESHIP</h1>
     <div class="sub">海上艦隊チーム対戦シミュレーション (5 vs 5)</div>
     <div class="titleMenu">
       <button id="toModern">モダン</button>
@@ -205,14 +207,14 @@
     <p class="hint" id="fleetNamePreview"></p>
     <h3>ゲームのルール</h3>
     <ul class="rules">
-      <li>あなたは味方の<strong>第 1〜5 艦隊のどれか 1 つ</strong>を選んで指揮する。残りの味方 4 艦隊と敵 5 艦隊は AI</li>
+      <li>あなたは味方の<strong>5 隻のどれか 1 隻</strong>を選んで指揮する (観戦もできる)。残りの味方 4 隻と敵 5 隻は AI</li>
       <li>見えるのは味方の索敵範囲の中だけ。見つけた敵は味方全員に共有される</li>
       <li>索敵範囲の中の敵に自動で狙いを定め、射程に入ると通常攻撃を撃つ。当たるかは相手の回避で決まり、ダメージは「火力 + 5 − 相手の装甲 × 0.7」(硬い相手にはかすり傷しか与えられない)。狙った敵が射程の外に出ると攻撃は消える</li>
       <li>NP がたまると特殊攻撃・特殊行動 (戦艦: 全艦一斉射撃 / 巡洋艦: 強化 / 駆逐艦Ⅰ型: 精密射撃 / 駆逐艦Ⅱ型: 魚雷) が使える</li>
       <li>空母は偵察機で敵を探し、遠くの敵に爆撃機を送る。艦載機は敵の対空射撃で撃ち落とされる</li>
-      <li>モダン: 敵の旗艦 (戦艦) を倒したら勝利。味方の旗艦が倒されたら敗北。旗艦以外を選んで先に全滅したら、決着まで観戦できる</li>
+      <li>モダン: 敵の旗艦 (戦艦) を倒したら勝利。味方の旗艦が倒されたら敗北。旗艦以外を選んで先に沈んだら、決着まで観戦できる</li>
       <li>60 秒ごとに 5 秒間、両軍の旗艦の位置が相手に知られる (索敵範囲の外でも)。隠れ続けることはできない</li>
-      <li>連合艦隊は戦艦 (旗艦)・空母・巡洋艦・駆逐艦Ⅰ型・駆逐艦Ⅱ型の 5 艦隊。味方はそれぞれの役割で旗艦を支える</li>
+      <li>艦隊は戦艦 (旗艦)・空母・巡洋艦・駆逐艦Ⅰ型・駆逐艦Ⅱ型の 5 隻。味方はそれぞれの役割で旗艦を支える</li>
     </ul>
     <h3>クレジット</h3>
     <dl class="credits" id="credits"></dl>
@@ -266,7 +268,8 @@ const MODE_NAMES = {modern: 'モダン'};
 
 let mode = 'title'; // title | setup | battle | pause | result
 let game = null;
-let playerSlot = 1; // 指揮する艦隊の番号 (1 は旗艦)
+let playerSlot = 1; // 指揮する艦の番号 (1 は旗艦)。WATCH_SLOT なら観戦
+const WATCH_SLOT = 0;
 // 設定 (キー配置・音量・自艦隊の名前)。ブラウザ内に保存する
 function settingsStorage(){
   try{ return window.localStorage; }catch(e){ return null; }
@@ -384,25 +387,43 @@ $('jobs').replaceChildren(...L.FLEET_CLASSES.map((cls, i) => {
   card.querySelector('.normal').textContent = `通常攻撃: ${t.normal}`;
   card.querySelector('.special').textContent = t.special;
   card.querySelector('.desc').textContent = ship.description;
-  card.addEventListener('click', () => { playerSlot = no; renderSetup(); });
+  card.addEventListener('click', () => selectCard(no));
   return card;
-}));
+}), watchCard());
+
+// 観戦のカード: 自分は艦を持たず、10 隻すべてを AI が動かす
+function watchCard(){
+  const card = document.createElement('button');
+  card.type = 'button';
+  card.className = 'job watch';
+  card.dataset.slot = WATCH_SLOT;
+  card.innerHTML = '<span class="jobName">観戦</span><small>艦を持たずに、味方と敵の 10 隻すべてを AI に任せて戦いを見る。視点は自由に動かせる (STATUS には味方の旗艦を出す)</small>';
+  card.addEventListener('click', () => selectCard(WATCH_SLOT));
+  return card;
+}
+// カードを選ぶ。選んでいるカードをもう一度クリックしたら出撃
+function selectCard(no){
+  if(playerSlot === no){ startBattle(); return; }
+  playerSlot = no;
+  renderSetup();
+}
 
 // 選んだカードを明るくし、見出しに選んだ艦隊を出す (第 1 艦隊は戦艦で旗艦)
 function renderSetup(){
   for(const card of document.querySelectorAll('#jobs .job')) card.classList.toggle('selected', Number(card.dataset.slot) === playerSlot);
+  if(playerSlot === WATCH_SLOT){ $('jobSection').textContent = '観戦 (もう一度クリックで出撃)。10 隻すべてを AI が動かす'; return; }
   const name = classOf(playerSlot).name;
-  $('jobSection').textContent = playerSlot === 1 ? `指揮する艦 (クリックで選ぶ): ${name}。旗艦なので、倒されたら負け` : `指揮する艦 (クリックで選ぶ): ${name}。味方の旗艦 (戦艦) は AI`;
+  $('jobSection').textContent = (playerSlot === 1 ? `指揮する艦 (クリックで選ぶ): ${name}。旗艦なので、倒されたら負け` : `指揮する艦 (クリックで選ぶ): ${name}。味方の旗艦 (戦艦) は AI`) + '。もう一度クリックで出撃';
 }
 renderSetup();
 
 function startBattle(){
   game = L.createGame({
-    playerName: settings.name, playerSlot,
+    playerName: settings.name, playerSlot, spectate: playerSlot === WATCH_SLOT,
     controllers: {blue: RuleAI.controller(), red: RuleAI.controller()}
   });
   dragMove = null;
-  const me = player();
+  const me = statusFleet(); // 観戦なら味方の旗艦
   camera.zoom = 0.6;
   camera.cx = me.x;
   camera.cy = me.y - 200;
@@ -414,7 +435,7 @@ function startBattle(){
   cheatProgress = L.newCheatProgress();
   buildAllyRows();
   document.body.classList.remove('no-game');
-  addLog('全艦隊、出撃。敵の旗艦を探し出せ', COLORS.accent);
+  addLog(player() ? '全艦、出撃。敵の旗艦を探し出せ' : '観戦開始。10 隻すべてを AI が動かす', COLORS.accent);
   acc = 0;
   setMode('battle');
 }
@@ -717,6 +738,8 @@ function centerOnFlagship(){
 }
 
 function player(){ return game && game.fleets.find(f => f.isPlayer); }
+// STATUS に出す艦: 自分の艦。観戦ならいつも味方の旗艦
+function statusFleet(){ return player() || (game && game.fleets.find(f => f.team === 'blue' && f.flagship)); }
 function fleetById(id){ return game.fleets.find(f => f.id === id); }
 function visibleEnemyAt(w, radius){
   let best = null, bestD = radius;
@@ -770,8 +793,8 @@ function trackEvents(){
   for(const f of game.fleets){
     if(f.ships <= 0 && prevAlive.has(f.id)){
       prevAlive.delete(f.id);
-      if(f.isPlayer) addLog('我が艦隊は全滅した… 味方の戦いを見届けよう', COLORS.accent);
-      else addLog(`${displayName(f)} 全滅`, f.team === 'blue' ? COLORS.blue : COLORS.red);
+      if(f.isPlayer) addLog('我が艦は沈んだ… 味方の戦いを見届けよう', COLORS.accent);
+      else addLog(`${displayName(f)} 撃沈`, f.team === 'blue' ? COLORS.blue : COLORS.red);
     }
   }
 }
@@ -794,7 +817,7 @@ function update(dt){
 }
 
 function finish(){
-  const titles = {win: 'WIN', lose: 'LOSE', draw: 'DRAW'};
+  const titles = player() ? {win: 'WIN', lose: 'LOSE', draw: 'DRAW'} : {win: 'BLUE WIN', lose: 'RED WIN', draw: 'DRAW'}; // 観戦では勝ったチームの色
   $('resultTitle').textContent = titles[game.outcome];
   $('resultTitle').style.color = game.outcome === 'win' ? COLORS.blue : game.outcome === 'lose' ? COLORS.red : COLORS.text;
   // 決め手 (どちらの旗艦が倒れたか)
@@ -806,15 +829,20 @@ function finish(){
     parts.push(game.outcome === 'draw' ? '両旗艦が同時に撃沈、残存戦力も同じ' : '両旗艦が同時に撃沈 ── 残存戦力で判定');
   }
   $('resultDetail').textContent = parts.join(' / ');
-  // 戦績: 戦闘時間・残存艦隊数・残存戦力 (味方 / 敵)
+  // 戦績: 戦闘時間・残存艦数・各艦の HP の残り (味方 / 敵)
   const st = L.battleStats(game);
-  const total = game.fleets.filter(f => f.team === 'blue').length;
+  const total = st.units.blue.length;
   const cell = (cls, text) => { const el = document.createElement('span'); el.className = cls; el.textContent = text; return el; };
+  const hp = u => (u.ships > 0 ? `${u.ships} / ${u.maxShips}` : '撃沈');
   $('resultStats').replaceChildren(
     cell('head', ''), cell('head blue', '味方'), cell('head red', '敵'),
     cell('label', '戦闘時間'), cell('time', formatTime(st.time)),
-    cell('label', '残存艦隊数'), cell('blue', `${st.fleets.blue} / ${total}`), cell('red', `${st.fleets.red} / ${total}`),
-    cell('label', '残存戦力 (HP)'), cell('blue', String(Math.ceil(st.ships.blue))), cell('red', String(Math.ceil(st.ships.red)))
+    cell('label', '残存艦数'), cell('blue', `${st.fleets.blue} / ${total}`), cell('red', `${st.fleets.red} / ${total}`),
+    ...st.units.blue.flatMap((u, i) => {
+      const r = st.units.red[i];
+      return [cell('label', i === 0 ? `${u.type} (旗艦)` : u.type),
+        cell(u.ships > 0 ? 'blue' : 'blue sunk', hp(u)), cell(r.ships > 0 ? 'red' : 'red sunk', hp(r))];
+    })
   );
   setMode('result');
   Snd.jingle(game.outcome === 'win' ? 'win' : 'lose');
@@ -862,7 +890,7 @@ function draw(){
   drawFog(allies);
   drawMapOverlay();
   drawMinimap();
-  updateSidePanels(me);
+  updateSidePanels(statusFleet());
 }
 
 // 夜の海: 深い青のグラデーションに、波頭の短い弧を重ねる (試合前はワールドの座標をそのまま画面に使う)
@@ -1072,11 +1100,11 @@ function drawFog(allies){
 // マップ上に重ねる表示: 左下にログ、下に操作説明、自艦隊が全滅していれば上に「観戦中」
 function drawMapOverlay(){
   const me = player();
-  if(me && me.ships <= 0){
+  if(!me || me.ships <= 0){
     ctx.textAlign = 'center';
     ctx.font = 'bold 16px sans-serif';
     ctx.fillStyle = COLORS.accent;
-    ctx.fillText('観戦中 ── 視点移動で味方の戦いを見届けよう', canvas.width / 2, 30);
+    ctx.fillText(me ? '観戦中 ── 視点移動で味方の戦いを見届けよう' : '観戦中 ── 10 隻すべて AI。視点移動で戦いを見届けよう', canvas.width / 2, 30);
   }
   ctx.textAlign = 'left';
   ctx.font = '13px sans-serif';
@@ -1106,7 +1134,8 @@ function setText(id, text){
 }
 // 味方 4 艦隊の行を作る (戦闘開始時)
 function buildAllyRows(){
-  $('allies').replaceChildren(...game.fleets.filter(f => f.team === 'blue' && !f.isPlayer).map(f => {
+  const shown = statusFleet();
+  $('allies').replaceChildren(...game.fleets.filter(f => f.team === 'blue' && f !== shown).map(f => {
     const row = document.createElement('div');
     row.className = 'allyRow';
     row.dataset.id = f.id;
@@ -1138,18 +1167,20 @@ function specialText(me){
   const auto = me.autoSpecial ? ' / AUTO' : '';
   return (me.charge >= L.CHARGE_MAX ? `${name} READY` : `${name} ${Math.floor(me.charge)}%`) + auto;
 }
+// me: STATUS に出す艦 (観戦なら味方の旗艦)
 function updateSidePanels(me){
+  const watching = !player();
   renderStatTable(me);
   $('mapTitle').textContent = `Map (×${camera.zoom.toFixed(1)})`;
   const alive = me.ships > 0;
   setText('stName', displayName(me));
   setText('stJob', me.type);
-  setText('stRule', `${MODE_NAMES[game.mode]}  ${formatTime(game.time)}`);
+  setText('stRule', `${watching ? '観戦 ' : ''}${MODE_NAMES[game.mode]}  ${formatTime(game.time)}`);
   const damage = alive ? DAMAGE_NAMES[L.damageState(me)] : '';
   setText('stShips', alive ? `${Math.ceil(me.ships)} / ${me.maxShips}${damage ? ` (${damage})` : ''}` : `撃沈 / ${me.maxShips}`);
   setText('stSpecial', specialText(me));
   setText('stBuff', me.buffed ? 'ON (火力 +20% / 耐久 +20%)' : me.role === 'destroyer' ? '-' : 'OFF');
-  setText('stOrder', alive ? orderText(me) : '観戦中');
+  setText('stOrder', watching ? '観戦中 (味方の旗艦を表示)' : alive ? orderText(me) : '観戦中');
   for(const row of $('allies').children){
     const f = fleetById(row.dataset.id);
     const dead = f.ships <= 0;
@@ -1159,7 +1190,7 @@ function updateSidePanels(me){
     const text = dead ? '撃沈' : `${Math.ceil(f.ships)} / ${f.maxShips}`;
     if(row.lastChild.textContent !== text) row.lastChild.textContent = text;
   }
-  $('command').classList.toggle('disabled', !alive);
+  $('command').classList.toggle('disabled', !alive || watching);
   for(const b of document.querySelectorAll('.cmdBtn')){
     let on = false;
     if(b.dataset.weapon) on = me.weapons[b.dataset.weapon];

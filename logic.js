@@ -305,6 +305,7 @@
   // options.controllers: チームごとの AI ({blue, red})。(艦隊, 全艦隊, そのチームの位置情報, 乱数) → 命令 を返す関数。
   //   渡さないチームの AI 艦隊は何もしない (プレイヤー艦隊には使わない)
   // options.playerName: 自艦隊の名前 (省略・空なら「味方」+ 艦種の名前)
+  // options.spectate: true なら観戦 (プレイヤーの艦はなく、10 隻すべてを AI が動かす)
   function createGame(options){
     const opts = options || {};
     const controllers = Object.assign({blue: null, red: null}, opts.controllers);
@@ -313,7 +314,7 @@
     for(const team of TEAMS){
       FLEET_CLASSES.forEach((cls, i) => {
         const no = i + 1;
-        const isPlayer = team === 'blue' && no === playerSlot;
+        const isPlayer = !opts.spectate && team === 'blue' && no === playerSlot;
         const ship = SHIP_TYPES[cls.role];
         fleets.push({
           id: `${team}${no}`,
@@ -593,14 +594,18 @@
   }
 
   // 結果画面の戦績: 戦闘時間 (秒)、チームごとの残存艦隊数と残存戦力 (HP の合計)
+  // units: チームごとの各艦の HP の残り (第 1〜第 5 の順。HP は切り上げ、沈んだ艦は 0)
   function battleStats(g){
-    const fleets = {blue: 0, red: 0}, ships = {blue: 0, red: 0};
+    const fleets = {blue: 0, red: 0}, ships = {blue: 0, red: 0}, units = {blue: [], red: []};
     for(const f of g.fleets){
+      units[f.team].push({id: f.id, type: f.type, ships: Math.max(0, Math.ceil(f.ships)), maxShips: f.maxShips});
       if(!alive(f)) continue;
       fleets[f.team]++;
       ships[f.team] += f.ships;
     }
-    return {time: g.time, fleets, ships};
+    const no = u => Number(u.id.replace(/D/g, ''));
+    for(const team of TEAMS) units[team].sort((a, b) => no(a) - no(b));
+    return {time: g.time, fleets, ships, units};
   }
 
   // ---------- 隠しコマンド ----------
