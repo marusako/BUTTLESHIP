@@ -17,15 +17,15 @@
   const DAMAGE_STATES = [{maxRatio: 0.25, state: 'heavy', attack: 0.4}, {maxRatio: 0.5, state: 'moderate', attack: 0.7}, {maxRatio: 0.75 - 1e-9, state: 'minor', attack: 1}]; // 大破 (2.5 割以下)・中破 (5 割以下)・小破 (7.5 割未満)
   const DOUBLE_SHOT_DELAY = 0.2; // 二段攻撃の 2 発目・特殊攻撃の連続攻撃の間隔 (秒)
   const SPECIAL_FIREPOWER = 100; // 特殊攻撃 (高火力攻撃) の火力
-  const CHARGE_MAX = 100;        // 特殊攻撃のゲージの満タン
-  const CHARGE_PER_SECOND = 1;   // ゲージが時間でたまる量 (毎秒)
-  const CHARGE_PER_DAMAGE = 1;   // ゲージが与えたダメージでたまる量 (ダメージ 1 あたり)
+  const CHARGE_MAX = 100;        // 特殊攻撃のゲージ (NP) の満タン。時間でたまる量は艦種ごと (SHIP_TYPES の npPerSecond)
+  const CHARGE_PER_DAMAGE = 1;   // NP が与えたダメージでたまる量 (ダメージ 1 あたり)
   const SALVO_SHOTS = 5;         // 戦艦の全艦一斉射撃の回数 (五段攻撃)
   const TORPEDO_SHOTS = 2;       // 駆逐艦Ⅱ型の魚雷の回数 (二連攻撃)
-  const TORPEDO_HIT = 0.6;       // 魚雷の命中率 (回避を無視)
+  const TORPEDO_HIT = 0.7;       // 魚雷の命中率 (回避を無視)
   const BOOST_DURATION = 15;     // 巡洋艦の強化の時間 (秒)
   const BOOST_MULTIPLIER = 1.5;  // 強化中の火力・装甲・速力の倍率
   const BOOST_CRIT = 0.2;        // 強化中の会心率
+  const BOOST_EVASION_CUT = 40;  // 強化中の弾は、敵の回避をこれだけ引いて命中率を計算する (命中率 +40%)
   const GHOST_CLEAR_RANGE = 150; // 最終確認位置にこの距離まで近づいて敵がいなければ記録を消す
   const ATTACK_STOP_RATIO = 0.8; // 攻撃命令では自分の射程のこの割合まで近づいて止まる
   const AI_THINK_INTERVAL = 1;   // AI が命令を考え直す間隔 (秒)
@@ -56,24 +56,24 @@
   const TEAMS = ['blue', 'red'];
 
   // 艦種。stats: 耐久 (hp = 最大 HP)・火力・装甲・回避 (%)・対空 (%)・索敵 (索敵距離)・射程 (RANGES のキー)・速力 (SPEEDS のキー)
-  // 通常攻撃は艦種ごとに 1 種類 (weapon.kind: 'gun' = 主砲の二段攻撃 / 'bomber' = 爆撃機)。interval は再装填 (秒)。大きさは当たり判定の半径と見た目に効く
+  // npPerSecond: 特殊攻撃のゲージ (NP) が時間でたまる速さ (毎秒)。通常攻撃は艦種ごとに 1 種類 (weapon.kind: 'gun' = 主砲の二段攻撃 / 'bomber' = 爆撃機)。interval は再装填 (秒)。大きさは当たり判定の半径と見た目に効く
   const SHIP_TYPES = {
     battleship: {name: '戦艦', stats: {hp: 90, firepower: 120, armor: 85, evasion: 15, antiAir: 40, sensor: 500, range: 'long', speed: 'slow'},
-      size: 'large', hitRadius: 40, weapon: {kind: 'gun', interval: 4}, description: '旗艦。重装甲・高火力だが遅く、よけられない'},
+      size: 'large', hitRadius: 40, weapon: {kind: 'gun', interval: 4}, npPerSecond: 1, description: '旗艦。重装甲・高火力だが遅く、よけられない'},
     carrier: {name: '空母', stats: {hp: 70, firepower: 50, armor: 40, evasion: 40, antiAir: 60, sensor: 800, range: 'veryLong', speed: 'fast'},
-      size: 'large', hitRadius: 40, weapon: {kind: 'bomber', interval: 5}, description: '制空タイプ。遠くの敵に爆撃機を送り、偵察機で敵を探す。攻撃を受けると大きな被害が出ることがある'},
+      size: 'large', hitRadius: 40, weapon: {kind: 'bomber', interval: 5}, npPerSecond: 0, description: '制空タイプ。遠くの敵に爆撃機を送り、偵察機で敵を探す。攻撃を受けると大きな被害が出ることがある'},
     cruiser: {name: '巡洋艦', stats: {hp: 50, firepower: 55, armor: 50, evasion: 60, antiAir: 40, sensor: 600, range: 'medium', speed: 'fast'},
-      size: 'medium', hitRadius: 25, weapon: {kind: 'gun', interval: 2}, description: '主砲タイプの主力。攻守のバランスがよい'},
+      size: 'medium', hitRadius: 25, weapon: {kind: 'gun', interval: 2}, npPerSecond: 2, description: '主砲タイプの主力。攻守のバランスがよい'},
     destroyer: {name: '駆逐艦', stats: {hp: 30, firepower: 20, armor: 20, evasion: 85, antiAir: 50, sensor: 700, range: 'short', speed: 'fastPlus'},
-      size: 'small', hitRadius: 15, weapon: {kind: 'gun', interval: 1.5}, description: '最速。当たりにくいが打たれ弱い'}
+      size: 'small', hitRadius: 15, weapon: {kind: 'gun', interval: 1.5}, npPerSecond: 3, description: '最速。当たりにくいが打たれ弱い'}
   };
 
-  // 特殊攻撃 (チャージ制。ゲージが満タンのときに使え、使うと 0 に戻る)
+  // 特殊攻撃 (category: 'attack') と特殊行動 ('action')。NP (ゲージ) が満タンのときに使え、使うと 0 に戻る
   const SPECIALS = {
-    salvo: {name: '全艦一斉射撃', description: '射程の中の敵を狙っている味方の全艦が、火力 100 の攻撃を 5 回ずつ (空母は爆撃機)'},
-    boost: {name: '強化', description: '15 秒間、火力・装甲・速力が 1.5 倍、会心率 20%'},
-    precision: {name: '精密射撃', description: '火力 100 の単発弾。回避を無視して必ず当たる'},
-    torpedo: {name: '魚雷', description: '火力 100 の二連攻撃。回避を無視し、命中率 60%'}
+    salvo: {name: '全艦一斉射撃', category: 'attack', description: '射程の中の敵を狙っている味方の全艦が、火力 100 の攻撃を 5 回ずつ (空母は爆撃機)'},
+    boost: {name: '強化', category: 'action', description: '15 秒間、火力・装甲・速力が 1.5 倍、会心率 20%、命中率 +40%'},
+    precision: {name: '精密射撃', category: 'attack', description: '火力 100 の単発弾。回避を無視して必ず当たる'},
+    torpedo: {name: '魚雷', category: 'attack', description: '火力 100 の二連攻撃。回避を無視し、命中率 70%'}
   };
 
   // 連合艦隊の編成 (第 1〜第 5 艦隊)。第 1 艦隊 (戦艦) が旗艦。敵味方とも同じ。艦隊の名前は艦種の名前
@@ -112,6 +112,10 @@
   function critChanceOf(f){
     return boosted(f) ? BOOST_CRIT : CRIT_CHANCE;
   }
+  // 撃つ弾が敵の回避から引く値 (強化中は 40)
+  function evasionCutOf(f){
+    return boosted(f) ? BOOST_EVASION_CUT : 0;
+  }
 
   // 索敵距離。索敵の値そのまま
   function sensorRange(f){
@@ -135,9 +139,9 @@
     return (d ? d.attack : 1) * (f.buffed ? BUFF_ATTACK : 1);
   }
 
-  // 命中率 = 100% − 狙われた艦の回避%
-  function hitChance(t){
-    return (100 - t.stats.evasion) / 100;
+  // 命中率 = 100% − 狙われた艦の回避% (cut: 撃った弾が回避から引く値。0 未満にはしない)
+  function hitChance(t, cut){
+    return (100 - Math.max(0, t.stats.evasion - (cut || 0))) / 100;
   }
 
   // 対空射撃で撃ち落とす確率 = 撃つ艦の対空%
@@ -353,11 +357,11 @@
     return {blue: visibleEnemies(g.fleets, 'blue', revealFor(g, 'blue'), beacon, g.aircraft), red: visibleEnemies(g.fleets, 'red', false, beacon, g.aircraft)};
   };
 
-  // 1 回の攻撃を出す。kind: 'shot' (主砲) / 'torpedo' (魚雷) / 'bomber' (爆撃機)。fp は火力 (特殊攻撃は 100)、hitChance は命中率 (null なら相手の回避で決まる)
+  // 1 回の攻撃を出す。kind: 'shot' (主砲) / 'torpedo' (魚雷) / 'bomber' (爆撃機。回避できない)。fp は火力 (特殊攻撃は 100)、hitChance は命中率 (null なら相手の回避で決まる)
   // 攻撃の倍率 (損傷・バフ) と会心率は撃った瞬間の値
   function launchAttack(g, f, t, kind, fp, hitChance){
     const attack = {id: g.nextProjectileId++, kind, team: f.team, from: f.id, targetId: t.id, x: f.x, y: f.y, heading: Math.atan2(t.y - f.y, t.x - f.x),
-      range: weaponRange(f), fp, mult: attackMultiplier(f), crit: critChanceOf(f), hitChance};
+      range: weaponRange(f), fp, mult: attackMultiplier(f), crit: critChanceOf(f), hitChance: kind === 'bomber' ? 1 : hitChance, evasionCut: evasionCutOf(f)};
     if(kind === 'bomber') g.aircraft.push(Object.assign(attack, {life: BOMBER_LIFE}));
     else g.projectiles.push(Object.assign(attack, {life: SHOT_LIFE}));
     record(g, {type: 'fire', kind: kind === 'shot' ? 'gun' : kind, size: SHIP_TYPES[f.role].size, team: f.team, from: f.id, x: f.x, y: f.y});
@@ -488,10 +492,10 @@
   }
 
   // 攻撃 p が目標 t に届いたときの結果。乱数は 命中 → 会心 → (かすりなら HP) → 空母の弱点 の順に使う
-  //   命中: p.hitChance (null なら 100% − 回避%)。ダメージ = (火力 (会心なら × 1.5) + 5) × 倍率 − 装甲 × 0.7 を切り捨て
+  //   命中: p.hitChance (null なら 100% − (回避 − p.evasionCut)%)。ダメージ = (火力 (会心なら × 1.5) + 5) × 倍率 − 装甲 × 0.7 を切り捨て
   //   0 以下ならかすり (今の HP の 5〜15%、最低 1)。空母は 15% で 2 倍 (弱点)、バフ中の目標は ÷ BUFF_DEFENSE (切り捨て)
   function resolveHit(p, t, rng){
-    const chance = p.hitChance === null || p.hitChance === undefined ? hitChance(t) : p.hitChance;
+    const chance = p.hitChance === null || p.hitChance === undefined ? hitChance(t, p.evasionCut) : p.hitChance;
     if(!(rng() < chance)) return {hit: false, damage: 0, critical: false, scratch: false, weakness: false};
     const critical = rng() < p.crit;
     let amount = Math.floor((p.fp * (critical ? CRIT_MULTIPLIER : 1) + ATTACK_BONUS) * p.mult - armorOf(t) * ARMOR_FACTOR);
@@ -659,8 +663,8 @@
     launchRecon(g, rng);
     refreshIntel();
 
-    // 特殊攻撃のゲージは時間でもたまる (空母にはない)
-    for(const f of living) if(f.special) f.charge = Math.min(CHARGE_MAX, (f.charge || 0) + CHARGE_PER_SECOND * dt);
+    // NP は時間でもたまる (艦種ごとの速さ。空母にはない)
+    for(const f of living) if(f.special) f.charge = Math.min(CHARGE_MAX, (f.charge || 0) + SHIP_TYPES[f.role].npPerSecond * dt);
 
     fireWeapons(g, dt);
     for(const f of living){
@@ -684,7 +688,7 @@
   const api = {
     WORLD, DEFAULT_WORLD, setWorld, BEACON_INTERVAL, BEACON_DURATION, beaconActive, RANGES, SPEEDS, weaponRange, sensorRange, hpRatio, damageState,
     attackMultiplier, hitChance, antiAirChance, resolveHit, speedOf, firepowerOf, armorOf, critChanceOf, GHOST_CLEAR_RANGE,
-    CHARGE_MAX, CHARGE_PER_SECOND, CHARGE_PER_DAMAGE, BOOST_DURATION, SPECIALS, FLEET_CLASSES, useSpecial,
+    CHARGE_MAX, CHARGE_PER_DAMAGE, evasionCutOf, BOOST_DURATION, SPECIALS, FLEET_CLASSES, useSpecial,
     STEALTH_DURATION, SHOT_LIFE, BOMBER_LIFE, BOMBER_TURN_RATE, RECON_SPEED, RECON_LIFE, AA_RANGE,
     BUFF_RANGE, isBuffed, updateBuffs, SHIP_TYPES, FORMATION, AI_THINK_INTERVAL, maxSpeed, lockRange, visibleEnemies, updateIntel,
     lockTarget, moveFleet, checkOutcome, createGame, step,

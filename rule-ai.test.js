@@ -200,6 +200,18 @@ test('AI (駆逐艦): 見えている敵が speederSafeDistance より近けれ�
   assert.ok(o.y > 2000, '敵と反対側へ');
 });
 
+test('AI (駆逐艦): NP が満タンなら、近くに敵がいても見えている最も近い敵を攻撃しに行く (特殊攻撃を使うため)', () => {
+  const flag = fleet({id: 'f', x: 1200, y: 4000, role: 'battleship', flagship: true});
+  const me = fleet({id: 's', x: 1200, y: 2000, role: 'destroyer', special: 'precision', charge: L.CHARGE_MAX});
+  const near = fleet({id: 'n', team: 'red', x: 1200, y: 1600});
+  const far = fleet({id: 'o', team: 'red', x: 1200, y: 900});
+  const intel = {n: {x: near.x, y: near.y, visible: true}, o: {x: far.x, y: far.y, visible: true}};
+  assert.deepEqual(R.aiDecide(me, [flag, me, near, far], intel, seq(0.5), P), {type: 'attack', targetId: 'n'});
+  me.charge = L.CHARGE_MAX - 1;
+  assert.equal(R.aiDecide(me, [flag, me, near, far], intel, seq(0.5), P).type, 'move', '満タンでなければ離れる');
+  assert.equal(R.aiDecide(Object.assign(me, {charge: L.CHARGE_MAX}), [flag, me, near, far], {}, seq(0.5), P).type, 'move', '見えている敵がいなければ今までどおり');
+});
+
 test('AI (駆逐艦): 敵旗艦の位置が分かれば、speederMarkDistance を保って見張る', () => {
   const flag = fleet({id: 'f', x: 1200, y: 4000, role: 'battleship', flagship: true});
   const me = fleet({id: 's', x: 1200, y: 3000, role: 'destroyer'});

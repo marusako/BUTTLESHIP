@@ -127,8 +127,14 @@
     return moveTo(offsetFrom(flag, fwd * p.attackerDistance, right * p.attackerDistance));
   }
 
-  // 駆逐艦: 戦わない > 見張る。近すぎる敵からは離れ、敵旗艦の位置が分かれば距離を保って見張り、分からなければ索敵する
+  // 駆逐艦: NP が満タンなら、見えている最も近い敵を攻撃しに行く (特殊攻撃は射程に入ると自動で使う)。
+  // それ以外は 戦わない > 見張る。近すぎる敵からは離れ、敵旗艦の位置が分かれば距離を保って見張り、分からなければ索敵する
   function speederDecide(f, fleets, intel, rng, p){
+    if(f.special && f.charge >= L.CHARGE_MAX){
+      let target = null;
+      for(const [id, info] of Object.entries(intel)) if(info.visible && (!target || dist(f, info) < dist(f, target.info))) target = {id, info};
+      if(target) return {type: 'attack', targetId: target.id};
+    }
     let threat = null;
     for(const info of Object.values(intel)){
       if(info.visible && dist(f, info) < p.speederSafeDistance && (!threat || dist(f, info) < dist(f, threat))) threat = info;

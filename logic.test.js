@@ -504,7 +504,7 @@ function ship(type, over){
 // テスト用の弾 (火力 fp、攻撃力の倍率 mult、会心率 crit、命中率 hitChance (null なら相手の回避で決まる))
 function shot(over){
   return Object.assign({id: 1, kind: 'shot', team: 'blue', from: 'b', targetId: 'r', x: 0, y: 0, heading: 0, range: 450, life: L.SHOT_LIFE,
-    fp: 100, mult: 1, crit: 0.05, hitChance: null}, over);
+    fp: 100, mult: 1, crit: 0.05, hitChance: null, evasionCut: 0}, over);
 }
 
 test('艦種: ステータス (耐久・火力・装甲・回避・対空・索敵・射程・速力)・武器・再装填・大きさ', () => {
@@ -643,14 +643,17 @@ test('射程: 弾は目標を追いかけ、目標が撃った艦の射程の外
   assert.ok(g2.events.some(e => e.type === 'fizzle'));
 });
 
-test('命中率: 100% − 回避% (戦艦 85% / 空母 60% / 巡洋艦 40% / 駆逐艦 15%)', () => {
+test('命中率: 100% − 回避% (戦艦 85% / 空母 60% / 巡洋艦 40% / 駆逐艦 15%)。巡洋艦の強化中の弾は敵の回避 −40 (0 未満にはしない)', () => {
+  assert.equal(L.resolveHit(shot({evasionCut: 40}), ship('destroyer'), seq(0.549)).hit, true, '回避 85 − 40 = 45 → 命中率 55%');
+  assert.equal(L.resolveHit(shot({evasionCut: 40}), ship('destroyer'), seq(0.55)).hit, false);
+  assert.equal(L.resolveHit(shot({evasionCut: 40}), ship('battleship'), seq(0.999)).hit, true, '回避 15 − 40 → 0 → 命中率 100%');
   assert.deepEqual(Object.keys(L.SHIP_TYPES).map(type => Math.round(L.hitChance(ship(type)) * 100) / 100), [0.85, 0.6, 0.4, 0.15]);
   const dd = ship('destroyer');
   assert.equal(L.resolveHit(shot(), dd, seq(0.149)).hit, true);
   assert.equal(L.resolveHit(shot(), dd, seq(0.15)).hit, false);
   assert.equal(L.resolveHit(shot({hitChance: 1}), dd, seq(0.99)).hit, true, '回避を無視する攻撃');
-  assert.equal(L.resolveHit(shot({hitChance: 0.6}), dd, seq(0.59)).hit, true);
-  assert.equal(L.resolveHit(shot({hitChance: 0.6}), dd, seq(0.6)).hit, false);
+  assert.equal(L.resolveHit(shot({hitChance: 0.7}), dd, seq(0.69)).hit, true);
+  assert.equal(L.resolveHit(shot({hitChance: 0.7}), dd, seq(0.7)).hit, false);
 });
 
 test('ダメージ: (火力 + 5) − 装甲 × 0.7 を切り捨て。会心 (5%) は 火力 × 1.5 + 5 − 装甲 × 0.7', () => {
@@ -714,7 +717,7 @@ test('爆撃機: 空母は射程 1200 以内のロックオンした敵に、5 �
   L.fireWeapons(g, 0.1, {blue: [e], red: []});
   assert.equal(g.aircraft.length, 1);
   const a = g.aircraft[0];
-  assert.deepEqual([a.kind, a.team, a.from, a.targetId, a.life, a.fp, a.range], ['bomber', 'blue', 'v', 'e', L.BOMBER_LIFE, 50, 1200]);
+  assert.deepEqual([a.kind, a.team, a.from, a.targetId, a.life, a.fp, a.range, a.hitChance], ['bomber', 'blue', 'v', 'e', L.BOMBER_LIFE, 50, 1200, 1]);
   assert.equal(g.projectiles.length, 0, '空母は弾を撃たない');
   L.fireWeapons(g, 4.8, {blue: [e], red: []});
   assert.equal(g.aircraft.length, 1, '二段攻撃ではない');
@@ -722,7 +725,7 @@ test('爆撃機: 空母は射程 1200 以内のロックオンした敵に、5 �
   assert.equal(g.aircraft.length, 2);
 });
 
-test('爆撃機: 目標へ向かい、届いたら爆撃して (回避で抽選) 消える。曲がる速さに限りがあり、BOMBER_LIFE 秒で消える。目標が射程の外に出たら消える', () => {
+test('爆撃機: 目標へ向かい、届いたら爆撃して (回避できない) 消える。曲がる速さに限りがあり、BOMBER_LIFE 秒で消える。目標が射程の外に出たら消える', () => {
   const cv = ship('carrier', {id: 'v'});
   const e = ship('cruiser', {id: 'e', team: 'red', x: 300, y: 0});
   const g = game([cv, e]);
@@ -800,15 +803,16 @@ test('対空射撃: 全艦種が、400 以内の敵の艦載機を 0.5 秒ごと
   assert.equal(own.aircraft.length, 1, '味方の艦載機は撃たない');
 });
 
-test('特殊攻撃のゲージ: 毎秒 +1、与えたダメージ 1 につき +1、満タン 100。空母にはない', () => {
-  assert.deepEqual([L.CHARGE_MAX, L.CHARGE_PER_SECOND, L.CHARGE_PER_DAMAGE], [100, 1, 1]);
+test('NP (特殊攻撃のゲージ): 時間でたまる速さは艦種ごと (毎秒 戦艦 +1 / 巡洋艦 +2 / 駆逐艦 +3)。与えたダメージ 1 につき +1、満タン 100。空母にはない', () => {
+  assert.deepEqual([L.CHARGE_MAX, L.CHARGE_PER_DAMAGE], [100, 1]);
+  assert.deepEqual(Object.values(L.SHIP_TYPES).map(t => t.npPerSecond), [1, 0, 2, 3]);
   const b = ship('cruiser', {id: 'b', x: 0, y: 0});
   const r = ship('destroyer', {id: 'r', team: 'red', x: 5000, y: 5000});
   const cv = ship('carrier', {id: 'v', x: 100, y: 0});
-  const g = game([b, r, cv]);
+  const bb = ship('battleship', {id: 'bb', x: 0, y: 3000});
+  const g = game([b, r, cv, bb]);
   L.step(g, 2, seq(0.5));
-  assert.equal(b.charge, 2);
-  assert.equal(cv.charge, 0);
+  assert.deepEqual([bb.charge, b.charge, r.charge, cv.charge], [2, 4, 6, 0]);
   b.charge = 99.5;
   L.step(g, 1, seq(0.5));
   assert.equal(b.charge, 100);
@@ -816,7 +820,7 @@ test('特殊攻撃のゲージ: 毎秒 +1、与えたダメージ 1 につき +1
   h.projectiles.push(shot({x: 280, y: 0, fp: 55}));
   L.step(h, 0.01, seq(0.01, 0.5, 0.5));
   const dealt = h.events.find(e => e.type === 'hit').damage;
-  assert.ok(Math.abs(h.fleets[0].charge - (0.01 + dealt)) < 1e-9, '与えたダメージの分たまる');
+  assert.ok(Math.abs(h.fleets[0].charge - (0.02 + dealt)) < 1e-9, '与えたダメージの分たまる (時間の分は巡洋艦 毎秒 +2)');
 });
 
 test('特殊攻撃: ゲージが満たないと使えない。使うと 0 に戻り、出来事 special を記録', () => {
@@ -846,7 +850,7 @@ test('特殊攻撃 (駆逐艦Ⅰ型) 精密射撃: 火力 100 の単発弾。回
   assert.deepEqual(p.map(x => [x.kind, x.fp, x.hitChance]), [['shot', 100, 1]]);
 });
 
-test('特殊攻撃 (駆逐艦Ⅱ型) 魚雷: 火力 100 の二連攻撃 (2 発目は 0.2 秒後)。回避を無視し、命中率 60%', () => {
+test('特殊攻撃 (駆逐艦Ⅱ型) 魚雷: 火力 100 の二連攻撃 (2 発目は 0.2 秒後)。回避を無視し、命中率 70%', () => {
   const b = ship('destroyer', {id: 'b', x: 0, y: 0, charge: 100, special: 'torpedo'});
   const r = ship('cruiser', {id: 'r', team: 'red', x: 200, y: 0});
   const g = game([b, r]);
@@ -855,11 +859,12 @@ test('特殊攻撃 (駆逐艦Ⅱ型) 魚雷: 火力 100 の二連攻撃 (2 発�
   assert.equal(L.useSpecial(g, b), true);
   L.fireWeapons(g, 0.2, {blue: [r], red: []});
   const torps = g.projectiles.filter(x => x.kind === 'torpedo');
-  assert.deepEqual(torps.map(x => [x.fp, x.hitChance]), [[100, 0.6], [100, 0.6]]);
+  assert.deepEqual(torps.map(x => [x.fp, x.hitChance]), [[100, 0.7], [100, 0.7]]);
   assert.ok(g.projectiles.length >= before + 2);
 });
 
-test('特殊攻撃 (巡洋艦) 強化: 15 秒間、火力・装甲・速力が 1.5 倍、会心率 20%', () => {
+test('特殊行動 (巡洋艦) 強化: 15 秒間、火力・装甲・速力が 1.5 倍、会心率 20%、命中率 +40% (敵の回避 −40)', () => {
+  assert.deepEqual(Object.values(L.SPECIALS).map(s => s.category), ['attack', 'action', 'attack', 'attack']);
   const c = ship('cruiser', {id: 'c', charge: 100});
   const g = game([c]);
   assert.equal(L.useSpecial(g, c), true);
@@ -872,10 +877,10 @@ test('特殊攻撃 (巡洋艦) 強化: 15 秒間、火力・装甲・速力が 1
   const r = ship('cruiser', {id: 'r', team: 'red', x: 300, y: 0});
   const g2 = game([c, r]);
   L.fireWeapons(g2, 0, {blue: [r], red: []});
-  assert.deepEqual([g2.projectiles[0].fp, g2.projectiles[0].crit], [55 * 1.5, 0.2]);
+  assert.deepEqual([g2.projectiles[0].fp, g2.projectiles[0].crit, g2.projectiles[0].evasionCut], [55 * 1.5, 0.2, 40]);
   L.step(g2, 15, seq(0.99));
   assert.equal(c.boost, 0);
-  assert.deepEqual([L.firepowerOf(c), L.armorOf(c), L.critChanceOf(c)], [55, 50, 0.05]);
+  assert.deepEqual([L.firepowerOf(c), L.armorOf(c), L.critChanceOf(c), L.evasionCutOf(c)], [55, 50, 0.05, 0]);
 });
 
 test('特殊攻撃 (戦艦) 全艦一斉射撃: 射程の中の敵を狙っている味方の全艦が、火力 100 の攻撃を 5 回ずつ (0.2 秒おき)。空母は爆撃機', () => {
@@ -894,7 +899,7 @@ test('特殊攻撃 (戦艦) 全艦一斉射撃: 射程の中の敵を狙って�
   const hi = g.projectiles.filter(p => p.fp === 100);
   assert.equal(hi.filter(p => p.from === 'bb').length, 5);
   assert.equal(hi.filter(p => p.from === 'cr').length, 5);
-  assert.equal(g.aircraft.filter(a => a.fp === 100 && a.from === 'cv').length, 5);
+  assert.equal(g.aircraft.filter(a => a.fp === 100 && a.from === 'cv' && a.hitChance === 1).length, 5, '爆撃機は回避できない');
   assert.equal(hi.filter(p => p.from === 'dd').length, 0, '狙いのない艦は撃たない');
   assert.equal(L.useSpecial(game([ship('battleship', {charge: 100})]), g.fleets[0]), false, '誰も狙っていなければ使えない');
 });
