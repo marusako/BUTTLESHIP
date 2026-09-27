@@ -52,18 +52,30 @@ test('1 試合: マップの広さを指定でき、終わったら本番の広�
   assert.deepEqual(L.WORLD, {w: 10000, h: 20000});
 });
 
-test('小さいマップから始める: 時間切れの割合が 5 世代続けて 30% 未満なら次の広さへ。最後の広さで止まる', () => {
+test('小さいマップから始める: 同じ広さで最低 20 世代。時間切れ 30% 未満かつ端 50% 未満が 5 世代続いたら次の広さへ。最後の広さで止まる', () => {
   assert.deepEqual(E.WORLD_STAGES, [{w: 2500, h: 5000}, {w: 5000, h: 10000}, {w: 10000, h: 20000}]);
-  let c = {stage: 0, streak: 0};
-  for(const rate of [0.2, 0.1, 0.29, 0.2]) c = E.advanceCurriculum(c, rate);
-  assert.deepEqual(c, {stage: 0, streak: 4});
-  c = E.advanceCurriculum(c, 0.35);
-  assert.deepEqual(c, {stage: 0, streak: 0}, '30% 以上で数え直し');
-  for(let i = 0; i < 5; i++) c = E.advanceCurriculum(c, 0.1);
-  assert.deepEqual(c, {stage: 1, streak: 0});
-  c = {stage: 2, streak: 0};
-  for(let i = 0; i < 6; i++) c = E.advanceCurriculum(c, 0);
+  let c = {stage: 0, streak: 0, gens: 0};
+  for(let i = 0; i < 19; i++) c = E.advanceCurriculum(c, 0.1, 0.1);
+  assert.deepEqual(c, {stage: 0, streak: 19, gens: 19}, '20 世代まではとどまる');
+  c = E.advanceCurriculum(c, 0.1, 0.1);
+  assert.deepEqual(c, {stage: 1, streak: 0, gens: 0});
+  c = {stage: 1, streak: 4, gens: 30};
+  assert.deepEqual(E.advanceCurriculum(c, 0.35, 0.1), {stage: 1, streak: 0, gens: 31}, '時間切れ 30% 以上で数え直し');
+  assert.deepEqual(E.advanceCurriculum(c, 0.1, 0.5), {stage: 1, streak: 0, gens: 31}, '端 50% 以上で数え直し');
+  assert.deepEqual(E.advanceCurriculum(c, 0.29, 0.49), {stage: 2, streak: 0, gens: 0});
+  c = {stage: 2, streak: 0, gens: 0};
+  for(let i = 0; i < 30; i++) c = E.advanceCurriculum(c, 0, 0);
   assert.equal(c.stage, 2);
+  assert.deepEqual(E.advanceCurriculum({stage: 0, streak: 2}, 0.1, 0.1), {stage: 0, streak: 3, gens: 1}, '前の保存データ (gens なし) も読める');
+});
+
+test('成績: 端にいた割合 (チームごと) × 0.3 を引く', () => {
+  const base = {outcome: 'win', ships: {blue: 75000, red: 75000}, spotted: {blue: false, red: false}};
+  const a = E.matchScore(base, 'blue');
+  const b = E.matchScore(Object.assign({}, base, {metrics: {edgeByTeam: {blue: 0.5, red: 0.1}}}), 'blue');
+  const r = E.matchScore(Object.assign({}, base, {metrics: {edgeByTeam: {blue: 0.5, red: 0.1}}}), 'red');
+  assert.ok(Math.abs((a - b) - 0.3 * 0.5) < 1e-12);
+  assert.ok(Math.abs((E.matchScore(base, 'red') - r) - 0.3 * 0.1) < 1e-12);
 });
 
 test('突然変異: 決まった乱数なら決まった結果。元の脳は変えない。rate 0 なら同じ、rate 1 ならすべて変わる', () => {
@@ -130,4 +142,17 @@ test('記録する数値: マップの端にいた割合は、端に張りつい
   const still = E.playMatch(B.controller(stay()), B.controller(stay()), {seed: 1, dt: 1 / 10, maxTime: 200});
   assert.ok(r.metrics.edgeRatio > 0.5, String(r.metrics.edgeRatio));
   assert.ok(still.metrics.edgeRatio < r.metrics.edgeRatio);
+  assert.ok(r.metrics.edgeByTeam.blue > 0.5 && r.metrics.edgeByTeam.red > 0.5, 'チームごとにも数える');
+  const oneSide = E.playMatch(B.controller(toEdge), B.controller(stay()), {seed: 1, dt: 1 / 10, maxTime: 200});
+  assert.ok(oneSide.metrics.edgeByTeam.blue > 0.5 && oneSide.metrics.edgeByTeam.red < 0.1, JSON.stringify(oneSide.metrics.edgeByTeam));
+});
+
+test('出発点の脳から集団を作る: 1 個体目はそのまま、残りは少し乱れを加えたもの (決まった乱数なら決まった結果)', () => {
+  const seed = B.randomBrainSet(E.mulberry32(4));
+  const pop = E.seedPopulation(seed, 5, E.mulberry32(8), {sigma: 0.05, rate: 0.2});
+  assert.equal(pop.length, 5);
+  assert.deepEqual(B.toPlain(pop[0]), B.toPlain(seed));
+  for(const p of pop.slice(1)) assert.notDeepEqual(B.toPlain(p), B.toPlain(seed));
+  const again = E.seedPopulation(seed, 5, E.mulberry32(8), {sigma: 0.05, rate: 0.2});
+  assert.deepEqual(pop.map(B.toPlain), again.map(B.toPlain));
 });

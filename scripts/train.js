@@ -1,6 +1,7 @@
 // AI の脳を神経進化で育てる。途中経過は training/ に保存し、次に動かすと続きから再開する。
 //   node scripts/train.js --minutes 60            学習を 60 分 (その世代が終わるまで) 回す
 //   node scripts/train.js --minutes 60 --fresh    最初から (前の学習は training/archive/ へ移して残す)
+//   node scripts/train.js --minutes 60 --fresh --from training/imitation.json   模倣学習の脳を出発点にして最初から
 // 学習の試合のマップは小さい広さから始め、時間切れが減ったら広げる (evolve.js の WORLD_STAGES)。評価はいつも本番の広さ
 // ほかのオプション: --workers 5 --pop 48 --games 6 --elite 6 --sigma 0.05 --rate 0.1 --tournament 3
 //   --hall-prob 0.25 --hall-every 5 --hall-max 20 --eval-every 10 --eval-games 20 --dt 0.0333 --max-time 600 --seed 1
@@ -14,7 +15,7 @@ const DIR = path.join(__dirname, '..', 'training');
 const DEFAULTS = {
   minutes: 60, workers: 5, pop: 48, games: 6, elite: 6, sigma: 0.05, rate: 0.1, tournament: 3,
   'hall-prob': 0.25, 'hall-every': 5, 'hall-max': 20, 'eval-every': 10, 'eval-games': 20,
-  dt: 1 / 30, 'max-time': 600, seed: 1, fresh: false
+  dt: 1 / 30, 'max-time': 600, seed: 1, fresh: false, from: ''
 };
 
 function parseArgs(argv){
@@ -23,6 +24,7 @@ function parseArgs(argv){
     const key = argv[i].replace(/^--/, '');
     if(!(key in DEFAULTS)) throw new Error(`知らないオプション: ${argv[i]}`);
     if(typeof DEFAULTS[key] === 'boolean') o[key] = true;
+    else if(typeof DEFAULTS[key] === 'string') o[key] = argv[++i];
     else o[key] = Number(argv[++i]);
   }
   return o;
@@ -44,10 +46,13 @@ function archivePrevious(){
 
 function loadState(args){
   const file = path.join(DIR, 'state.json');
+  // 出発点の脳は、前の学習を移す前に読んでおく (training/ の中にあるため)
+  const from = args.from ? B.fromPlain(JSON.parse(fs.readFileSync(args.from, 'utf8')).brains) : null;
   if(args.fresh) archivePrevious();
   if(args.fresh || !fs.existsSync(file)){
     const rng = E.mulberry32(args.seed);
-    return {generation: 0, population: Array.from({length: args.pop}, () => B.randomBrainSet(rng)), hall: [], curriculum: {stage: 0, streak: 0}};
+    const population = from ? E.seedPopulation(from, args.pop, rng, {sigma: args.sigma, rate: args.rate}) : Array.from({length: args.pop}, () => B.randomBrainSet(rng));
+    return {generation: 0, population, hall: [], curriculum: {stage: 0, streak: 0, gens: 0}};
   }
   const s = JSON.parse(fs.readFileSync(file, 'utf8'));
   return {generation: s.generation, population: s.population.map(B.fromPlain), hall: s.hall.map(B.fromPlain), curriculum: s.curriculum || {stage: E.WORLD_STAGES.length - 1, streak: 0}};
@@ -141,7 +146,7 @@ async function main(){
       if(state.hall.length > args['hall-max']) state.hall.shift();
     }
     const before = state.curriculum.stage;
-    state.curriculum = E.advanceCurriculum(state.curriculum, Number(row.timeoutRate));
+    state.curriculum = E.advanceCurriculum(state.curriculum, Number(row.timeoutRate), Number(row.edgeRatio));
     if(state.curriculum.stage !== before) console.log(`時間切れが減ったので、マップを ${worldLabel(E.WORLD_STAGES[state.curriculum.stage])} に広げます`);
     state.population = E.nextGeneration(state.population, fitness, rng, {elite: args.elite, sigma: args.sigma, rate: args.rate, tournament: args.tournament});
     state.generation++;

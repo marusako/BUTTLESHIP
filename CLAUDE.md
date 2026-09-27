@@ -41,4 +41,5 @@
 - `npm run serve` … http://localhost:8080/ で配信
 - `npm run train -- --minutes 60` … AI の脳を学習する (途中経過は `training/`。続きから再開できる)。**学習時間は毎回ユーザーと相談して決める**。**各段階の終わりに「学習するか」「何分回すか」を確かめる**
 - `npm run evaluate` … 育った AI 対 旧ルール AI の勝率を測る
+- `npm run imitate` … 旧ルール AI の真似をする脳を作る (`training/imitation.json`)。`npm run train -- --fresh --from training/imitation.json` で学習の出発点にする
 - `npm run package -- vX.Y` … そのタグの配布用 zip を `dist/` に作る (引数なしなら全タグ分)。GitHub Releases に添付する手順は DESIGN.md の「配布」

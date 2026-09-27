@@ -150,7 +150,7 @@
     return set;
   }
 
-  const api = {ROLES, INPUTS, HIDDEN, OUTPUTS, OUT, MOVE_REACH, paramCount, forward, observe, decide, controller, randomBrainSet, toPlain, fromPlain};
+  const api = {ROLES, INPUTS, HIDDEN, OUTPUTS, OUT, MOVE_REACH, paramCount, visibleTargets, forward, observe, decide, controller, randomBrainSet, toPlain, fromPlain};
   if(typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.SagittariusBrain = api;
 })(typeof window !== 'undefined' ? window : globalThis);
