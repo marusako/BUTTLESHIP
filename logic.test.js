@@ -460,6 +460,25 @@ test('撃沈エフェクト (wreckState): 始めは船体の形のまま、時�
   assert.deepEqual([end.alpha, end.done], [0, true]);
 });
 
+// ---------- 第 2.11 段階 (2.11b) ----------
+
+test('TARGET パネル (targetInfo): ロックオンしている敵の HP・損傷・距離・命中率・1 発の期待ダメージ・射程の中か。狙いがなければ null', () => {
+  const me = ship('cruiser', {id: 'me', x: 0, y: 0});
+  const e = ship('carrier', {id: 'e', team: 'red', x: 300, y: 400, ships: 30});
+  assert.equal(L.targetInfo(me), null, 'ロックオンなし');
+  me.lockId = 'e'; me.lockRef = e;
+  const t = L.targetInfo(me);
+  assert.deepEqual([t.id, t.ships, t.maxShips, t.state, t.distance, t.inRange], ['e', 30, 70, 'moderate', 500, false]);
+  assert.ok(Math.abs(t.hitChance - 0.6) < 1e-9);
+  assert.equal(t.expected, L.expectedDamage(me, e));
+  e.x = 0; e.y = 400;
+  assert.equal(L.targetInfo(me).inRange, true, '射程 450 の中');
+  const cv = ship('carrier', {id: 'cv', lockId: 'e', lockRef: e});
+  assert.equal(L.targetInfo(cv).hitChance, 1, '爆撃機は回避できない');
+  e.ships = 0;
+  assert.equal(L.targetInfo(me), null, '沈んだ敵は狙いにしない');
+});
+
 // ---------- 第 2.10 段階 (2.10b) ----------
 
 test('観戦 (spectate): プレイヤーの艦はなく、10 隻すべてを AI が動かす。自艦の名前は使わない', () => {

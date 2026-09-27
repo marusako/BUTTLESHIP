@@ -609,6 +609,17 @@
   }
 
   // ---------- 表示のための計算 (描画はしない) ----------
+  // TARGET パネル: f がロックオンしている敵の情報 (狙いがない・沈んでいれば null)。
+  // 命中率は f の通常攻撃の値 (爆撃機は回避できないので 1、強化中は回避を引く)、expected は 1 発の期待ダメージ
+  function targetInfo(f){
+    const t = f.lockRef && f.lockRef.id === f.lockId ? f.lockRef : null;
+    if(!t || !alive(t)) return null;
+    const hit = weaponOf(f).kind === 'bomber' ? 1 : hitChance(t, evasionCutOf(f));
+    const distance = dist(f, t);
+    return {id: t.id, ships: t.ships, maxShips: t.maxShips, state: damageState(t), distance, hitChance: hit,
+      expected: expectedDamage(f, t), inRange: distance <= weaponRange(f)};
+  }
+
   // 視点の中心 (cx, cy) を、画面 (ワールドの大きさで viewW × viewH) の端がマップの外に出ないように止める。
   // 画面のほうがマップより大きい (か同じ) 向きは、マップの真ん中に置く
   function clampView(cx, cy, viewW, viewH, world){
@@ -755,7 +766,7 @@
     BUFF_RANGE, isBuffed, updateBuffs, SHIP_TYPES, FORMATION, AI_THINK_INTERVAL, maxSpeed, lockRange, visibleEnemies, updateIntel,
     lockTarget, moveFleet, checkOutcome, createGame, step,
     fireWeapons, launchRecon, antiAir, moveProjectiles, moveAircraft, keyCourse, battleStats,
-    clampView, SHIP_SHAPES, WRECK_DURATION, createWreck, wreckState,
+    targetInfo, clampView, SHIP_SHAPES, WRECK_DURATION, createWreck, wreckState,
     newCheatProgress, cheatSequenceStep, parseCommand, applyCommand, warpFleet
   };
   if(typeof module !== 'undefined' && module.exports) module.exports = api;

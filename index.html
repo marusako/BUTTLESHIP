@@ -38,22 +38,15 @@
   .allyRow .name{ flex: 1; color: var(--blue); }
   .allyRow.dead .name, .allyRow.dead .ships{ color: var(--muted); }
   .bottomRow{ flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-  #command .body{ display: flex; flex-direction: column; gap: 10px; padding: 8px 10px; }
-  .cmdGroup{ display: flex; flex-direction: column; gap: 4px; }
-  .cmdHead{ color: var(--accent); font-weight: bold; font-size: 14px; padding: 2px 8px; letter-spacing: 0.06em;
-    background: linear-gradient(90deg, #8a2a10, #3a1206); border-left: 3px solid #ff7a3c; }
-  .cmdBtn{ margin: 0; padding: 3px 8px; font-size: 13px; text-align: left; color: #ffb48a; background: #1a1010;
+  .controls{ display: flex; gap: 4px; }
+  .cmdBtn{ margin: 0; padding: 1px 8px; font-size: 12px; color: #ffb48a; background: #1a1010;
     border: 1px solid #5a2a18; letter-spacing: 0.04em; }
   .cmdBtn.on{ color: #fff3c4; background: #7a2e10; border-color: #ff7a3c; }
-  .cmdLabel{ color: #ffb48a; font-size: 12px; letter-spacing: 0.06em; margin-top: 2px; }
-  .cmdLabel::before{ content: "▶ "; color: #ff7a3c; font-size: 10px; }
-  .way{ display: grid; grid-template-columns: repeat(3, 30px); grid-template-rows: repeat(3, 24px); gap: 2px; }
-  .way .cmdBtn{ padding: 0; text-align: center; }
-  .way [data-way="up"]{ grid-column: 2; grid-row: 1; }
-  .way [data-way="left"]{ grid-column: 1; grid-row: 2; }
-  .way [data-way="right"]{ grid-column: 3; grid-row: 2; }
-  .way [data-way="down"]{ grid-column: 2; grid-row: 3; }
-  #command.disabled [data-weapon], #command.disabled [data-auto], #command.disabled [data-special]{ opacity: 0.35; pointer-events: none; } /* 自艦隊が全滅したら射撃の切り替えだけ使えない (視点移動は使える) */
+  .controls.disabled .cmdBtn{ opacity: 0.35; pointer-events: none; } /* 自艦が沈んだ・観戦中は使えない */
+  #target .body{ padding: 8px 10px; }
+  #target .none{ color: var(--muted); font-size: 13px; }
+  #target .kv b{ font-weight: normal; }
+  #target .tName{ color: var(--red); font-weight: bold; margin-bottom: 4px; }
   #location .mini{ position: relative; flex: 1; min-height: 120px; }
   #location canvas{ position: absolute; inset: 0; cursor: pointer; }
   .screen{ position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
@@ -133,6 +126,9 @@
         <div class="kv"><span>NP</span><span id="stSpecial"></span></div>
         <div class="kv"><span>BUFF</span><span id="stBuff"></span></div>
         <div class="kv"><span>ORDER</span><span id="stOrder"></span></div>
+        <div class="kv"><span>CONTROL</span><span class="controls" id="controls">
+          <button class="cmdBtn" data-weapon="fire">FIRE</button><button class="cmdBtn" data-auto="1">AUTO</button><button class="cmdBtn" data-special="1">SPECIAL</button>
+        </span></div>
       </div>
     </section>
     <section class="pane">
@@ -140,26 +136,9 @@
       <div class="body" id="allies"></div>
     </section>
     <div class="bottomRow">
-    <section class="pane" id="command">
-      <div class="paneTitle">COMMAND</div>
-      <div class="body">
-        <div class="cmdGroup">
-          <div class="cmdHead">ATTACK</div>
-          <button class="cmdBtn" data-weapon="fire">FIRE</button>
-          <button class="cmdBtn" data-auto="1">AUTO</button>
-          <button class="cmdBtn" data-special="1">SPECIAL</button>
-        </div>
-        <div class="cmdGroup">
-          <div class="cmdHead">VIEW</div>
-          <div class="cmdLabel">WAY</div>
-          <div class="way">
-            <button class="cmdBtn" data-way="up">▲</button>
-            <button class="cmdBtn" data-way="left">◀</button>
-            <button class="cmdBtn" data-way="right">▶</button>
-            <button class="cmdBtn" data-way="down">▼</button>
-          </div>
-        </div>
-      </div>
+    <section class="pane" id="target">
+      <div class="paneTitle">TARGET</div>
+      <div class="body" id="targetBody"></div>
     </section>
     <section class="pane" id="location">
       <div class="paneTitle">LOCATION</div>
@@ -281,7 +260,6 @@ let dragMove = null;
 // カメラ: 画面中心に映すワールド座標 (cx, cy) と拡大率。画面の上はいつも北
 const camera = {cx: 0, cy: 0, zoom: 1};
 const keys = new Set();
-const wayHeld = new Set(); // 押している WAY ボタン (視点移動)
 let logs = [];
 let wrecks = []; // 撃沈エフェクト {w: createWreck の結果, t0: 始まった時刻 (実時間の秒)}
 let prevVisible = new Set();
@@ -602,7 +580,7 @@ window.addEventListener('keydown', e => {
   if(e.code.startsWith('Arrow') || e.code === 'Space') e.preventDefault(); // ページがスクロールしないように
 });
 window.addEventListener('keyup', e => keys.delete(e.code));
-window.addEventListener('blur', () => { keys.clear(); wayHeld.clear(); });
+window.addEventListener('blur', () => keys.clear());
 
 // ---------- COMMAND パネル ----------
 function commandable(){
@@ -628,18 +606,13 @@ function triggerSpecial(){
   if(me.charge < L.CHARGE_MAX){ addLog(`${L.SPECIALS[me.special].name}: NP がまだたまっていない (${Math.floor(me.charge)}%)`); return; }
   if(!L.useSpecial(game, me)) addLog(`${L.SPECIALS[me.special].name}: 射程の中に狙える敵がいない`);
 }
-// WAY: 押している間、その方向へ視点を動かす
+// STATUS の CONTROL のボタン (FIRE・AUTO・SPECIAL)
 for(const b of document.querySelectorAll('.cmdBtn')){
-  b.addEventListener('mousedown', e => {
-    e.preventDefault(); // ボタンにフォーカスを移さない (Space で押されないように)
-    if(b.dataset.way && e.button === 0) wayHeld.add(b.dataset.way);
-  });
-  if(b.dataset.way) b.addEventListener('mouseleave', () => wayHeld.delete(b.dataset.way));
+  b.addEventListener('mousedown', e => e.preventDefault()); // ボタンにフォーカスを移さない (Space で押されないように)
   if(b.dataset.weapon) b.addEventListener('click', () => toggleWeapon(b.dataset.weapon));
   if(b.dataset.special) b.addEventListener('click', triggerSpecial);
   if(b.dataset.auto) b.addEventListener('click', toggleAutoSpecial);
 }
-window.addEventListener('mouseup', e => { if(e.button === 0) wayHeld.clear(); });
 
 // マウス位置をキャンバス内の座標にする
 function local(e, el){
@@ -813,9 +786,9 @@ function trackEvents(){
 
 // ---------- 更新 ----------
 function update(dt){
-  // 視点移動 (WASD と WAY ボタン)
-  const vx = (held('camRight') || wayHeld.has('right')) - (held('camLeft') || wayHeld.has('left'));
-  const vy = (held('camDown') || wayHeld.has('down')) - (held('camUp') || wayHeld.has('up'));
+  // 視点移動 (初期 WASD)
+  const vx = held('camRight') - held('camLeft');
+  const vy = held('camDown') - held('camUp');
   const k = CAMERA_SPEED * dt / camera.zoom;
   camera.cx += vx * k;
   camera.cy += vy * k;
@@ -1181,7 +1154,7 @@ function drawFog(allies){
   ctx.drawImage(fog, 0, 0);
 }
 
-// マップ上に重ねる表示: 左下にログ、下に操作説明、自艦隊が全滅していれば上に「観戦中」
+// マップ上に重ねる表示: 左下にログ、自艦が沈んだ・観戦中なら上に「観戦中」
 function drawMapOverlay(){
   const me = player();
   if(!me || me.ships <= 0){
@@ -1195,14 +1168,9 @@ function drawMapOverlay(){
   logs.forEach((l, i) => {
     ctx.globalAlpha = 1 - i * 0.13;
     ctx.fillStyle = l.color;
-    ctx.fillText(l.text, 14, canvas.height - 56 - i * 20);
+    ctx.fillText(l.text, 14, canvas.height - 16 - i * 20);
   });
   ctx.globalAlpha = 1;
-  ctx.fillStyle = COLORS.muted;
-  ctx.font = '12px sans-serif';
-  const k = a => S.keyLabel(settings.keys[a]);
-  ctx.fillText(`${k('moveUp')}${k('moveLeft')}${k('moveDown')}${k('moveRight')}: 移動   左クリック: 移動 / 敵をクリック: 攻撃   ${k('fire')}: FIRE   ${k('autoSpecial')}: AUTO   ${k('special')}: SPECIAL   Esc: 一時停止`, 14, canvas.height - 30);
-  ctx.fillText(`${k('camUp')}${k('camLeft')}${k('camDown')}${k('camRight')}・WAY: 視点移動   ホイール: 拡大縮小   ${k('center')}: 自艦へ   ${k('centerFlagship')}: 味方旗艦へ`, 14, canvas.height - 12);
 }
 
 // ---------- 右側のパネル ----------
@@ -1251,6 +1219,35 @@ function specialText(me){
   const auto = me.autoSpecial ? ' / AUTO' : '';
   return (me.charge >= L.CHARGE_MAX ? `${name} READY` : `${name} ${Math.floor(me.charge)}%`) + auto;
 }
+// TARGET: me がロックオンしている敵の情報 (名前・HP・損傷・距離・命中率・1 発の期待ダメージ・射程の中か)
+function renderTarget(me){
+  const t = me.ships > 0 ? L.targetInfo(me) : null;
+  const key = t ? [t.id, Math.ceil(t.ships), t.state, Math.round(t.distance / 10), Math.round(t.hitChance * 100), Math.round(t.expected * 10), t.inRange].join('|') : 'none';
+  if($('targetBody').dataset.key === key) return;
+  $('targetBody').dataset.key = key;
+  if(!t){
+    $('targetBody').innerHTML = '<div class="none">ロックオンしている敵はいない</div>';
+    return;
+  }
+  const state = DAMAGE_NAMES[t.state];
+  const rows = [
+    ['HP', `${Math.ceil(t.ships)} / ${t.maxShips}${state ? ` (${state})` : ''}`],
+    ['DISTANCE', `${Math.round(t.distance)} (${t.inRange ? '射程の中' : '射程の外'})`],
+    ['HIT', `${Math.round(t.hitChance * 100)}%`],
+    ['DAMAGE', `約 ${t.expected.toFixed(1)} / 発`]
+  ];
+  const name = document.createElement('div');
+  name.className = 'tName';
+  name.textContent = displayName(fleetById(t.id));
+  $('targetBody').replaceChildren(name, ...rows.map(([label, value]) => {
+    const row = document.createElement('div');
+    row.className = 'kv';
+    row.innerHTML = '<span></span><b></b>';
+    row.firstChild.textContent = label;
+    row.lastChild.textContent = value;
+    return row;
+  }));
+}
 // me: STATUS に出す艦 (観戦なら味方の旗艦)
 function updateSidePanels(me){
   const watching = !player();
@@ -1274,13 +1271,13 @@ function updateSidePanels(me){
     const text = dead ? '撃沈' : `${Math.ceil(f.ships)} / ${f.maxShips}`;
     if(row.lastChild.textContent !== text) row.lastChild.textContent = text;
   }
-  $('command').classList.toggle('disabled', !alive || watching);
+  $('controls').classList.toggle('disabled', !alive || watching);
+  renderTarget(me);
   for(const b of document.querySelectorAll('.cmdBtn')){
     let on = false;
     if(b.dataset.weapon) on = me.weapons[b.dataset.weapon];
     if(b.dataset.special) on = !!me.special && me.charge >= L.CHARGE_MAX;
     if(b.dataset.auto) on = !!me.autoSpecial;
-    if(b.dataset.way) on = wayHeld.has(b.dataset.way);
     b.classList.toggle('on', on);
   }
 }
