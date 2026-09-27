@@ -47,15 +47,13 @@
   .cmdBtn.on{ color: #fff3c4; background: #7a2e10; border-color: #ff7a3c; }
   .cmdLabel{ color: #ffb48a; font-size: 12px; letter-spacing: 0.06em; margin-top: 2px; }
   .cmdLabel::before{ content: "▶ "; color: #ff7a3c; font-size: 10px; }
-  .speeds{ display: flex; gap: 3px; }
-  .speeds .cmdBtn{ width: 27px; padding: 3px 0; text-align: center; border-radius: 50%; }
   .way{ display: grid; grid-template-columns: repeat(3, 30px); grid-template-rows: repeat(3, 24px); gap: 2px; }
   .way .cmdBtn{ padding: 0; text-align: center; }
   .way [data-way="up"]{ grid-column: 2; grid-row: 1; }
   .way [data-way="left"]{ grid-column: 1; grid-row: 2; }
   .way [data-way="right"]{ grid-column: 3; grid-row: 2; }
   .way [data-way="down"]{ grid-column: 2; grid-row: 3; }
-  #command.disabled .cmdBtn{ opacity: 0.35; pointer-events: none; }
+  #command.disabled [data-weapon]{ opacity: 0.35; pointer-events: none; } /* 自艦隊が全滅したら射撃の切り替えだけ使えない (視点移動は使える) */
   #location .mini{ position: relative; flex: 1; min-height: 120px; }
   #location canvas{ position: absolute; inset: 0; cursor: pointer; }
   .screen{ position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
@@ -98,6 +96,12 @@
   .credits dt{ color: var(--muted); }
   .credits dd{ margin: 0; }
   .settingsFoot{ text-align: center; margin-top: 18px; }
+  .stats{ display: grid; grid-template-columns: auto auto auto; gap: 6px 22px; justify-content: center; margin: 0 0 22px; font-variant-numeric: tabular-nums; }
+  .stats .head{ color: var(--muted); font-size: 13px; }
+  .stats .label{ color: #9fb4dc; text-align: left; }
+  .stats .blue{ color: var(--blue); text-align: right; }
+  .stats .red{ color: var(--red); text-align: right; }
+  .stats .time{ grid-column: span 2; text-align: center; }
   .section{ color: var(--muted); font-size: 13px; text-align: left; margin: 14px 0 6px; }
   .hint{ color: var(--muted); font-size: 13px; }
   #console{ position: fixed; left: 50%; bottom: 64px; transform: translateX(-50%); display: none;
@@ -143,11 +147,7 @@
           <button class="cmdBtn" data-weapon="torpid">TORPID</button>
         </div>
         <div class="cmdGroup">
-          <div class="cmdHead">MOVE</div>
-          <div class="cmdLabel">SPEED</div>
-          <div class="speeds">
-            <button class="cmdBtn" data-speed="0">0</button><button class="cmdBtn" data-speed="1">1</button><button class="cmdBtn" data-speed="2">2</button><button class="cmdBtn" data-speed="3">3</button><button class="cmdBtn" data-speed="4">4</button>
-          </div>
+          <div class="cmdHead">VIEW</div>
           <div class="cmdLabel">WAY</div>
           <div class="way">
             <button class="cmdBtn" data-way="up">▲</button>
@@ -199,7 +199,7 @@
   <div class="box settingsBox">
     <h2>設定</h2>
     <h3>キー配置</h3>
-    <p class="hint">変えたい操作のボタンを押してから、割り当てたいキーを押してください (Esc で取り消し)。ほかの操作と同じキーなら入れ替わります。矢印キー (視点移動) と Esc (一時停止) はいつでも使えます。</p>
+    <p class="hint">変えたい操作のボタンを押してから、割り当てたいキーを押してください (Esc で取り消し)。ほかの操作と同じキーなら入れ替わります。矢印キー (自艦隊の移動) と Esc (一時停止) はいつでも使えます。</p>
     <div class="keyList" id="keyList"></div>
     <p class="hint" id="keyMessage"></p>
     <button id="resetKeys">キー配置を初期設定に戻す</button>
@@ -217,7 +217,7 @@
 
 <div id="pause" class="screen">
   <div class="box">
-    <h2>一時停止</h2>
+    <h2>PAUSE</h2>
     <button id="resume">再開</button>
     <button id="pauseToTitle">タイトルへ</button>
     <p class="hint" id="pauseHint">Space / Esc でも再開できます</p>
@@ -228,6 +228,7 @@
   <div class="box">
     <h2 id="resultTitle"></h2>
     <div id="resultDetail" class="sub"></div>
+    <div id="resultStats" class="stats"></div>
     <button id="retry">もう一度</button>
     <button id="resultToTitle">タイトルへ</button>
   </div>
@@ -253,7 +254,6 @@ const $ = id => document.getElementById(id);
 const COLORS = {blue: '#4fa3ff', red: '#ff5a5a', accent: '#ffd34f', muted: '#7f93bb', text: '#d8e4ff'};
 const DT = 1 / 60;
 const CAMERA_SPEED = 900;  // px/秒 (画面上の速さ)
-const ROTATE_SPEED = 1.5;  // rad/秒
 const CLICK_RADIUS = 36;   // 敵艦隊をクリックしたとみなす半径 (画面 px)
 const MODE_NAMES = {modern: 'モダン'};
 
@@ -268,9 +268,10 @@ let settings = S.load(settingsStorage());
 let waitingAction = null; // キー配置で、次に押すキーを待っている操作
 // 長押しでの移動: 押している間はカーソルの位置 (キャンバス内の座標) を移動先にし続ける
 let dragMove = null;
-// カメラ: 画面中心に映すワールド座標 (cx, cy)、拡大率、回転角 (0 で北が上)
-const camera = {cx: 0, cy: 0, zoom: 1, angle: 0};
+// カメラ: 画面中心に映すワールド座標 (cx, cy) と拡大率。画面の上はいつも北
+const camera = {cx: 0, cy: 0, zoom: 1};
 const keys = new Set();
+const wayHeld = new Set(); // 押している WAY ボタン (視点移動)
 let logs = [];
 let prevVisible = new Set();
 let prevAlive = new Set();
@@ -357,7 +358,6 @@ function startBattle(){
   dragMove = null;
   const me = player();
   camera.zoom = 1;
-  camera.angle = 0;
   camera.cx = me.x;
   camera.cy = me.y - 200;
   clampCamera();
@@ -511,38 +511,34 @@ window.addEventListener('keydown', e => {
   }
   if(mode === 'battle'){
     if(isAction(e.code, 'center')) centerOnPlayer();
-    if(isAction(e.code, 'north')) camera.angle = 0;
-    for(let n = 0; n <= L.MAX_THROTTLE; n++){
-      if(isAction(e.code, 'speed' + n) || e.code === 'Numpad' + n) setThrottle(n); // テンキーの 0〜4 も固定で使える
-    }
+    if(!e.repeat && isAction(e.code, 'shell')) toggleWeapon('shell');
+    if(!e.repeat && isAction(e.code, 'torpid')) toggleWeapon('torpid');
   }
   keys.add(e.code);
   if(e.code.startsWith('Arrow') || e.code === 'Space' || isAction(e.code, 'pause')) e.preventDefault();
 });
 window.addEventListener('keyup', e => keys.delete(e.code));
-window.addEventListener('blur', () => keys.clear());
+window.addEventListener('blur', () => { keys.clear(); wayHeld.clear(); });
 
 // ---------- COMMAND パネル ----------
 function commandable(){
   const me = player();
   return mode === 'battle' && me && me.ships > 0 ? me : null;
 }
-function setThrottle(level){
+function toggleWeapon(kind){
   const me = commandable();
-  if(me) me.throttle = level;
+  if(me) me.weapons[kind] = !me.weapons[kind];
 }
-// 画面上の方向 (上下左右) を、視点の回転を考えてワールドの向きにする
-const WAY_ANGLES = {up: -Math.PI / 2, down: Math.PI / 2, left: Math.PI, right: 0};
+// WAY: 押している間、その方向へ視点を動かす
 for(const b of document.querySelectorAll('.cmdBtn')){
-  b.addEventListener('mousedown', e => e.preventDefault()); // ボタンにフォーカスを移さない (Space で押されないように)
-  b.addEventListener('click', () => {
-    const me = commandable();
-    if(!me) return;
-    if(b.dataset.weapon) me.weapons[b.dataset.weapon] = !me.weapons[b.dataset.weapon];
-    if(b.dataset.speed) setThrottle(Number(b.dataset.speed));
-    if(b.dataset.way) me.order = {type: 'course', angle: WAY_ANGLES[b.dataset.way] + camera.angle};
+  b.addEventListener('mousedown', e => {
+    e.preventDefault(); // ボタンにフォーカスを移さない (Space で押されないように)
+    if(b.dataset.way && e.button === 0) wayHeld.add(b.dataset.way);
   });
+  if(b.dataset.way) b.addEventListener('mouseleave', () => wayHeld.delete(b.dataset.way));
+  if(b.dataset.weapon) b.addEventListener('click', () => toggleWeapon(b.dataset.weapon));
 }
+window.addEventListener('mouseup', e => { if(e.button === 0) wayHeld.clear(); });
 
 // マウス位置をキャンバス内の座標にする
 function local(e, el){
@@ -580,6 +576,23 @@ canvas.addEventListener('mousemove', e => { if(dragMove) dragMove = local(e, can
 window.addEventListener('mouseup', e => { if(e.button === 0) dragMove = null; });
 window.addEventListener('blur', () => { dragMove = null; });
 
+// 移動キー (矢印と設定したキー): 押している間はその向きへ進み、離すと止まる。キーで動いていれば true
+function applyKeyMove(){
+  const me = commandable();
+  if(!me) return false;
+  const angle = L.keyCourse({
+    up: held('moveUp') || keys.has('ArrowUp'), down: held('moveDown') || keys.has('ArrowDown'),
+    left: held('moveLeft') || keys.has('ArrowLeft'), right: held('moveRight') || keys.has('ArrowRight')
+  });
+  if(angle !== null){
+    me.order = {type: 'course', angle, key: true};
+    dragMove = null;
+    return true;
+  }
+  if(me.order && me.order.key) me.order = null;
+  return false;
+}
+
 // 長押し中: カーソルの下の地点 (視点を動かしても追従) を移動先にする
 function applyDragMove(){
   const me = player();
@@ -602,19 +615,12 @@ canvas.addEventListener('wheel', e => {
 
 canvas.addEventListener('contextmenu', e => e.preventDefault());
 
-// ワールド座標 ⇔ 画面座標 (カメラの回転と拡大に対応)
+// ワールド座標 ⇔ 画面座標 (カメラの拡大に対応)
 function toScreen(wx, wy){
-  const dx = wx - camera.cx, dy = wy - camera.cy;
-  const c = Math.cos(camera.angle), s = Math.sin(camera.angle);
-  return {
-    x: canvas.width / 2 + (dx * c + dy * s) * camera.zoom,
-    y: canvas.height / 2 + (-dx * s + dy * c) * camera.zoom
-  };
+  return {x: canvas.width / 2 + (wx - camera.cx) * camera.zoom, y: canvas.height / 2 + (wy - camera.cy) * camera.zoom};
 }
 function toWorld(sx, sy){
-  const rx = (sx - canvas.width / 2) / camera.zoom, ry = (sy - canvas.height / 2) / camera.zoom;
-  const c = Math.cos(camera.angle), s = Math.sin(camera.angle);
-  return {x: camera.cx + rx * c - ry * s, y: camera.cy + rx * s + ry * c};
+  return {x: camera.cx + (sx - canvas.width / 2) / camera.zoom, y: camera.cy + (sy - canvas.height / 2) / camera.zoom};
 }
 // ミニマップのキャンバス内で、マップの縦横比を保って描く範囲
 function minimapArea(){
@@ -687,16 +693,15 @@ function trackEvents(){
 
 // ---------- 更新 ----------
 function update(dt){
-  const vx = (held('camRight') || keys.has('ArrowRight')) - (held('camLeft') || keys.has('ArrowLeft'));
-  const vy = (held('camDown') || keys.has('ArrowDown')) - (held('camUp') || keys.has('ArrowUp'));
-  const c = Math.cos(camera.angle), s = Math.sin(camera.angle);
+  // 視点移動 (WASD と WAY ボタン)
+  const vx = (held('camRight') || wayHeld.has('right')) - (held('camLeft') || wayHeld.has('left'));
+  const vy = (held('camDown') || wayHeld.has('down')) - (held('camUp') || wayHeld.has('up'));
   const k = CAMERA_SPEED * dt / camera.zoom;
-  camera.cx += (vx * c - vy * s) * k;
-  camera.cy += (vx * s + vy * c) * k;
+  camera.cx += vx * k;
+  camera.cy += vy * k;
   clampCamera();
-  camera.angle += (held('rotRight') - held('rotLeft')) * ROTATE_SPEED * dt;
 
-  applyDragMove();
+  if(!applyKeyMove()) applyDragMove();
   L.step(game, dt, Math.random);
   playEventSounds();
   trackEvents();
@@ -704,18 +709,25 @@ function update(dt){
 }
 
 function finish(){
-  const titles = {win: '勝利', lose: '敗北', draw: '引き分け'};
+  const titles = {win: 'WIN', lose: 'LOSE', draw: 'DRAW'};
   $('resultTitle').textContent = titles[game.outcome];
   $('resultTitle').style.color = game.outcome === 'win' ? COLORS.blue : game.outcome === 'lose' ? COLORS.red : COLORS.text;
-  const me = player();
-  const survivors = game.fleets.filter(f => f.team === 'blue' && f.ships > 0).length;
-  const parts = [MODE_NAMES[game.mode], `戦闘時間 ${formatTime(game.time)}`];
-  const redFlag = game.fleets.find(f => f.team === 'red' && f.flagship);
-  if(redFlag.ships <= 0) parts.push(`${redFlag.name} (敵旗艦) を撃破`);
-  if(me.ships <= 0) parts.push(`旗艦 ${me.name} が撃沈された`);
-  parts.push(`味方残存 ${survivors} 艦隊`);
-  parts.push(`${me.name} ${me.ships > 0 ? '残存 ' + Math.ceil(me.ships) + ' 隻' : '全滅'}`);
+  // 決め手 (どちらの旗艦が倒れたか)
+  const parts = [MODE_NAMES[game.mode]];
+  for(const f of game.fleets.filter(f => f.flagship && f.ships <= 0)){
+    parts.push(f.team === 'red' ? `${f.name} (敵旗艦) を撃破` : `旗艦 ${f.name} が撃沈された`);
+  }
   $('resultDetail').textContent = parts.join(' / ');
+  // 戦績: 戦闘時間・残存艦隊数・残存戦力 (味方 / 敵)
+  const st = L.battleStats(game);
+  const total = game.fleets.filter(f => f.team === 'blue').length;
+  const cell = (cls, text) => { const el = document.createElement('span'); el.className = cls; el.textContent = text; return el; };
+  $('resultStats').replaceChildren(
+    cell('head', ''), cell('head blue', '味方'), cell('head red', '敵'),
+    cell('label', '戦闘時間'), cell('time', formatTime(st.time)),
+    cell('label', '残存艦隊数'), cell('blue', `${st.fleets.blue} / ${total}`), cell('red', `${st.fleets.red} / ${total}`),
+    cell('label', '残存戦力'), cell('blue', `${Math.ceil(st.ships.blue)} 隻`), cell('red', `${Math.ceil(st.ships.red)} 隻`)
+  );
   setMode('result');
   Snd.jingle(game.outcome === 'win' ? 'win' : 'lose');
 }
@@ -731,14 +743,8 @@ function draw(){
   const me = player();
   const allies = game.fleets.filter(f => f.team === 'blue' && f.ships > 0);
 
-  // 索敵範囲と射程 (プレイヤー艦隊のみ射程を表示)
-  for(const f of allies){
-    const p = toScreen(f.x, f.y);
-    ctx.strokeStyle = 'rgba(79, 163, 255, 0.18)';
-    ctx.setLineDash([4, 6]);
-    ctx.beginPath(); ctx.arc(p.x, p.y, L.SENSOR_RANGE * camera.zoom, 0, Math.PI * 2); ctx.stroke();
-    ctx.setLineDash([]);
-  }
+  drawSensorArea(allies);
+  // 射程 (プレイヤー艦隊のみ)
   if(me && me.ships > 0){
     const p = toScreen(me.x, me.y);
     ctx.strokeStyle = 'rgba(255, 211, 79, 0.3)';
@@ -768,7 +774,6 @@ function draw(){
 
   drawFog(allies);
   drawMapOverlay();
-  drawCompass();
   drawMinimap();
   updateSidePanels(me);
 }
@@ -803,7 +808,7 @@ function drawGrid(){
 function drawOrderLine(me){
   if(!me || me.ships <= 0 || !me.order) return;
   let dest = me.order;
-  if(me.order.type === 'course'){ // WAY: 進む方向に少し先まで線を引く
+  if(me.order.type === 'course'){ // 移動キー: 進む方向に少し先まで線を引く
     dest = {x: me.x + Math.cos(me.order.angle) * 300, y: me.y + Math.sin(me.order.angle) * 300};
   }else if(me.order.type === 'attack'){
     dest = game.intel.blue[me.order.targetId];
@@ -862,8 +867,7 @@ function drawFleet(f){
   const p = toScreen(f.x, f.y);
   const color = COLORS[f.team];
   const size = (10 + 10 * f.ships / L.INITIAL_SHIPS) * camera.zoom + 4;
-  const h = f.heading - camera.angle; // 画面上の向き
-  const hx = Math.cos(h), hy = Math.sin(h);
+  const hx = Math.cos(f.heading), hy = Math.sin(f.heading);
   if(f.isPlayer){
     ctx.strokeStyle = COLORS.accent;
     ctx.lineWidth = 2;
@@ -899,10 +903,32 @@ function drawFleet(f){
   ctx.fillText(`${Math.ceil(f.ships)} 隻`, p.x, p.y + size + 20);
 }
 
+// 索敵範囲: 範囲の中 (重なった所も同じ明るさ) を薄く明るく塗り、境目に線を引く
+const light = document.createElement('canvas');
+const lightCtx = light.getContext('2d');
+function drawSensorArea(allies){
+  light.width = canvas.width; light.height = canvas.height;
+  lightCtx.fillStyle = 'rgb(79, 163, 255)';
+  for(const f of allies){
+    const p = toScreen(f.x, f.y);
+    lightCtx.beginPath(); lightCtx.arc(p.x, p.y, L.SENSOR_RANGE * camera.zoom, 0, Math.PI * 2); lightCtx.fill();
+  }
+  ctx.globalAlpha = 0.09;
+  ctx.drawImage(light, 0, 0);
+  ctx.globalAlpha = 1;
+  ctx.strokeStyle = 'rgba(120, 190, 255, 0.45)';
+  ctx.lineWidth = 1.5;
+  for(const f of allies){
+    const p = toScreen(f.x, f.y);
+    ctx.beginPath(); ctx.arc(p.x, p.y, L.SENSOR_RANGE * camera.zoom, 0, Math.PI * 2); ctx.stroke();
+  }
+  ctx.lineWidth = 1;
+}
+
 function drawFog(allies){
   fogCtx.globalCompositeOperation = 'source-over';
   fogCtx.clearRect(0, 0, fog.width, fog.height);
-  fogCtx.fillStyle = 'rgba(0, 3, 10, 0.62)';
+  fogCtx.fillStyle = 'rgba(0, 3, 10, 0.7)';
   fogCtx.fillRect(0, 0, fog.width, fog.height);
   fogCtx.globalCompositeOperation = 'destination-out';
   for(const f of allies){
@@ -930,16 +956,15 @@ function drawMapOverlay(){
   ctx.fillStyle = COLORS.muted;
   ctx.font = '12px sans-serif';
   const k = a => S.keyLabel(settings.keys[a]);
-  const speeds = [0, 1, 2, 3, 4].map(n => k('speed' + n)).join('');
-  ctx.fillText(`左クリック: 移動 / 敵をクリック: 攻撃   ${speeds}: SPEED 0〜4   ${k('pause')}・Esc: 一時停止`, 14, canvas.height - 30);
-  ctx.fillText(`${k('camUp')}${k('camLeft')}${k('camDown')}${k('camRight')}・矢印: 視点移動   ${k('rotLeft')}・${k('rotRight')}: 回転   ${k('north')}: 北を上に   ホイール: 拡大縮小   ${k('center')}: 自艦隊へ`, 14, canvas.height - 12);
+  ctx.fillText(`矢印・${k('moveUp')}${k('moveLeft')}${k('moveDown')}${k('moveRight')}: 移動   左クリック: 移動 / 敵をクリック: 攻撃   ${k('shell')}: SHELL   ${k('torpid')}: TORPID   ${k('pause')}・Esc: 一時停止`, 14, canvas.height - 30);
+  ctx.fillText(`${k('camUp')}${k('camLeft')}${k('camDown')}${k('camRight')}・WAY: 視点移動   ホイール: 拡大縮小   ${k('center')}: 自艦隊へ`, 14, canvas.height - 12);
 }
 
 // ---------- 右側のパネル ----------
 function orderText(me){
   if(!me.order) return '待機中';
   if(me.order.type === 'attack') return `${fleetById(me.order.targetId).name}を攻撃`;
-  if(me.order.type === 'course') return 'WAY で航行中';
+  if(me.order.type === 'course') return 'キーで移動中';
   return '移動中';
 }
 function setText(id, text){
@@ -981,31 +1006,9 @@ function updateSidePanels(me){
   for(const b of document.querySelectorAll('.cmdBtn')){
     let on = false;
     if(b.dataset.weapon) on = me.weapons[b.dataset.weapon];
-    if(b.dataset.speed) on = me.throttle === Number(b.dataset.speed);
-    if(b.dataset.way) on = !!me.order && me.order.type === 'course' && Math.abs(Math.cos(me.order.angle - WAY_ANGLES[b.dataset.way] - camera.angle) - 1) < 1e-6;
+    if(b.dataset.way) on = wayHeld.has(b.dataset.way);
     b.classList.toggle('on', on);
   }
-}
-
-// マップ上部のコンパス: 北 (N) の方向。敵陣は北側
-function drawCompass(){
-  const x = canvas.width / 2, y = 46, r = 28;
-  ctx.fillStyle = 'rgba(8, 16, 34, 0.85)';
-  ctx.strokeStyle = '#2a4a7a';
-  ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-  const arrow = (worldAngle, color, len, label) => {
-    const a = worldAngle - camera.angle;
-    const tx = x + Math.cos(a) * len, ty = y + Math.sin(a) * len;
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 2;
-    line({x, y}, {x: tx, y: ty});
-    ctx.lineWidth = 1;
-    ctx.fillStyle = color;
-    ctx.font = 'bold 11px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText(label, x + Math.cos(a) * (r + 10), y + Math.sin(a) * (r + 10) + 4);
-  };
-  arrow(-Math.PI / 2, COLORS.text, r - 6, 'N 敵陣');
 }
 
 function drawMinimap(){
@@ -1018,10 +1021,11 @@ function drawMinimap(){
   mctx.save();
   mctx.beginPath(); mctx.rect(r.x, r.y, r.w, r.h); mctx.clip();
   // 索敵範囲
-  mctx.fillStyle = 'rgba(79, 163, 255, 0.12)';
+  mctx.fillStyle = 'rgba(79, 163, 255, 0.22)';
+  mctx.strokeStyle = 'rgba(120, 190, 255, 0.6)';
   for(const f of game.fleets){
     if(f.team !== 'blue' || f.ships <= 0) continue;
-    mctx.beginPath(); mctx.ellipse(r.x + f.x * sx, r.y + f.y * sy, L.SENSOR_RANGE * sx, L.SENSOR_RANGE * sy, 0, 0, Math.PI * 2); mctx.fill();
+    mctx.beginPath(); mctx.ellipse(r.x + f.x * sx, r.y + f.y * sy, L.SENSOR_RANGE * sx, L.SENSOR_RANGE * sy, 0, 0, Math.PI * 2); mctx.fill(); mctx.stroke();
   }
   for(const f of game.fleets){
     if(f.team !== 'blue' || f.ships <= 0) continue;
@@ -1033,7 +1037,7 @@ function drawMinimap(){
     mctx.fillStyle = flagshipKnown(f) ? COLORS.accent : info.visible ? COLORS.red : 'rgba(255, 90, 90, 0.4)';
     mctx.fillRect(r.x + info.x * sx - 2.5, r.y + info.y * sy - 2.5, 5, 5);
   }
-  // 表示中の範囲 (回転しているときは傾いた四角形になる)
+  // 表示中の範囲
   const corners = [[0, 0], [canvas.width, 0], [canvas.width, canvas.height], [0, canvas.height]].map(([x, y]) => toWorld(x, y));
   mctx.strokeStyle = 'rgba(216, 228, 255, 0.6)';
   mctx.beginPath();

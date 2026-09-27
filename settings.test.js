@@ -18,12 +18,11 @@ test('初期設定: 操作ごとのキー、音量、名前 (空)', () => {
   assert.equal(d.keys.camDown, 'KeyS');
   assert.equal(d.keys.camLeft, 'KeyA');
   assert.equal(d.keys.camRight, 'KeyD');
-  assert.equal(d.keys.rotLeft, 'KeyQ');
-  assert.equal(d.keys.rotRight, 'KeyE');
-  assert.equal(d.keys.north, 'KeyR');
+  assert.deepEqual([d.keys.moveUp, d.keys.moveLeft, d.keys.moveDown, d.keys.moveRight], ['KeyO', 'KeyK', 'KeyL', 'Semicolon']);
+  assert.equal(d.keys.shell, 'Digit1');
+  assert.equal(d.keys.torpid, 'Digit2');
   assert.equal(d.keys.center, 'KeyC');
   assert.equal(d.keys.pause, 'Space');
-  assert.deepEqual([0, 1, 2, 3, 4].map(n => d.keys['speed' + n]), ['Digit0', 'Digit1', 'Digit2', 'Digit3', 'Digit4']);
   assert.deepEqual(d.volume, {bgm: 70, sfx: 80});
   assert.equal(d.name, '');
   assert.equal(new Set(Object.values(d.keys)).size, Object.keys(d.keys).length, 'キーは重ならない');
@@ -58,7 +57,7 @@ test('読み込み: 壊れたデータや保存先の例外でも初期設定で
 
 test('読み込み: おかしな値は直す (音量は 0〜100 の整数、名前は 12 文字まで、知らない・重なったキーは初期値)', () => {
   const raw = {
-    keys: {camUp: 'KeyD', camRight: 'KeyD', north: 123, unknownAction: 'KeyZ', pause: 'ArrowUp'},
+    keys: {camUp: 'KeyD', camRight: 'KeyD', center: 123, unknownAction: 'KeyZ', pause: 'ArrowUp'},
     volume: {bgm: 150, sfx: -3.7},
     name: '  とても長い艦隊の名前をつけてみた  '
   };
@@ -67,7 +66,7 @@ test('読み込み: おかしな値は直す (音量は 0〜100 の整数、名�
   assert.equal(s.keys.camRight, 'KeyD');
   assert.equal(s.keys.camUp, 'KeyW');
   assert.equal(new Set(Object.values(s.keys)).size, Object.keys(s.keys).length, '重ならない');
-  assert.equal(s.keys.north, 'KeyR');
+  assert.equal(s.keys.center, 'KeyC');
   assert.equal(s.keys.pause, 'Space', '予約されたキー (矢印) は使えない');
   assert.equal('unknownAction' in s.keys, false);
   assert.deepEqual(s.volume, {bgm: 100, sfx: 0});
@@ -104,12 +103,13 @@ test('キーの表示名: 画面に出す短い名前', () => {
   assert.equal(S.keyLabel('Digit3'), '3');
   assert.equal(S.keyLabel('Numpad3'), 'テンキー3');
   assert.equal(S.keyLabel('Space'), 'Space');
-  assert.equal(S.keyLabel('Semicolon'), 'Semicolon');
+  assert.equal(S.keyLabel('Semicolon'), ';');
+  assert.equal(S.keyLabel('Enter'), 'Enter');
 });
 
 test('操作の一覧: 設定画面に出す順番と名前', () => {
   const ids = S.ACTIONS.map(a => a.id);
-  assert.deepEqual(ids, ['camUp', 'camDown', 'camLeft', 'camRight', 'rotLeft', 'rotRight', 'north', 'center', 'pause', 'speed0', 'speed1', 'speed2', 'speed3', 'speed4']);
+  assert.deepEqual(ids, ['moveUp', 'moveDown', 'moveLeft', 'moveRight', 'shell', 'torpid', 'camUp', 'camDown', 'camLeft', 'camRight', 'center', 'pause']);
   assert.ok(S.ACTIONS.every(a => a.label));
 });
 
@@ -121,4 +121,15 @@ test('自艦隊の名前: 空なら「味方第1艦隊」', () => {
 test('クレジット: 原作 → 製作者 → 開発支援 の順', () => {
   assert.deepEqual(S.CREDITS.map(c => c.role), ['原作', '製作', '開発支援']);
   assert.equal(S.CREDITS[1].name, 'marusako');
+});
+
+test('読み込み: 前の版の保存データ (回転・SPEED のキーがある) も読める。なくなった操作は捨て、キーが重なれば入れ替える', () => {
+  const old = {keys: {camUp: 'KeyO', rotLeft: 'KeyQ', north: 'KeyR', speed1: 'Digit1', speed4: 'Digit4'}, volume: {bgm: 40, sfx: 60}, name: 'ヤマト'};
+  const s = S.load(memoryStorage({[S.STORAGE_KEY]: JSON.stringify(old)}));
+  assert.deepEqual(Object.keys(s.keys).sort(), S.ACTIONS.map(a => a.id).sort());
+  assert.equal(s.keys.camUp, 'KeyO');
+  assert.equal(s.keys.moveUp, 'KeyW', '重なった移動キーは入れ替わる');
+  assert.equal(s.keys.shell, 'Digit1');
+  assert.equal(new Set(Object.values(s.keys)).size, Object.keys(s.keys).length);
+  assert.deepEqual(s.volume, {bgm: 40, sfx: 60});
 });

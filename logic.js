@@ -5,7 +5,6 @@
 
   const WORLD = {w: 2400, h: 4800}; // 原作のミニマップと同じ縦長 (横 1 : 縦 2)。青は下、赤は上に陣取る
   const INITIAL_SHIPS = 15000;   // 原作の画面に合わせた初期艦艇数
-  const MAX_THROTTLE = 4;        // SPEED の段階の最大 (0〜4)
   const PARAM_TOTAL = 100;
   const PARAM_MIN = 10;
   const SENSOR_RANGE = 450;      // 索敵半径
@@ -56,7 +55,7 @@
   const SPAWN_XS = [400, 800, 1200, 1600, 2000];
   const SPAWN_ORDER = [3, 2, 1, 4, 5]; // 横一列に (各チームから見て) 左から第 3・第 2・第 1 (旗艦)・第 4・第 5 艦隊
 
-  // AI プロファイル: 役割別 AI の判断に使うつまみ。第 2.5 段階の学習でこの値を調整する
+  // AI プロファイル: 役割別 AI の判断に使うつまみ。第 2.7 段階 (AI 学習) でこの値を調整する
   const AI_PROFILES = {
     standard: {
       localRadius: 700,          // 局地的な戦力比を数える半径
@@ -155,14 +154,13 @@
     return best;
   }
 
-  // 命令に従って dt 秒ぶん移動する。移動した方向を向く。
-  // 速さは最大速度 × SPEED の段階 / 4。段階 0 では動かない (命令は残す)
+  // 命令に従って dt 秒ぶん、最大速度で移動する。移動した方向を向く
   function moveFleet(f, dt, intel){
     const o = f.order;
-    if(!o || f.throttle === 0) return;
-    const step = maxSpeed(f.params) * f.throttle / MAX_THROTTLE * dt;
+    if(!o) return;
+    const step = maxSpeed(f.params) * dt;
 
-    // WAY: 指定方向へ進み続け、マップの端に着いたら止まる
+    // 進路 (移動キー): 指定方向へ進み続け、マップの端に着いたら止まる
     if(o.type === 'course'){
       // 真北などで cos / sin に出る小さな誤差を 0 にそろえる
       const ux = Math.abs(Math.cos(o.angle)) < 1e-9 ? 0 : Math.cos(o.angle);
@@ -369,7 +367,6 @@
           flagship: slot.role === 'flagship',
           shellCooldown: 0,
           torpedoCooldown: 0,
-          throttle: MAX_THROTTLE,
           weapons: {shell: true, torpid: true},
           interceptCooldown: 0,
           ai: {nextThink: 0}
@@ -483,6 +480,24 @@
     });
   }
 
+  // 移動キーの押し具合 {up, down, left, right} から進む角度 (画面の上が北)。進まないときは null
+  function keyCourse(keys){
+    const vx = (keys.right ? 1 : 0) - (keys.left ? 1 : 0);
+    const vy = (keys.down ? 1 : 0) - (keys.up ? 1 : 0);
+    return vx === 0 && vy === 0 ? null : Math.atan2(vy, vx);
+  }
+
+  // 結果画面の戦績: 戦闘時間 (秒)、チームごとの残存艦隊数と残存戦力 (艦艇の合計)
+  function battleStats(g){
+    const fleets = {blue: 0, red: 0}, ships = {blue: 0, red: 0};
+    for(const f of g.fleets){
+      if(!alive(f)) continue;
+      fleets[f.team]++;
+      ships[f.team] += f.ships;
+    }
+    return {time: g.time, fleets, ships};
+  }
+
   // ---------- 隠しコマンド ----------
   function newCheatProgress(){
     return {index: 0, start: 0};
@@ -557,12 +572,12 @@
   }
 
   const api = {
-    WORLD, INITIAL_SHIPS, MAX_THROTTLE, PARAM_TOTAL, PARAM_MIN, SENSOR_RANGE, LOCK_RANGE, FIRE_RANGE, GHOST_CLEAR_RANGE, FIREPOWER_FLOOR,
+    WORLD, INITIAL_SHIPS, PARAM_TOTAL, PARAM_MIN, SENSOR_RANGE, LOCK_RANGE, FIRE_RANGE, GHOST_CLEAR_RANGE, FIREPOWER_FLOOR,
     SHELL_INTERVAL, TORPEDO_RELOAD, TORPEDO_SPEED, TORPEDO_TURN_RATE, TORPEDO_LIFE, INTERCEPT_RANGE, INTERCEPT_INTERVAL,
     JOBS, FORMATION, AI_PROFILES, validateParams, localForceRatio, maxSpeed, mitigation,
     shellDps, shellDamage, torpedoDamage, visibleEnemies, updateIntel,
     lockTarget, moveFleet, checkOutcome, aiDecide, createGame, step,
-    fireWeapons, interceptTorpedoes, moveProjectiles,
+    fireWeapons, interceptTorpedoes, moveProjectiles, keyCourse, battleStats,
     newCheatProgress, cheatSequenceStep, parseCommand, applyCommand, warpFleet
   };
   if(typeof module !== 'undefined' && module.exports) module.exports = api;

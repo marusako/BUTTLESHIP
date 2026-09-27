@@ -9,20 +9,18 @@
 
   // キーを変えられる操作 (設定画面に出す順)
   const ACTIONS = [
+    {id: 'moveUp', label: '移動 上', key: 'KeyO'},
+    {id: 'moveDown', label: '移動 下', key: 'KeyL'},
+    {id: 'moveLeft', label: '移動 左', key: 'KeyK'},
+    {id: 'moveRight', label: '移動 右', key: 'Semicolon'},
+    {id: 'shell', label: 'SHELL (通常弾) オン / オフ', key: 'Digit1'},
+    {id: 'torpid', label: 'TORPID (爆発弾) オン / オフ', key: 'Digit2'},
     {id: 'camUp', label: '視点 上', key: 'KeyW'},
     {id: 'camDown', label: '視点 下', key: 'KeyS'},
     {id: 'camLeft', label: '視点 左', key: 'KeyA'},
     {id: 'camRight', label: '視点 右', key: 'KeyD'},
-    {id: 'rotLeft', label: '視点の回転 左', key: 'KeyQ'},
-    {id: 'rotRight', label: '視点の回転 右', key: 'KeyE'},
-    {id: 'north', label: '北を上に', key: 'KeyR'},
     {id: 'center', label: '自艦隊へ視点移動', key: 'KeyC'},
-    {id: 'pause', label: '一時停止', key: 'Space'},
-    {id: 'speed0', label: 'SPEED 0', key: 'Digit0'},
-    {id: 'speed1', label: 'SPEED 1', key: 'Digit1'},
-    {id: 'speed2', label: 'SPEED 2', key: 'Digit2'},
-    {id: 'speed3', label: 'SPEED 3', key: 'Digit3'},
-    {id: 'speed4', label: 'SPEED 4', key: 'Digit4'}
+    {id: 'pause', label: '一時停止', key: 'Space'}
   ];
 
   // クレジット (原作 → 製作 → 開発支援)
@@ -32,7 +30,7 @@
     {role: '開発支援', name: 'Claude (Anthropic)'}
   ];
 
-  // 割り当てられないキー: 矢印 (視点移動) と Esc (一時停止) は固定で使うため。Tab・Enter・修飾キーは誤操作を防ぐため
+  // 割り当てられないキー: 矢印 (自艦隊の移動) と Esc (一時停止) は固定で使うため。Tab・Enter・修飾キーは誤操作を防ぐため
   function isReservedKey(code){
     return /^Arrow/.test(code) || /^(Escape|Tab|Enter|NumpadEnter)$/.test(code) || /^(Shift|Control|Alt|Meta)(Left|Right)?$/.test(code);
   }
@@ -85,11 +83,14 @@
     }
   }
 
+  const SYMBOL_LABELS = {Semicolon: ';', Quote: "'", Comma: ',', Period: '.', Slash: '/', Minus: '-', Equal: '=', BracketLeft: '[', BracketRight: ']', Backslash: '\\', Backquote: '`'};
+
   function keyLabel(code){
     let m;
     if((m = /^Key([A-Z])$/.exec(code))) return m[1];
     if((m = /^Digit(\d)$/.exec(code))) return m[1];
     if((m = /^Numpad(\d)$/.exec(code))) return 'テンキー' + m[1];
+    if(code in SYMBOL_LABELS) return SYMBOL_LABELS[code];
     return code;
   }
 

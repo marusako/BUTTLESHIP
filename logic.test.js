@@ -9,7 +9,7 @@ function fleet(over){
     ships: L.INITIAL_SHIPS, params: {speed: 34, defense: 33, attack: 33},
     order: null, isPlayer: false, ai: {nextThink: 0},
     heading: 0, flagship: false, shellCooldown: 0, torpedoCooldown: 0, interceptCooldown: 0,
-    throttle: 4, weapons: {shell: true, torpid: true}
+    weapons: {shell: true, torpid: true}
   }, over);
 }
 
@@ -372,23 +372,16 @@ test('AI: 弱さは艦艇数の割合で評価する (初期艦艇数を変え�
   assert.deepEqual(L.aiDecide(me, [me, fullNear, halfFar], intel, seq(0.5)), {type: 'attack', targetId: 'full'});
 });
 
-test('ゲーム作成: どの艦隊も SPEED 4・SHELL と TORPID オンで始まる', () => {
+test('ゲーム作成: どの艦隊も SHELL と TORPID オンで始まる', () => {
   const g = L.createGame({speed: 34, defense: 33, attack: 33});
-  for(const f of g.fleets){
-    assert.equal(f.throttle, 4);
-    assert.deepEqual(f.weapons, {shell: true, torpid: true});
-  }
+  for(const f of g.fleets) assert.deepEqual(f.weapons, {shell: true, torpid: true});
 });
 
-test('SPEED: 段階に比例した速さで進み、0 では止まるが命令は残る', () => {
+test('移動: いつも最大速度で進む (スピードの段階はない)', () => {
   const full = L.maxSpeed({speed: 34, defense: 33, attack: 33});
-  const f = fleet({throttle: 2, order: {type: 'move', x: 5000, y: 0}});
+  const f = fleet({order: {type: 'move', x: 5000, y: 0}});
   L.moveFleet(f, 1, {});
-  assert.ok(Math.abs(f.x - full / 2) < 1e-9);
-  f.throttle = 0;
-  L.moveFleet(f, 1, {});
-  assert.ok(Math.abs(f.x - full / 2) < 1e-9);
-  assert.deepEqual(f.order, {type: 'move', x: 5000, y: 0});
+  assert.ok(Math.abs(f.x - full) < 1e-9);
 });
 
 test('WAY: 指定した方向へ進み続け、マップの端で止まって命令が消える', () => {
@@ -850,4 +843,41 @@ test('出来事: ステップごとに新しく記録し直す (前のステッ�
 
 test('ゲーム作成: 出来事の一覧は空で始まる', () => {
   assert.deepEqual(L.createGame(L.JOBS.balancer.params).events, []);
+});
+
+// ---------- 第 2.5 段階 (2.5a) ----------
+
+test('移動キー: 押している向きから進む角度を出す (画面の上が北)', () => {
+  const none = {up: false, down: false, left: false, right: false};
+  const k = o => L.keyCourse(Object.assign({}, none, o));
+  const near = (a, b) => Math.abs(Math.atan2(Math.sin(a - b), Math.cos(a - b))) < 1e-9;
+  assert.ok(near(k({up: true}), -Math.PI / 2));
+  assert.ok(near(k({down: true}), Math.PI / 2));
+  assert.ok(near(k({left: true}), Math.PI));
+  assert.ok(near(k({right: true}), 0));
+  assert.ok(near(k({up: true, right: true}), -Math.PI / 4), '2 つ同時なら斜め');
+  assert.ok(near(k({down: true, left: true}), Math.PI * 3 / 4));
+  assert.ok(near(k({up: true, left: true, right: true}), -Math.PI / 2), '左右は打ち消し合う');
+});
+
+test('移動キー: 何も押していない・反対向きを同時に押しているときは null (止まる)', () => {
+  assert.equal(L.keyCourse({up: false, down: false, left: false, right: false}), null);
+  assert.equal(L.keyCourse({up: true, down: true, left: false, right: false}), null);
+  assert.equal(L.keyCourse({up: true, down: true, left: true, right: true}), null);
+});
+
+test('戦績: 戦闘時間・残存艦隊数・残存戦力 (艦艇の合計) をチームごとに数える', () => {
+  const g = game([
+    fleet({id: 'b1', team: 'blue', ships: 12000}),
+    fleet({id: 'b2', team: 'blue', ships: 0}),
+    fleet({id: 'b3', team: 'blue', ships: 300.4}),
+    fleet({id: 'r1', team: 'red', ships: 0}),
+    fleet({id: 'r2', team: 'red', ships: 5000})
+  ]);
+  g.time = 83.5;
+  const s = L.battleStats(g);
+  assert.equal(s.time, 83.5);
+  assert.deepEqual(s.fleets, {blue: 2, red: 1});
+  assert.ok(Math.abs(s.ships.blue - 12300.4) < 1e-9);
+  assert.equal(s.ships.red, 5000);
 });
