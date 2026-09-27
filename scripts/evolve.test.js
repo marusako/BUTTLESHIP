@@ -26,13 +26,44 @@ test('乱数 mulberry32: 同じ種なら同じ列、0 以上 1 未満、近い�
   assert.equal(new Set(firsts).size, 5, 'どれも違う値');
 });
 
-test('成績: 勝ち 1、負け 0、時間切れは負けより悪い。残存戦力の差を少しだけ足す', () => {
+test('成績: 勝ち 1、負け 0、時間切れは負けより悪い。残存戦力の差、与えたダメージ、敵旗艦の発見を少しだけ足す', () => {
+  const near = (a, b) => assert.ok(Math.abs(a - b) < 1e-12, `${a} と ${b}`);
   const ships = {blue: 30000, red: 15000};
-  assert.ok(Math.abs(E.matchScore({outcome: 'win', ships}, 'blue') - (1 + 0.1 * 15000 / 75000)) < 1e-12);
-  assert.ok(Math.abs(E.matchScore({outcome: 'win', ships}, 'red') - (0 - 0.1 * 15000 / 75000)) < 1e-12, '赤から見れば負け');
-  const timeout = E.matchScore({outcome: 'timeout', ships: {blue: 75000, red: 75000}}, 'blue');
-  assert.ok(timeout < E.matchScore({outcome: 'lose', ships: {blue: 0, red: 75000}}, 'blue'), '逃げ回って時間切れにするより負けたほうがまし');
-  assert.equal(E.matchScore({outcome: 'draw', ships: {blue: 0, red: 0}}, 'red'), E.TIMEOUT_SCORE);
+  // 青: 勝ち 1 + 差 0.1 × 15000/75000 + 与えたダメージ 0.2 × 60000/75000
+  near(E.matchScore({outcome: 'win', ships, spotted: {blue: false, red: false}}, 'blue'), 1 + 0.1 * 15000 / 75000 + 0.2 * 60000 / 75000);
+  // 赤: 負け 0 - 差 + 与えたダメージ 0.2 × 45000/75000 + 敵旗艦の発見 0.1
+  near(E.matchScore({outcome: 'win', ships, spotted: {blue: false, red: true}}, 'red'), 0 - 0.1 * 15000 / 75000 + 0.2 * 45000 / 75000 + 0.1);
+  const timeout = E.matchScore({outcome: 'timeout', ships: {blue: 75000, red: 75000}, spotted: {blue: true, red: true}}, 'blue');
+  assert.ok(timeout < E.matchScore({outcome: 'lose', ships: {blue: 0, red: 75000}, spotted: {blue: false, red: false}}, 'blue'), '逃げ回って時間切れにするより負けたほうがまし');
+  near(E.matchScore({outcome: 'draw', ships: {blue: 75000, red: 75000}}, 'red'), E.TIMEOUT_SCORE);
+});
+
+test('1 試合: 敵旗艦を見つけたかを記録する (旗艦の位置がばれる時間にも見つかる)', () => {
+  const r = E.playMatch(B.controller(stay()), B.controller(stay()), {seed: 2, dt: 1 / 10, maxTime: 70});
+  assert.deepEqual(r.spotted, {blue: true, red: true}, '60 秒で旗艦の位置がばれる');
+  const early = E.playMatch(B.controller(stay()), B.controller(stay()), {seed: 2, dt: 1 / 10, maxTime: 30});
+  assert.deepEqual(early.spotted, {blue: false, red: false});
+});
+
+test('1 試合: マップの広さを指定でき、終わったら本番の広さに戻る', () => {
+  const L = require('../logic.js');
+  const r = E.playMatch(B.controller(stay()), B.controller(stay()), {seed: 2, dt: 1 / 10, maxTime: 5, world: {w: 2500, h: 5000}});
+  assert.equal(r.outcome, 'timeout');
+  assert.deepEqual(L.WORLD, {w: 10000, h: 20000});
+});
+
+test('小さいマップから始める: 時間切れの割合が 5 世代続けて 30% 未満なら次の広さへ。最後の広さで止まる', () => {
+  assert.deepEqual(E.WORLD_STAGES, [{w: 2500, h: 5000}, {w: 5000, h: 10000}, {w: 10000, h: 20000}]);
+  let c = {stage: 0, streak: 0};
+  for(const rate of [0.2, 0.1, 0.29, 0.2]) c = E.advanceCurriculum(c, rate);
+  assert.deepEqual(c, {stage: 0, streak: 4});
+  c = E.advanceCurriculum(c, 0.35);
+  assert.deepEqual(c, {stage: 0, streak: 0}, '30% 以上で数え直し');
+  for(let i = 0; i < 5; i++) c = E.advanceCurriculum(c, 0.1);
+  assert.deepEqual(c, {stage: 1, streak: 0});
+  c = {stage: 2, streak: 0};
+  for(let i = 0; i < 6; i++) c = E.advanceCurriculum(c, 0);
+  assert.equal(c.stage, 2);
 });
 
 test('突然変異: 決まった乱数なら決まった結果。元の脳は変えない。rate 0 なら同じ、rate 1 ならすべて変わる', () => {

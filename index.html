@@ -183,6 +183,7 @@
       <li>見えるのは味方の索敵範囲の中だけ。見つけた敵は味方全員に共有される</li>
       <li>索敵範囲の中の敵に自動で狙いを定め、撃てる範囲 (索敵範囲の約 3 分の 2) まで近づくと撃つ。通常弾 (SHELL) は必中、爆発弾 (TORPID) は威力が大きいが、よけられたり迎撃されたりする</li>
       <li>モダン: 敵の旗艦 (第 1 艦隊) を倒したら勝利。味方の旗艦が倒されたら敗北。旗艦以外を選んで先に全滅したら、決着まで観戦できる</li>
+      <li>60 秒ごとに 5 秒間、両軍の旗艦の位置が相手に知られる (索敵範囲の外でも)。隠れ続けることはできない</li>
       <li>連合艦隊は旗艦・副艦 (タンク)・アタッカー 2・スピーダーの 5 艦隊。味方はそれぞれの役割で旗艦を支える</li>
     </ul>
     <div class="titleMenu">
@@ -287,6 +288,7 @@ const keys = new Set();
 const wayHeld = new Set(); // 押している WAY ボタン (視点移動)
 let logs = [];
 let prevVisible = new Set();
+let prevBeacon = false; // 前のフレームで旗艦の位置がばれていたか
 let prevAlive = new Set();
 let cheatProgress = L.newCheatProgress();
 let consoleOpen = false;
@@ -404,6 +406,7 @@ function startBattle(){
   clampCamera();
   logs = [];
   prevVisible = new Set();
+  prevBeacon = false;
   prevAlive = new Set(game.fleets.map(f => f.id));
   cheatProgress = L.newCheatProgress();
   buildAllyRows();
@@ -715,6 +718,16 @@ function formatTime(sec){
 }
 // 前のフレームとの差から「発見」「全滅」を記録する
 function trackEvents(){
+  // 旗艦の位置がばれる時間の始まり (60 秒ごと)
+  const beacon = L.beaconActive(game.time);
+  if(beacon && !prevBeacon){
+    const redFlag = game.fleets.find(f => f.team === 'red' && f.flagship && f.ships > 0);
+    const blueFlag = game.fleets.find(f => f.team === 'blue' && f.flagship && f.ships > 0);
+    if(redFlag && !(redFlag.stealth > 0)) addLog('敵旗艦の位置を捕捉', COLORS.accent);
+    if(blueFlag && !(blueFlag.stealth > 0)) addLog('味方旗艦の位置が敵に知られた', COLORS.red);
+    Snd.ping(true);
+  }
+  prevBeacon = beacon;
   const visible = new Set(Object.entries(game.intel.blue).filter(([, i]) => i.visible).map(([id]) => id));
   for(const id of visible){
     if(prevVisible.has(id)) continue;

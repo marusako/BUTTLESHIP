@@ -5,6 +5,12 @@ const B = require('../brain.js');
 
 const TIMEOUT_SCORE = -0.25; // 時間切れ (と両旗艦の同時撃沈) の成績。負け (0) より悪くして、逃げ回りを得にしない
 const SHIPS_BONUS = 0.1;     // 残存戦力の差 (全艦艇数に対する割合) に掛けて足す
+const DAMAGE_BONUS = 0.2;    // 途中のごほうび: 敵に与えたダメージ (敵が失った艦艇数の、全艦艇数に対する割合) に掛けて足す
+const SPOT_BONUS = 0.1;      // 途中のごほうび: 敵の旗艦を一度でも見つけたら足す
+// 小さいマップから始める (カリキュラム学習): 学習の試合のマップの広さの段階。最後が本番の広さ
+const WORLD_STAGES = [{w: 2500, h: 5000}, {w: 5000, h: 10000}, {w: 10000, h: 20000}];
+const STAGE_TIMEOUT_RATE = 0.3; // 時間切れの割合がこれ未満の世代が
+const STAGE_STREAK = 5;         // これだけ続いたら次の広さへ
 const EDGE_MARGIN = 250;     // マップの端からこの距離より近ければ「端にいる」
 const TOTAL_SHIPS = L.INITIAL_SHIPS * L.FORMATION.length;
 
@@ -26,9 +32,19 @@ function gaussian(rng){
 }
 
 // AI 同士の 1 試合。blue / red は createGame の controllers に渡す関数。プレイヤーはいない (青の旗艦も AI)。
-// opts: seed, dt (1 ステップの秒数), maxTime (これを超えたら時間切れ), redFirst (処理順を赤が先に)
-// 返り値: outcome (青から見た 'win' / 'lose' / 'draw'、または 'timeout')、time、ships (チームごとの残存戦力)、metrics
+// opts: seed, dt (1 ステップの秒数), maxTime (これを超えたら時間切れ), redFirst (処理順を赤が先に), world (マップの広さ {w, h}。省略時は本番の広さ)
+// 返り値: outcome (青から見た 'win' / 'lose' / 'draw'、または 'timeout')、time、ships (チームごとの残存戦力)、
+//   spotted (チームごとに、敵の旗艦を一度でも見つけたか)、metrics
 function playMatch(blue, red, opts){
+  L.setWorld(opts.world && opts.world.w, opts.world && opts.world.h);
+  try{
+    return runMatch(blue, red, opts);
+  }finally{
+    L.setWorld(); // ほかの試合やゲームに影響しないように本番の広さへ戻す
+  }
+}
+
+function runMatch(blue, red, opts){
   const rng = mulberry32(opts.seed);
   const g = L.createGame(L.JOBS.balancer.params, {controllers: {blue, red}});
   for(const f of g.fleets) f.isPlayer = false;
@@ -36,8 +52,14 @@ function playMatch(blue, red, opts){
 
   let edgeSum = 0, samples = 0, nextSample = 0;
   const advance = {blue: 0, red: 0};
+  const spotted = {blue: false, red: false};
+  const flagId = {blue: 'red1', red: 'blue1'}; // 敵の旗艦
   while(!g.outcome && g.time < opts.maxTime){
     L.step(g, opts.dt, rng);
+    for(const team of ['blue', 'red']){
+      const info = g.intel[team][flagId[team]];
+      if(info && info.visible) spotted[team] = true;
+    }
     if(g.time >= nextSample){
       nextSample += 1;
       const living = g.fleets.filter(f => f.ships > 0);
@@ -58,14 +80,17 @@ function playMatch(blue, red, opts){
     outcome: g.outcome || 'timeout',
     time: g.time,
     ships,
+    spotted,
     metrics: {edgeRatio: samples ? edgeSum / samples : 0, flagAdvance: advance}
   };
 }
 
-// team から見た 1 試合の成績
+// team から見た 1 試合の成績 (勝敗 + 残存戦力の差 + 途中のごほうび)
 function matchScore(result, team){
   const other = team === 'blue' ? 'red' : 'blue';
-  const bonus = SHIPS_BONUS * (result.ships[team] - result.ships[other]) / TOTAL_SHIPS;
+  const bonus = SHIPS_BONUS * (result.ships[team] - result.ships[other]) / TOTAL_SHIPS
+    + DAMAGE_BONUS * (TOTAL_SHIPS - result.ships[other]) / TOTAL_SHIPS
+    + (result.spotted && result.spotted[team] ? SPOT_BONUS : 0);
   if(result.outcome === 'timeout' || result.outcome === 'draw') return TIMEOUT_SCORE + bonus;
   const won = (result.outcome === 'win') === (team === 'blue');
   return (won ? 1 : 0) + bonus;
@@ -117,4 +142,11 @@ function schedule(popSize, games, hallSize, rng, hallProb){
   return list;
 }
 
-module.exports = {TIMEOUT_SCORE, EDGE_MARGIN, mulberry32, gaussian, playMatch, matchScore, mutate, nextGeneration, schedule};
+// 小さいマップから始める: 時間切れの割合を見て、次の広さへ進むか決める。curriculum: {stage, streak}
+function advanceCurriculum(curriculum, timeoutRate){
+  const streak = timeoutRate < STAGE_TIMEOUT_RATE ? curriculum.streak + 1 : 0;
+  if(streak >= STAGE_STREAK && curriculum.stage < WORLD_STAGES.length - 1) return {stage: curriculum.stage + 1, streak: 0};
+  return {stage: curriculum.stage, streak};
+}
+
+module.exports = {TIMEOUT_SCORE, EDGE_MARGIN, WORLD_STAGES, advanceCurriculum, mulberry32, gaussian, playMatch, matchScore, mutate, nextGeneration, schedule};

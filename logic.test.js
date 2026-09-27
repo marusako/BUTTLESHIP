@@ -789,3 +789,57 @@ test('隠しコマンド stealth: 見られていた場合は最終確認位置�
 test('ゲーム作成: どの艦隊も透明化していない状態で始まる', () => {
   for(const f of L.createGame(JOB.balancer.params).fleets) assert.equal(f.stealth, 0);
 });
+
+// ---------- 第 2.7 段階 (旗艦の位置がばれる・マップの広さ) ----------
+
+test('旗艦の位置がばれる時間: 開始から 60 秒ごとに 5 秒間 (開始直後はばれない)', () => {
+  assert.equal(L.BEACON_INTERVAL, 60);
+  assert.equal(L.BEACON_DURATION, 5);
+  for(const t of [0, 3, 59.9, 65, 100, 125.01]) assert.equal(L.beaconActive(t), false, String(t));
+  for(const t of [60, 62.5, 64.99, 120, 180.1]) assert.equal(L.beaconActive(t), true, String(t));
+});
+
+test('旗艦の位置がばれる: その間は索敵範囲の外でも相手の旗艦が見える。旗艦以外と透明化中の旗艦は見えない', () => {
+  const me = fleet({id: 'me', x: 100, y: 100});
+  const flag = fleet({id: 'rf', team: 'red', x: 9000, y: 9000, flagship: true});
+  const other = fleet({id: 'r2', team: 'red', x: 9100, y: 9000});
+  const fleets = [me, flag, other];
+  assert.deepEqual(L.visibleEnemies(fleets, 'blue', false, false).map(f => f.id), []);
+  assert.deepEqual(L.visibleEnemies(fleets, 'blue', false, true).map(f => f.id), ['rf']);
+  flag.stealth = 3;
+  assert.deepEqual(L.visibleEnemies(fleets, 'blue', false, true).map(f => f.id), [], '透明化が優先');
+});
+
+test('旗艦の位置がばれる (試合の中): 60 秒で相手の地図に旗艦が見え、5 秒後はゴーストとして残る', () => {
+  const bf = fleet({id: 'bf', x: 100, y: 100, flagship: true, isPlayer: true, weapons: {shell: false, torpid: false}});
+  const rf = fleet({id: 'rf', team: 'red', x: 9000, y: 9000, flagship: true, weapons: {shell: false, torpid: false}});
+  const g = game([bf, rf]);
+  g.time = 59.95;
+  L.step(g, 0.1, seq(0.5));
+  assert.equal(g.intel.blue.rf.visible, true);
+  assert.equal(g.intel.red.bf.visible, true, 'お互いにばれる');
+  for(let i = 0; i < 60; i++) L.step(g, 0.1, seq(0.5));
+  assert.equal(g.intel.blue.rf.visible, false);
+  assert.deepEqual([g.intel.blue.rf.x, g.intel.blue.rf.y], [9000, 9000], '最終確認位置が残る');
+});
+
+test('マップの広さ (学習用): setWorld で変えると出撃位置と移動の範囲が変わり、引数なしで本番の広さに戻る', () => {
+  try{
+    L.setWorld(2500, 5000);
+    assert.deepEqual(L.WORLD, {w: 2500, h: 5000});
+    const g = L.createGame(L.JOBS.balancer.params);
+    const xs = [3, 2, 1, 4, 5].map(n => g.fleets.find(f => f.id === 'blue' + n).x);
+    const step = 2500 / 6; // 狭いマップでは間隔を詰める (800 と 幅 ÷ 6 の小さいほう)
+    xs.forEach((x, i) => assert.ok(Math.abs(x - (1250 + (i - 2) * step)) < 1e-9, String(x)));
+    assert.equal(g.fleets.find(f => f.id === 'red1').y, 300);
+    assert.equal(g.fleets.find(f => f.id === 'blue1').y, 5000 - 300);
+    const f = fleet({x: 2400, y: 100, order: {type: 'move', x: 9999, y: 100}});
+    L.moveFleet(f, 10, {});
+    assert.equal(f.x, 2500, '広さの端で止まる');
+  }finally{
+    L.setWorld();
+  }
+  assert.deepEqual(L.WORLD, {w: 10000, h: 20000});
+  const g = L.createGame(L.JOBS.balancer.params);
+  assert.deepEqual([3, 2, 1, 4, 5].map(n => g.fleets.find(f => f.id === 'blue' + n).x), [3400, 4200, 5000, 5800, 6600], '本番の広さでは今と同じ');
+});

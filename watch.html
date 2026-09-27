@@ -107,7 +107,7 @@ async function reloadLog(){
     if(!res.ok) throw new Error(res.status);
     const lines = (await res.text()).trim().split('\n');
     const head = lines.shift().split(',');
-    logRows = lines.map(l => { const v = l.split(','); const o = {}; head.forEach((h, i) => { o[h] = v[i] === '' ? null : Number(v[i]); }); return o; });
+    logRows = lines.map(l => { const v = l.split(','); const o = {}; head.forEach((h, i) => { const n = Number(v[i]); o[h] = v[i] === '' || v[i] === undefined ? null : isNaN(n) ? v[i] : n; }); // マップの広さ (2500x5000 など) は文字のまま return o; });
   }catch(e){
     logRows = null;
   }
@@ -120,11 +120,11 @@ function renderLog(){
   const last = logRows[logRows.length - 1];
   const evals = logRows.filter(r => r.vsRuleWin !== null);
   const lastEval = evals[evals.length - 1];
-  $('logSummary').innerHTML = `第 ${last.generation} 世代まで  成績 平均 ${last.mean.toFixed(2)} / 最高 ${last.best.toFixed(2)}<br>時間切れ ${pct(last.timeoutRate)} / 端にいる割合 ${pct(last.edgeRatio)}<br>旧ルール AI への勝率 <b style="color:var(--accent)">${lastEval ? pct(lastEval.vsRuleWin) : '-'}</b>${lastEval ? ` (第 ${lastEval.generation} 世代、時間切れ ${pct(lastEval.vsRuleTimeout)})` : ''}`;
+  $('logSummary').innerHTML = `第 ${last.generation} 世代まで${last.world ? `  (学習のマップ ${last.world})` : ''}<br>成績 平均 ${last.mean.toFixed(2)} / 最高 ${last.best.toFixed(2)}<br>時間切れ ${pct(last.timeoutRate)} / 端にいる割合 ${pct(last.edgeRatio)}<br>旧ルール AI への勝率 <b style="color:var(--accent)">${lastEval ? pct(lastEval.vsRuleWin) : '-'}</b>${lastEval ? ` (第 ${lastEval.generation} 世代、時間切れ ${pct(lastEval.vsRuleTimeout)})` : ''}`;
   drawChart();
   const rows = logRows.slice(-10).reverse();
-  $('logTable').innerHTML = '<tr><th>世代</th><th>平均</th><th>最高</th><th>時間切れ</th><th>端</th><th>対旧AI</th></tr>' +
-    rows.map(r => `<tr><td>${r.generation}</td><td>${r.mean.toFixed(2)}</td><td>${r.best.toFixed(2)}</td><td>${pct(r.timeoutRate)}</td><td>${pct(r.edgeRatio)}</td><td>${pct(r.vsRuleWin)}</td></tr>`).join('');
+  $('logTable').innerHTML = '<tr><th>世代</th><th>マップ幅</th><th>平均</th><th>最高</th><th>時間切れ</th><th>端</th><th>対旧AI</th></tr>' +
+    rows.map(r => `<tr><td>${r.generation}</td><td>${r.world ? String(r.world).split('x')[0] : '-'}</td><td>${r.mean.toFixed(2)}</td><td>${r.best.toFixed(2)}</td><td>${pct(r.timeoutRate)}</td><td>${pct(r.edgeRatio)}</td><td>${pct(r.vsRuleWin)}</td></tr>`).join('');
 }
 // グラフ: 横が世代。成績は -0.5〜1.5、割合は 0〜100% を同じ高さに描く
 function drawChart(){

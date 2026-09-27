@@ -3,7 +3,8 @@
 (function(root){
   'use strict';
 
-  const WORLD = {w: 10000, h: 20000}; // 原作のミニマップと同じ縦長 (横 1 : 縦 2)。青は下、赤は上に陣取る
+  const DEFAULT_WORLD = {w: 10000, h: 20000}; // 原作のミニマップと同じ縦長 (横 1 : 縦 2)。青は下、赤は上に陣取る
+  const WORLD = Object.assign({}, DEFAULT_WORLD); // 今のマップの広さ (学習では setWorld で狭くする。ゲームは常に本番の広さ)
   const INITIAL_SHIPS = 15000;   // 原作の画面に合わせた初期艦艇数
   const PARAM_TOTAL = 100;
   const PARAM_MIN = 10;
@@ -32,6 +33,8 @@
   const CHEAT_SEQUENCE = ['KeyY', 'KeyU', 'KeyK', 'KeyI']; // 隠しコマンド入力欄を開くキー列
   const CHEAT_WINDOW = 2;        // キー列を押し切るまでの制限時間 (秒)
   const COMMANDS = ['scan', 'warp', 'repair', 'stealth'];
+  const BEACON_INTERVAL = 60;    // 旗艦の位置が相手にばれる間隔 (秒)。隅に隠れ続ける作戦を防ぐ
+  const BEACON_DURATION = 5;     // 旗艦の位置がばれている時間 (秒)
   const STEALTH_DURATION = 15;   // 隠しコマンド stealth (透明化) の効果時間 (秒)
   const TEAMS = ['blue', 'red'];
 
@@ -52,7 +55,7 @@
     {role: 'attacker', job: 'attacker'},
     {role: 'speeder', job: 'speeder'}
   ];
-  const SPAWN_XS = [3400, 4200, 5000, 5800, 6600]; // 800 おきに中央へ寄せる (間隔を広げると隣の索敵範囲とすき間ができる)
+  const SPAWN_SPACING = 800;      // 出撃位置の間隔 (中央に寄せる。間隔を広げると隣の索敵範囲とすき間ができる)。狭いマップでは幅 ÷ 6 まで詰める
   const SPAWN_ORDER = [3, 2, 1, 4, 5]; // 横一列に (各チームから見て) 左から第 3・第 2・第 1 (旗艦)・第 4・第 5 艦隊
 
   const alive = f => f.ships > 0;
@@ -103,17 +106,35 @@
   }
 
   // team から見えている (味方のどれかの索敵範囲内の) 生存中の敵。reveal なら全部見える
-  function visibleEnemies(fleets, team, reveal){
+  // 旗艦の位置がばれている時間か (開始から BEACON_INTERVAL 秒ごとに BEACON_DURATION 秒間)
+  function beaconActive(time){
+    return time >= BEACON_INTERVAL && time % BEACON_INTERVAL < BEACON_DURATION;
+  }
+
+  // マップの広さを変える (学習用)。引数なしなら本番の広さに戻す
+  function setWorld(w, h){
+    WORLD.w = w || DEFAULT_WORLD.w;
+    WORLD.h = h || DEFAULT_WORLD.h;
+  }
+
+  // 出撃位置の x (各チームから見て左から SPAWN_ORDER の順。赤は南 (敵陣) を向くので東から並ぶ)
+  function spawnX(team, no){
+    const offset = (SPAWN_ORDER.indexOf(no) - 2) * Math.min(SPAWN_SPACING, WORLD.w / 6);
+    return WORLD.w / 2 + (team === 'blue' ? offset : -offset);
+  }
+
+  function visibleEnemies(fleets, team, reveal, beacon){
     const eyes = fleets.filter(f => f.team === team && alive(f));
     // 透明化中 (stealth) の艦隊は敵から見えない
-    return fleets.filter(f => f.team !== team && alive(f) && !(f.stealth > 0) && (reveal || eyes.some(e => dist(e, f) <= SENSOR_RANGE)));
+    // beacon: 旗艦の位置がばれている時間なら、敵の旗艦は索敵範囲の外でも見える
+    return fleets.filter(f => f.team !== team && alive(f) && !(f.stealth > 0) && (reveal || (beacon && f.flagship) || eyes.some(e => dist(e, f) <= SENSOR_RANGE)));
   }
 
   // 敵の位置情報 (intel: 敵 id → {x, y, visible}) を更新する。
   // 見失った敵は最終確認位置を残し、味方がその近くまで行って確かめたら消す
-  function updateIntel(intel, fleets, team, reveal){
+  function updateIntel(intel, fleets, team, reveal, beacon){
     const eyes = fleets.filter(f => f.team === team && alive(f));
-    const seen = new Set(visibleEnemies(fleets, team, reveal).map(f => f.id));
+    const seen = new Set(visibleEnemies(fleets, team, reveal, beacon).map(f => f.id));
     for(const f of fleets){
       if(f.team === team) continue;
       if(!alive(f)){ delete intel[f.id]; continue; }
@@ -221,8 +242,7 @@
           team,
           name: isPlayer && opts.playerName ? opts.playerName : `${team === 'blue' ? '味方' : '敵'}第${no}艦隊`,
           role: slot.role,
-          // 各チームから見て左から SPAWN_ORDER の順。赤は南 (敵陣) を向くので東から並ぶ
-          x: team === 'blue' ? SPAWN_XS[SPAWN_ORDER.indexOf(no)] : WORLD.w - SPAWN_XS[SPAWN_ORDER.indexOf(no)],
+          x: spawnX(team, no),
           y: team === 'blue' ? WORLD.h - 300 : 300,
           heading: team === 'blue' ? -Math.PI / 2 : Math.PI / 2,
           ships: INITIAL_SHIPS,
@@ -254,7 +274,10 @@
     (g.events || (g.events = [])).push(event);
   }
 
-  const visibleByTeam = g => ({blue: visibleEnemies(g.fleets, 'blue', revealFor(g, 'blue')), red: visibleEnemies(g.fleets, 'red', false)});
+  const visibleByTeam = g => {
+    const beacon = beaconActive(g.time);
+    return {blue: visibleEnemies(g.fleets, 'blue', revealFor(g, 'blue'), beacon), red: visibleEnemies(g.fleets, 'red', false, beacon)};
+  };
 
   // 各艦隊が狙いを定め (g.locks)、撃てる範囲にいれば、待ち時間の空いた弾を撃つ。
   // visible: チームごとの見えている敵 (省略時はその場で計算)
@@ -416,7 +439,7 @@
       if(f.stealth > 0) f.stealth = f.stealth - dt > EPS ? f.stealth - dt : 0;
     }
     const living = g.fleets.filter(alive);
-    const refreshIntel = () => { for(const team of TEAMS) updateIntel(g.intel[team], g.fleets, team, revealFor(g, team)); };
+    const refreshIntel = () => { for(const team of TEAMS) updateIntel(g.intel[team], g.fleets, team, revealFor(g, team), beaconActive(g.time)); };
 
     refreshIntel();
 
@@ -446,7 +469,7 @@
   }
 
   const api = {
-    WORLD, INITIAL_SHIPS, PARAM_TOTAL, PARAM_MIN, SENSOR_RANGE, LOCK_RANGE, FIRE_RANGE, GHOST_CLEAR_RANGE, FIREPOWER_FLOOR,
+    WORLD, DEFAULT_WORLD, setWorld, BEACON_INTERVAL, BEACON_DURATION, beaconActive, INITIAL_SHIPS, PARAM_TOTAL, PARAM_MIN, SENSOR_RANGE, LOCK_RANGE, FIRE_RANGE, GHOST_CLEAR_RANGE, FIREPOWER_FLOOR,
     SHELL_INTERVAL, STEALTH_DURATION, TORPEDO_RELOAD, TORPEDO_SPEED, TORPEDO_TURN_RATE, TORPEDO_LIFE, INTERCEPT_RANGE, INTERCEPT_INTERVAL,
     JOBS, FORMATION, AI_THINK_INTERVAL, validateParams, maxSpeed, mitigation,
     shellDps, shellDamage, torpedoDamage, visibleEnemies, updateIntel,
