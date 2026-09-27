@@ -150,6 +150,15 @@
 
   const weaponOf = f => SHIP_TYPES[f.role].weapon;
 
+  // 期待ダメージ (AI の狙いの判断用): f の通常攻撃 1 発が t に与えるダメージの見込み = 命中率 × ダメージ。
+  // ダメージが 0 以下ならかすり (今の HP の 10% = かすりの幅の真ん中、最低 1)。会心・空母の弱点・バフの軽減は数えない
+  function expectedDamage(f, t){
+    const base = Math.floor((firepowerOf(f) + ATTACK_BONUS) * attackMultiplier(f) - armorOf(t) * ARMOR_FACTOR);
+    const amount = base > 0 ? base : Math.max(1, t.ships * (SCRATCH_MIN + SCRATCH_SPREAD / 2));
+    const hit = weaponOf(f).kind === 'bomber' ? 1 : hitChance(t, evasionCutOf(f));
+    return hit * amount;
+  }
+
   // 攻撃できる距離 (射程)
   function weaponRange(f){
     return RANGES[f.stats.range];
@@ -686,7 +695,7 @@
 
   const api = {
     WORLD, DEFAULT_WORLD, setWorld, BEACON_INTERVAL, BEACON_DURATION, beaconActive, RANGES, SPEEDS, weaponRange, sensorRange, hpRatio, damageState,
-    attackMultiplier, hitChance, antiAirChance, resolveHit, speedOf, firepowerOf, armorOf, critChanceOf, GHOST_CLEAR_RANGE,
+    attackMultiplier, hitChance, expectedDamage, antiAirChance, resolveHit, speedOf, firepowerOf, armorOf, critChanceOf, GHOST_CLEAR_RANGE,
     CHARGE_MAX, evasionCutOf, BOOST_DURATION, SPECIALS, FLEET_CLASSES, useSpecial,
     STEALTH_DURATION, SHOT_LIFE, BOMBER_LIFE, BOMBER_TURN_RATE, RECON_SPEED, RECON_LIFE, AA_RANGE,
     BUFF_RANGE, isBuffed, updateBuffs, SHIP_TYPES, FORMATION, AI_THINK_INTERVAL, maxSpeed, lockRange, visibleEnemies, updateIntel,

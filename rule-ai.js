@@ -4,13 +4,16 @@
 (function(root){
   'use strict';
   const L = typeof module !== 'undefined' && module.exports ? require('./logic.js') : root.SagittariusLogic;
-  const {WORLD, hpRatio} = L;
-  const FLAGSHIP_PRIORITY = 20;  // AI が敵旗艦を狙うときにスコアから引く値
+  const {WORLD, hpRatio, expectedDamage} = L;
 
   // AI プロファイル: 役割別 AI の判断に使うつまみ。値はルール AI の強さを決める
   const AI_PROFILES = {
     standard: {
       localRadius: 1200,         // 局地的な戦力比を数える半径
+      targetWeight: 10,          // 狙いの点数で、期待ダメージの割合 (1 で頭打ち) に掛ける重み (距離 100 が 1 点)
+      flagshipWeight: 2.5,       // 敵旗艦の期待ダメージの割合に、さらに掛ける倍率 (旗艦を倒せば勝ちなので優先する)
+      flagshipHoldHp: 0.5,       // 旗艦は HP の割合がこれ以下で、見えている敵旗艦より弱ければ粘る (撃ち合いを避けて下がる)
+      flagshipHoldDistance: 800, // 粘るときに敵旗艦から保つ距離 (戦艦の射程 650 の外)
       flagshipRetreatRatio: 1.5, // 旗艦はこの戦力比を超えたら味方の中心へ下がる
       carrierDistance: 500,      // 空母が普段つく旗艦の後ろの距離
       carrierSafeDistance: 800,  // 空母はこれより近い敵から離れる
@@ -29,15 +32,17 @@
   const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
   const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
-  // 見えている敵のうち、近くて弱いほど優先 (距離 100 と初期艦艇数の 1/6 を同じ重みで比べる)。敵旗艦は最優先。
-  // from からの距離で評価し、accept で対象を絞る
-  function bestVisibleTarget(from, fleets, intel, accept){
+  // 見えている敵のうち、点数が最も小さい敵を選ぶ。点数 = 距離 / 100 − targetWeight × 効きめ。
+  // 効きめ = f の通常攻撃 1 発の期待ダメージ ÷ 相手の今の HP (1 で頭打ち)。敵旗艦は flagshipWeight 倍。
+  // 命中率と装甲を見るので、弾がかすりしか入らない相手より、よく効く相手を狙う。accept(info, e) で対象を絞る
+  function bestVisibleTarget(f, fleets, intel, p, accept){
     const byId = new Map(fleets.map(e => [e.id, e]));
     let best = null, bestScore = Infinity;
     for(const [id, info] of Object.entries(intel)){
       const e = byId.get(id);
-      if(!info.visible || !e || !alive(e) || (accept && !accept(info))) continue;
-      const score = dist(from, info) / 100 + hpRatio(e) * 6 - (e.flagship ? FLAGSHIP_PRIORITY : 0);
+      if(!info.visible || !e || !alive(e) || (accept && !accept(info, e))) continue;
+      const effect = Math.min(1, expectedDamage(f, e) / e.ships) * (e.flagship ? p.flagshipWeight : 1);
+      const score = dist(f, info) / 100 - p.targetWeight * effect;
       if(score < bestScore){ best = id; bestScore = score; }
     }
     return best;
@@ -83,8 +88,19 @@
     return {type: 'move', x, y, explore: true};
   }
 
-  // 旗艦: 進軍する。周りが不利なら味方の中心 (いなければ自陣) へ下がる
+  // 見えている敵旗艦 (いなければ null)
+  function visibleEnemyFlag(f, fleets, intel){
+    const e = fleets.find(a => a.team !== f.team && a.flagship && alive(a));
+    return e && intel[e.id] && intel[e.id].visible ? e : null;
+  }
+
+  // 旗艦: 進軍する。周りが不利なら味方の中心 (いなければ自陣) へ下がる。
+  // HP が flagshipHoldHp 以下で、見えている敵旗艦より弱ければ粘る: 敵旗艦から flagshipHoldDistance 以内なら離れ、
+  // 敵旗艦は狙わずにほかの敵を撃つ (両旗艦の撃ち合いだけで決まる・同時に沈む試合を減らす)
   function flagshipDecide(f, fleets, intel, rng, p){
+    const enemyFlag = visibleEnemyFlag(f, fleets, intel);
+    const hold = f.flagship && enemyFlag && hpRatio(f) <= p.flagshipHoldHp && hpRatio(f) < hpRatio(enemyFlag);
+    if(hold && dist(f, intel[enemyFlag.id]) < p.flagshipHoldDistance) return moveTo(pointToward(intel[enemyFlag.id], f, p.flagshipHoldDistance + 150));
     if(localForceRatio(f, f.team, fleets, intel, p.localRadius) > p.flagshipRetreatRatio){
       const allies = fleets.filter(a => a.team === f.team && a !== f && alive(a));
       if(allies.length){
@@ -92,7 +108,7 @@
       }
       return {type: 'move', x: f.x, y: f.team === 'blue' ? WORLD.h - 300 : 300};
     }
-    const target = bestVisibleTarget(f, fleets, intel);
+    const target = bestVisibleTarget(f, fleets, intel, p, hold ? (info, e) => e !== enemyFlag : null);
     if(target) return {type: 'attack', targetId: target};
 
     // 見失った敵の最終確認位置 (敵旗艦を優先、なければ最も近いもの)
@@ -120,17 +136,20 @@
   // 巡洋艦: 旗艦から attackerLeash 以内の敵を攻撃する。周りが不利なら旗艦のもとへ下がる
   function attackerDecide(f, flag, fleets, intel, p){
     if(localForceRatio(f, f.team, fleets, intel, p.localRadius) > p.attackerRetreatRatio) return moveTo(flag);
-    const target = bestVisibleTarget(f, fleets, intel, info => dist(flag, info) <= p.attackerLeash);
+    const target = bestVisibleTarget(f, fleets, intel, p, info => dist(flag, info) <= p.attackerLeash);
     if(target) return {type: 'attack', targetId: target};
     const attackers = fleets.filter(a => a.team === f.team && a.role === 'cruiser' && alive(a));
     const [fwd, right] = ATTACKER_SLOTS[Math.max(0, attackers.indexOf(f)) % ATTACKER_SLOTS.length];
     return moveTo(offsetFrom(flag, fwd * p.attackerDistance, right * p.attackerDistance));
   }
 
-  // 駆逐艦: NP が満タンなら、見えている最も近い敵を攻撃しに行く (特殊攻撃は射程に入ると自動で使う)。
+  // 駆逐艦: NP が満タンなら攻撃しに行く (特殊攻撃は射程に入ると自動で使う)。敵旗艦が見えていれば敵旗艦 (魚雷・精密射撃は火力 100 で
+  // 戦艦にもよく効く)、いなければ見えている最も近い敵。
   // それ以外は 戦わない > 見張る。近すぎる敵からは離れ、敵旗艦の位置が分かれば距離を保って見張り、分からなければ索敵する
   function speederDecide(f, fleets, intel, rng, p){
     if(f.special && f.charge >= L.CHARGE_MAX){
+      const enemyFlag = visibleEnemyFlag(f, fleets, intel);
+      if(enemyFlag) return {type: 'attack', targetId: enemyFlag.id};
       let target = null;
       for(const [id, info] of Object.entries(intel)) if(info.visible && (!target || dist(f, info) < dist(f, target.info))) target = {id, info};
       if(target) return {type: 'attack', targetId: target.id};
