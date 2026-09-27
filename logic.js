@@ -57,13 +57,13 @@
   // 艦種。stats は「艦これ」風のステータス: 耐久 (hp = 最大 HP)・火力・装甲・回避・対空・索敵 (los)・射程 (RANGES のキー。空母は爆撃機なので null)・速力 (SPEEDS のキー)
   // 武器は艦種ごとに 1 種類 (weapon.kind: 'gun' = 砲撃。射程内のみ必中の追いかけ方の弾 / 'bomber' = 爆撃機を出す)。大きさは当たり判定の半径と見た目に効く
   const SHIP_TYPES = {
-    battleship: {name: '戦艦', stats: {hp: 90, firepower: 90, armor: 85, evasion: 30, antiAir: 40, los: 20, range: 'long', speed: 'slow'}, size: 'large', hitRadius: 40,
+    battleship: {name: '戦艦', stats: {hp: 315, firepower: 90, armor: 85, evasion: 30, antiAir: 24, los: 20, range: 'long', speed: 'slow'}, size: 'large', hitRadius: 40,
       weapon: {kind: 'gun', range: RANGES.long, interval: 3}, description: '旗艦。重装甲・高火力だが遅い。長い射程から重い一撃を撃つ'},
-    carrier: {name: '空母', stats: {hp: 70, firepower: 50, armor: 60, evasion: 40, antiAir: 60, los: 60, range: null, speed: 'fast'}, size: 'large', hitRadius: 40,
+    carrier: {name: '空母', stats: {hp: 245, firepower: 80, armor: 60, evasion: 40, antiAir: 36, los: 60, range: null, speed: 'fast'}, size: 'large', hitRadius: 40,
       weapon: {kind: 'bomber', range: 1100, interval: 9}, description: '偵察機で敵を探し、遠くの敵に爆撃機を送る。攻撃を受けると大きな被害が出ることがある'},
-    cruiser: {name: '巡洋艦', stats: {hp: 50, firepower: 55, armor: 50, evasion: 60, antiAir: 40, los: 40, range: 'medium', speed: 'fast'}, size: 'medium', hitRadius: 25,
+    cruiser: {name: '巡洋艦', stats: {hp: 175, firepower: 80, armor: 50, evasion: 60, antiAir: 24, los: 40, range: 'medium', speed: 'fast'}, size: 'medium', hitRadius: 25,
       weapon: {kind: 'gun', range: RANGES.medium, interval: 1}, description: '主力。攻守のバランスがよく、連射がきく'},
-    destroyer: {name: '駆逐艦', stats: {hp: 30, firepower: 20, armor: 15, evasion: 80, antiAir: 50, los: 50, range: 'short', speed: 'fastPlus'}, size: 'small', hitRadius: 15,
+    destroyer: {name: '駆逐艦', stats: {hp: 105, firepower: 20, armor: 15, evasion: 80, antiAir: 30, los: 50, range: 'short', speed: 'fastPlus'}, size: 'small', hitRadius: 15,
       weapon: {kind: 'gun', range: RANGES.short, interval: 0.7}, description: '最速の偵察役。当たりにくいが打たれ弱いので交戦は避ける'}
   };
 

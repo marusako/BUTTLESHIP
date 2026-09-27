@@ -508,10 +508,10 @@ test('艦種: ステータス (耐久・火力・装甲・回避・対空・索�
   const T = L.SHIP_TYPES;
   assert.deepEqual(Object.keys(T), ['battleship', 'carrier', 'cruiser', 'destroyer']);
   assert.deepEqual(Object.values(T).map(t => t.stats), [
-    {hp: 90, firepower: 90, armor: 85, evasion: 30, antiAir: 40, los: 20, range: 'long', speed: 'slow'},
-    {hp: 70, firepower: 50, armor: 60, evasion: 40, antiAir: 60, los: 60, range: null, speed: 'fast'},
-    {hp: 50, firepower: 55, armor: 50, evasion: 60, antiAir: 40, los: 40, range: 'medium', speed: 'fast'},
-    {hp: 30, firepower: 20, armor: 15, evasion: 80, antiAir: 50, los: 50, range: 'short', speed: 'fastPlus'}
+    {hp: 315, firepower: 90, armor: 85, evasion: 30, antiAir: 24, los: 20, range: 'long', speed: 'slow'},
+    {hp: 245, firepower: 80, armor: 60, evasion: 40, antiAir: 36, los: 60, range: null, speed: 'fast'},
+    {hp: 175, firepower: 80, armor: 50, evasion: 60, antiAir: 24, los: 40, range: 'medium', speed: 'fast'},
+    {hp: 105, firepower: 20, armor: 15, evasion: 80, antiAir: 30, los: 50, range: 'short', speed: 'fastPlus'}
   ]);
   assert.deepEqual(Object.values(T).map(t => [t.weapon.kind, t.weapon.range, t.weapon.interval]), [
     ['gun', 650, 3], ['bomber', 1100, 9], ['gun', 450, 1], ['gun', 300, 0.7]
@@ -584,7 +584,7 @@ test('発射 (砲): 射程の外なら撃たず狙いの線だけ。射程に入
   const p = g.projectiles[0];
   assert.deepEqual([p.kind, p.from, p.targetId, p.range, p.homing], ['shot', 'b', 'r', 450, true]);
   // 1 発の攻撃力 = 火力 + 5
-  assert.equal(p.power, 55 + 5);
+  assert.equal(p.power, 80 + 5);
   L.fireWeapons(g, 0.5, {blue: [r], red: []});
   assert.equal(g.projectiles.length, 1, '発射間隔 (1 秒) がまだ');
   L.fireWeapons(g, 0.5, {blue: [r], red: []});
@@ -879,7 +879,7 @@ test('バフ: 強化中は与えるダメージ × 1.2 (砲弾と爆撃の威力
   L.updateBuffs(g);
   L.fireWeapons(g, 0.1, {blue: [e], red: []});
   const bomber = g.aircraft.find(a => a.kind === 'bomber');
-  assert.ok(Math.abs(bomber.power - (50 + 5) * 1.2) < 1e-9);
+  assert.ok(Math.abs(bomber.power - (80 + 5) * 1.2) < 1e-9);
 });
 
 test('バフ: 強化中は受けるダメージ ÷ 1.2 (切り捨て)', () => {
@@ -957,16 +957,17 @@ test('ダメージ: 攻撃力 − 防御力が 0 以下なら、かすり (今�
 });
 
 test('攻撃力: 火力 + 5。中破 (HP 5 割以下) で × 0.7、大破 (2.5 割以下) で × 0.4。バフ × 1.2。上限 150 (超えた分は √)', () => {
-  const at = (type, over) => L.attackPower(ship(type, over));
-  assert.equal(at('cruiser'), 60);
-  assert.equal(at('cruiser', {ships: 26}), 60, '5 割を超えていれば補正なし');
-  assert.ok(Math.abs(at('cruiser', {ships: 25}) - 60 * 0.7) < 1e-9);
-  assert.ok(Math.abs(at('cruiser', {ships: 12.5}) - 60 * 0.4) < 1e-9);
-  assert.ok(Math.abs(at('cruiser', {buffed: true}) - 72) < 1e-9);
+  const at = (type, over) => L.attackPower(ship(type, Object.assign({maxShips: 50}, over)));
+  assert.equal(at('cruiser', {ships: 50}), 85);
+  assert.equal(at('cruiser', {ships: 26}), 85, '5 割を超えていれば補正なし');
+  assert.ok(Math.abs(at('cruiser', {ships: 25}) - 85 * 0.7) < 1e-9);
+  assert.ok(Math.abs(at('cruiser', {ships: 12.5}) - 85 * 0.4) < 1e-9);
+  assert.ok(Math.abs(at('cruiser', {ships: 50, buffed: true}) - 102) < 1e-9);
+  assert.ok(Math.abs(at('battleship', {ships: 50, buffed: true}) - L.capAttack(95 * 1.2)) < 1e-9);
   assert.ok(Math.abs(L.capAttack(150) - 150) < 1e-9);
   assert.ok(Math.abs(L.capAttack(166) - 154) < 1e-9);
   // 損傷の状態: 小破 = 7.5 割以下、中破 = 5 割以下、大破 = 2.5 割以下
-  assert.deepEqual([38, 37, 25, 12].map(hp => L.damageState(ship('cruiser', {ships: hp}))), ['none', 'minor', 'moderate', 'heavy']);
+  assert.deepEqual([38, 37, 25, 12].map(hp => L.damageState(ship('cruiser', {ships: hp, maxShips: 50}))), ['none', 'minor', 'moderate', 'heavy']);
 });
 
 test('命中: 弾が当たり判定に触れたとき回避で抽選し、外れたらダメージなしで消え、miss が記録される。爆撃も同じ', () => {

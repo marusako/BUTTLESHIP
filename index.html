@@ -353,13 +353,13 @@ const SPEED_NAMES = {slow: '低速', fast: '高速', fastPlus: '高速+'};
 const DAMAGE_NAMES = {none: '', minor: '小破', moderate: '中破', heavy: '大破'};
 const rangeText = ship => ship.weapon.kind === 'bomber' ? `爆撃機 ${ship.weapon.range}` : `${RANGE_NAMES[ship.stats.range]} (${ship.weapon.range})`;
 const SIZE_NAMES = {large: '大', medium: '中', small: '小'};
-const STAT_MAX = Math.max(...Object.values(L.SHIP_TYPES).flatMap(s => STAT_LABELS.map(([k]) => s.stats[k]))); // バーの長さの基準 (いちばん大きい値で 100%)
+const STAT_MAX = Object.fromEntries(STAT_LABELS.map(([k]) => [k, Math.max(...Object.values(L.SHIP_TYPES).map(s => s.stats[k]))])); // バーの長さの基準 (ステータスごとに、いちばん大きい値で 100%)
 $('jobs').replaceChildren(...Object.entries(L.SHIP_TYPES).map(([key, ship]) => {
   const card = document.createElement('div');
   card.className = 'job';
   card.dataset.type = key;
   const stats = STAT_LABELS.map(([k, label]) =>
-    `<span>${label}</span><span class="bar"><i style="width:${ship.stats[k] / STAT_MAX * 100}%"></i></span><b>${ship.stats[k]}</b>`).join('');
+    `<span>${label}</span><span class="bar"><i style="width:${ship.stats[k] / STAT_MAX[k] * 100}%"></i></span><b>${ship.stats[k]}</b>`).join('');
   card.innerHTML = `<span class="jobName"></span><div class="jobStats">${stats}</div><small class="spec"></small><small class="desc"></small>`;
   card.querySelector('.jobName').textContent = ship.name;
   const w = ship.weapon;
