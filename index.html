@@ -179,7 +179,7 @@
     </ul>
     <div class="titleMenu">
       <button id="toModern">モダン</button>
-      <button id="toClassic">クラシック</button>
+      <button id="toClassic" disabled>クラシック</button>
       <button id="toSettings">設定</button>
     </div>
   </div>
@@ -318,7 +318,7 @@ function endGame(){
 }
 
 $('toModern').onclick = () => setMode('setup');
-$('toClassic').onclick = () => { location.href = 'classic/index.html'; };
+// クラシックは押しても反応しない (ユーザーの指示。classic/ のファイルは残してある)
 $('toSettings').onclick = () => { waitingAction = null; renderSettings(); setMode('settings'); };
 $('settingsBack').onclick = () => { waitingAction = null; setMode('title'); };
 $('backTitle').onclick = () => setMode('title');
