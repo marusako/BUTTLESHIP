@@ -3,7 +3,7 @@
 (function(root){
   'use strict';
 
-  const WORLD = {w: 4800, h: 9600}; // 原作のミニマップと同じ縦長 (横 1 : 縦 2)。青は下、赤は上に陣取る
+  const WORLD = {w: 5000, h: 10000}; // 原作のミニマップと同じ縦長 (横 1 : 縦 2)。青は下、赤は上に陣取る
   const INITIAL_SHIPS = 15000;   // 原作の画面に合わせた初期艦艇数
   const PARAM_TOTAL = 100;
   const PARAM_MIN = 10;
@@ -32,7 +32,8 @@
   const EPS = 1e-9;              // 小数の誤差を吸収する (待ち時間の判定など)
   const CHEAT_SEQUENCE = ['KeyY', 'KeyU', 'KeyK', 'KeyI']; // 隠しコマンド入力欄を開くキー列
   const CHEAT_WINDOW = 2;        // キー列を押し切るまでの制限時間 (秒)
-  const COMMANDS = ['scan', 'warp'];
+  const COMMANDS = ['scan', 'warp', 'repair', 'stealth'];
+  const STEALTH_DURATION = 15;   // 隠しコマンド stealth (透明化) の効果時間 (秒)
   const TEAMS = ['blue', 'red'];
 
   // ジョブ (敏捷 = speed / 耐久 = defense / 火力 = attack)。バランサーは旗艦専用
@@ -52,7 +53,7 @@
     {role: 'attacker', job: 'attacker'},
     {role: 'speeder', job: 'speeder'}
   ];
-  const SPAWN_XS = [800, 1600, 2400, 3200, 4000];
+  const SPAWN_XS = [900, 1700, 2500, 3300, 4100];
   const SPAWN_ORDER = [3, 2, 1, 4, 5]; // 横一列に (各チームから見て) 左から第 3・第 2・第 1 (旗艦)・第 4・第 5 艦隊
 
   // AI プロファイル: 役割別 AI の判断に使うつまみ。第 2.7 段階 (AI 学習) でこの値を調整する
@@ -123,7 +124,8 @@
   // team から見えている (味方のどれかの索敵範囲内の) 生存中の敵。reveal なら全部見える
   function visibleEnemies(fleets, team, reveal){
     const eyes = fleets.filter(f => f.team === team && alive(f));
-    return fleets.filter(f => f.team !== team && alive(f) && (reveal || eyes.some(e => dist(e, f) <= SENSOR_RANGE)));
+    // 透明化中 (stealth) の艦隊は敵から見えない
+    return fleets.filter(f => f.team !== team && alive(f) && !(f.stealth > 0) && (reveal || eyes.some(e => dist(e, f) <= SENSOR_RANGE)));
   }
 
   // 敵の位置情報 (intel: 敵 id → {x, y, visible}) を更新する。
@@ -373,6 +375,7 @@
           torpedoCooldown: 0,
           weapons: {shell: true, torpid: true},
           interceptCooldown: 0,
+          stealth: 0, // 透明化の残り秒数 (隠しコマンド stealth)
           ai: {nextThink: 0}
         });
       });
@@ -529,8 +532,11 @@
   }
 
   function applyCommand(g, command){
+    const me = g.fleets.find(f => f.isPlayer && alive(f));
     if(command === 'scan') g.reveal = !g.reveal;
     if(command === 'warp') g.warpArmed = true;
+    if(command === 'repair' && me) me.ships = INITIAL_SHIPS;           // 艦艇数を初期値に (全滅した艦隊は戻らない)
+    if(command === 'stealth' && me) me.stealth = STEALTH_DURATION;     // 効果中にもう一度使うと残り時間が戻る
   }
 
   // 艦隊を (x, y) へ瞬間移動する (マップ内に収める)
@@ -546,6 +552,9 @@
     if(g.outcome) return;
     g.time += dt;
     g.events = [];
+    for(const f of g.fleets){
+      if(f.stealth > 0) f.stealth = f.stealth - dt > EPS ? f.stealth - dt : 0;
+    }
     const living = g.fleets.filter(alive);
     const refreshIntel = () => { for(const team of TEAMS) updateIntel(g.intel[team], g.fleets, team, revealFor(g, team)); };
 
@@ -577,7 +586,7 @@
 
   const api = {
     WORLD, INITIAL_SHIPS, PARAM_TOTAL, PARAM_MIN, SENSOR_RANGE, LOCK_RANGE, FIRE_RANGE, GHOST_CLEAR_RANGE, FIREPOWER_FLOOR,
-    SHELL_INTERVAL, TORPEDO_RELOAD, TORPEDO_SPEED, TORPEDO_TURN_RATE, TORPEDO_LIFE, INTERCEPT_RANGE, INTERCEPT_INTERVAL,
+    SHELL_INTERVAL, STEALTH_DURATION, TORPEDO_RELOAD, TORPEDO_SPEED, TORPEDO_TURN_RATE, TORPEDO_LIFE, INTERCEPT_RANGE, INTERCEPT_INTERVAL,
     JOBS, FORMATION, AI_PROFILES, validateParams, localForceRatio, maxSpeed, mitigation,
     shellDps, shellDamage, torpedoDamage, visibleEnemies, updateIntel,
     lockTarget, moveFleet, checkOutcome, aiDecide, createGame, step,

@@ -199,8 +199,8 @@ test('AI (旗艦): 手がかりがなければ敵陣の方向 (青は上・赤�
   }
 });
 
-test('マップ: 原作のミニマップと同じ縦長 (横 1 : 縦 2) の 4800 × 9600', () => {
-  assert.deepEqual(L.WORLD, {w: 4800, h: 9600});
+test('マップ: 原作のミニマップと同じ縦長 (横 1 : 縦 2) の 5000 × 10000', () => {
+  assert.deepEqual(L.WORLD, {w: 5000, h: 10000});
 });
 
 test('ゲーム作成: 青は下の端、赤は上の端から、横に並んで出撃する', () => {
@@ -472,8 +472,8 @@ test('編成: 第 1 旗艦 (バランサー)・第 2 副艦 (タンク)・第 3 
 test('出撃位置: 各チームから見て左から第 3・第 2・第 1・第 4・第 5 (旗艦が真ん中。赤は南向きなので東から)', () => {
   const g = L.createGame(JOB.balancer.params);
   const xs = team => [3, 2, 1, 4, 5].map(n => g.fleets.find(f => f.id === team + n).x);
-  assert.deepEqual(xs('blue'), [800, 1600, 2400, 3200, 4000]);
-  assert.deepEqual(xs('red'), [4000, 3200, 2400, 1600, 800]);
+  assert.deepEqual(xs('blue'), [900, 1700, 2500, 3300, 4100]);
+  assert.deepEqual(xs('red'), [4100, 3300, 2500, 1700, 900]);
 });
 
 test('出撃位置: アタッカーは自分の隊列位置 (旗艦の左右) と同じ側から出撃する', () => {
@@ -949,4 +949,62 @@ test('AI プロファイル (標準): スピーダーは撃たれない距離 (�
   assert.ok(P.speederSafeDistance > L.FIRE_RANGE);
   assert.ok(P.speederMarkDistance > P.speederSafeDistance);
   assert.ok(P.speederMarkDistance < L.SENSOR_RANGE);
+});
+
+// ---------- 第 2.5 段階 (2.5c) ----------
+
+test('隠しコマンド: repair と stealth を読み取る (大文字・前後の空白は無視)', () => {
+  assert.equal(L.parseCommand(' REPAIR '), 'repair');
+  assert.equal(L.parseCommand('Stealth'), 'stealth');
+  assert.equal(L.parseCommand('repairs'), null);
+});
+
+test('隠しコマンド repair: 自艦隊の艦艇数が初期値に戻る (全滅した艦隊は戻らない)', () => {
+  const me = fleet({id: 'me', isPlayer: true, ships: 1234});
+  const ally = fleet({id: 'a', ships: 500});
+  const g = game([me, ally]);
+  L.applyCommand(g, 'repair');
+  assert.equal(me.ships, L.INITIAL_SHIPS);
+  assert.equal(ally.ships, 500, '味方の AI 艦隊は変わらない');
+  me.ships = 0;
+  L.applyCommand(g, 'repair');
+  assert.equal(me.ships, 0);
+});
+
+test('隠しコマンド stealth: 効果中は自艦隊が敵から見えず、狙われない。自艦隊からは撃てる', () => {
+  const me = fleet({id: 'me', isPlayer: true, x: 1000, y: 1000});
+  const e = fleet({id: 'e', team: 'red', x: 1000 + L.FIRE_RANGE - 50, y: 1000});
+  const g = game([me, e]);
+  L.applyCommand(g, 'stealth');
+  assert.equal(me.stealth, L.STEALTH_DURATION);
+  assert.equal(L.STEALTH_DURATION, 15);
+  assert.deepEqual(L.visibleEnemies(g.fleets, 'red', false), []);
+  L.step(g, 0.1, seq(0.9));
+  assert.equal(g.intel.red.me, undefined, '一度も見ていなければ記録もない');
+  assert.ok(!g.locks.some(l => l.from === 'e'), '敵は狙いを定めない');
+  assert.ok(g.locks.some(l => l.from === 'me' && l.firing), '自艦隊は撃てる');
+});
+
+test('隠しコマンド stealth: 見られていた場合は最終確認位置だけが残り、15 秒で元に戻る。もう一度で 15 秒に戻る', () => {
+  const me = fleet({id: 'me', isPlayer: true, x: 1000, y: 1000, weapons: {shell: false, torpid: false}});
+  const e = fleet({id: 'e', team: 'red', x: 1000 + L.SENSOR_RANGE - 10, y: 1000, weapons: {shell: false, torpid: false}});
+  const g = game([me, e]);
+  L.step(g, 0.1, seq(0.9));
+  assert.equal(g.intel.red.me.visible, true);
+  L.applyCommand(g, 'stealth');
+  L.step(g, 0.1, seq(0.9));
+  assert.equal(g.intel.red.me.visible, false);
+  for(let i = 0; i < 100; i++) L.step(g, 0.1, seq(0.9)); // 約 10 秒
+  L.applyCommand(g, 'stealth');
+  assert.equal(me.stealth, L.STEALTH_DURATION);
+  for(let i = 0; i < 149; i++) L.step(g, 0.1, seq(0.9));
+  assert.ok(me.stealth > 0);
+  for(let i = 0; i < 3; i++) L.step(g, 0.1, seq(0.9));
+  assert.equal(me.stealth, 0);
+  Object.assign(e, {x: me.x + 100, y: me.y}); // 敵 AI はこの間に動くので、すぐ近くに置き直して確かめる
+  assert.ok(L.visibleEnemies(g.fleets, 'red', false).some(f => f.id === 'me'), '効果が切れたら見える');
+});
+
+test('ゲーム作成: どの艦隊も透明化していない状態で始まる', () => {
+  for(const f of L.createGame(JOB.balancer.params).fleets) assert.equal(f.stealth, 0);
 });

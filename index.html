@@ -900,6 +900,7 @@ function drawProjectiles(allies){
 }
 
 function drawFleet(f){
+  if(f.stealth > 0) ctx.globalAlpha = 0.35; // 透明化中 (隠しコマンド stealth) は半透明
   const p = toScreen(f.x, f.y);
   const color = COLORS[f.team];
   const size = (10 + 10 * f.ships / L.INITIAL_SHIPS) * camera.zoom + 4;
@@ -937,6 +938,7 @@ function drawFleet(f){
   ctx.fillText(displayName(f), p.x, p.y - size - 16);
   ctx.fillStyle = COLORS.text;
   ctx.fillText(`${Math.ceil(f.ships)} 隻`, p.x, p.y + size + 20);
+  ctx.globalAlpha = 1;
 }
 
 // 索敵範囲: 範囲の中 (重なった所も同じ明るさ) を薄く明るく塗り、境目に線を引く
