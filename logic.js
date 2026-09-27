@@ -49,8 +49,8 @@
   const SHIP_TYPES = {
     battleship: {name: '戦艦', params: {speed: 15, defense: 50, attack: 35}, size: 'large', hitRadius: 40,
       weapon: {kind: 'gun', range: 650, interval: 3}, description: '旗艦。高火力・高耐久だが遅い。長い射程から重い一撃を撃つ'},
-    carrier: {name: '空母', params: {speed: 30, defense: 30, attack: 30}, size: 'large', hitRadius: 40, antiAir: true,
-      weapon: {kind: 'bomber', range: 1100, interval: 6}, description: '偵察機で敵を探し、遠くの敵に爆撃機を送る。攻撃を受けると大きな被害が出ることがある'},
+    carrier: {name: '空母', params: {speed: 30, defense: 30, attack: 20}, size: 'large', hitRadius: 40, antiAir: true,
+      weapon: {kind: 'bomber', range: 1100, interval: 9}, description: '偵察機で敵を探し、遠くの敵に爆撃機を送る。攻撃を受けると大きな被害が出ることがある'},
     cruiser: {name: '巡洋艦', params: {speed: 45, defense: 30, attack: 25}, size: 'medium', hitRadius: 25,
       weapon: {kind: 'gun', range: 450, interval: 1}, description: '主力。速さと攻守のバランスがよく、連射がきく'},
     destroyer: {name: '駆逐艦', params: {speed: 60, defense: 15, attack: 15}, size: 'small', hitRadius: 15, antiAir: true,
@@ -222,7 +222,10 @@
     if(blueAlive && redAlive) return null;
     if(blueAlive) return 'win';
     if(redAlive) return 'lose';
-    return 'draw';
+    // 両方の旗艦が同時に沈んだら、残っている戦力 (艦艇の合計) が多いほうの勝ち (判定勝ち)。同じなら引き分け
+    const total = team => fleets.filter(f => f.team === team).reduce((sum, f) => sum + Math.max(0, f.ships), 0);
+    const diff = total('blue') - total('red');
+    return diff > 0 ? 'win' : diff < 0 ? 'lose' : 'draw';
   }
 
   // ゲームを作る。ルールはモダン (旗艦を倒したら勝ち)。編成は FORMATION で固定 (番号で艦種が決まる)。
@@ -355,8 +358,9 @@
   // 命中: ダメージを damage (Map: 艦隊 → ダメージ) に足す。空母は確率でダメージが増える (弱点)。バフ中の目標は ÷ BUFF_DEFENSE
   function applyHit(g, damage, p, t, kind, rng){
     const crit = t.role === 'carrier' && rng() < CARRIER_CRIT_CHANCE;
-    damage.set(t, (damage.get(t) || 0) + p.power * mitigation(t.params) * (crit ? CARRIER_CRIT_MULTIPLIER : 1) / (t.buffed ? BUFF_DEFENSE : 1));
-    record(g, {type: 'hit', kind, team: p.team, targetId: t.id, critical: crit, x: t.x, y: t.y});
+    const amount = p.power * mitigation(t.params) * (crit ? CARRIER_CRIT_MULTIPLIER : 1) / (t.buffed ? BUFF_DEFENSE : 1);
+    damage.set(t, (damage.get(t) || 0) + amount);
+    record(g, {type: 'hit', kind, team: p.team, from: p.from, targetId: t.id, critical: crit, damage: amount, x: t.x, y: t.y});
   }
 
   // 砲弾を進める。目標が撃った艦の射程の中にいる間は追いかけて必ず当たる (射程内のみ必中)。

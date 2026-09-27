@@ -763,6 +763,9 @@ function finish(){
   for(const f of game.fleets.filter(f => f.flagship && f.ships <= 0)){
     parts.push(f.team === 'red' ? `${f.name} (敵旗艦) を撃破` : `旗艦 ${f.name} が撃沈された`);
   }
+  if(game.fleets.filter(f => f.flagship && f.ships <= 0).length === 2){
+    parts.push(game.outcome === 'draw' ? '両旗艦が同時に撃沈、残存戦力も同じ' : '両旗艦が同時に撃沈 ── 残存戦力で判定');
+  }
   $('resultDetail').textContent = parts.join(' / ');
   // 戦績: 戦闘時間・残存艦隊数・残存戦力 (味方 / 敵)
   const st = L.battleStats(game);
