@@ -8,7 +8,8 @@
 - `index.html` … 描画・入力・ゲームループ
 - `logic.js` … 描画や DOM に依存しないロジック。ブラウザでは `<script src>` で `window.SagittariusLogic` に、Node では `require()` で読み込める形にする (ES Modules は `file://` で動かないため使わない)
 - `logic.test.js` … `logic.js` の仕様テスト (`node:test`)
-- `rule-ai.js` / `rule-ai.test.js` … 旧ルール AI (今のゲームの AI。学習した AI が勝ち越してユーザーが OK したら置き換え、その後は学習の「ものさし」)
+- `rule-ai.js` / `rule-ai.test.js` … 旧型 AI (人が書いたルールの AI。ゲームで選べる AI の 1 つで、学習の「ものさし」)
+- `learned-brain.js` … 学習型 AI の脳 (ゲームで選べるもう 1 つの AI)。`npm run train` の終わりに自動で書き直される。手で書き換えない
 - `brain.js` / `brain.test.js` … 学習で育てる AI の脳と、盤面 → 入力・出力 → 命令 の変換
 - `watch.html` … 開発用の観戦画面 (配布しない)
 - `settings.js` / `settings.test.js` … 設定 (キー配置・音量・自艦隊の名前・クレジット) とそのテスト
@@ -39,7 +40,7 @@
 ## コマンド
 - `npm test` … テストを実行
 - `npm run serve` … http://localhost:8080/ で配信
-- `npm run train -- --minutes 60` … AI の脳を学習する (途中経過は `training/`。続きから再開できる)。**学習時間は毎回ユーザーと相談して決める**。**各段階の終わりに「学習するか」「何分回すか」を確かめる**
-- `npm run evaluate` … 育った AI 対 旧ルール AI の勝率を測る
-- `npm run imitate` … 旧ルール AI の真似をする脳を作る (`training/imitation.json`)。`npm run train -- --fresh --from training/imitation.json` で学習の出発点にする
+- `npm run train -- --minutes 60` … AI の脳を学習する (途中経過は `training/`)。**学習型 AI は毎回、前回の学習の続きからアップデートする** (`--fresh` は使わない)。終わると `learned-brain.js` が最新の脳で書き直されるので、差分を確認してコミットする (`npm run export-brain` でも書き出せる)。**学習時間は毎回ユーザーと相談して決める**。**各段階の終わりに「学習するか」「何分回すか」を確かめる**
+- `npm run evaluate` … 学習型 AI 対 旧型 AI の勝率を測る
+- `npm run imitate` … 旧型 AI の真似をする脳を作る (`training/imitation.json`)。`npm run train -- --fresh --from training/imitation.json` で学習の出発点にする (学習をやり直すときだけ。ユーザーの OK がいる)
 - `npm run package -- vX.Y` … そのタグの配布用 zip を `dist/` に作る (引数なしなら全タグ分)。GitHub Releases に添付する手順は DESIGN.md の「配布」

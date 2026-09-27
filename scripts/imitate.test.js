@@ -85,7 +85,7 @@ test('学習: お手本に近づくように重みを直すと、誤差が下が
   assert.ok(I.meanLoss(w, samples) < before * 0.3, `${before} → ${I.meanLoss(w, samples)}`);
 });
 
-test('お手本集め: 旧ルール AI どうしの試合から、艦種ごとに (入力, お手本) を集める', () => {
+test('お手本集め: 旧型 AI どうしの試合から、艦種ごとに (入力, お手本) を集める', () => {
   const data = I.collect({games: 1, seed: 1, dt: 1 / 10, maxTime: 30, world: {w: 2500, h: 5000}});
   for(const r of B.ROLES){
     assert.ok(data[r].length > 0, r);

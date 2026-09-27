@@ -1,4 +1,4 @@
-// 模倣学習: 旧ルール AI の命令をお手本にして、脳 (brain.js) を誤差逆伝播で学習させる。神経進化の出発点に使う。
+// 模倣学習: 旧型 AI の命令をお手本にして、脳 (brain.js) を誤差逆伝播で学習させる。神経進化の出発点に使う。
 //   node scripts/imitate.js                    お手本を集めて学習し、training/imitation.json に保存する
 //   node scripts/imitate.js --games 60 --epochs 30 --eval-games 40
 // 外部パッケージは使わない (誤差逆伝播と Adam (重みの直し方を自動で調整する方法) を自分で計算する)
@@ -13,7 +13,7 @@ const MOVE_CLIP = 0.9; // 移動のお手本を tanh の手前の値に直すと
 const {INPUTS, HIDDEN, OUTPUTS, OUT} = B;
 const ATTACK_LOGITS = [OUT.attackNone, OUT.attack0, OUT.attack1, OUT.attack2]; // 攻撃の点数の出力 (攻撃しない、近い順の敵 3 つ)
 
-// 旧ルール AI の命令を、脳の出力のお手本にする。
+// 旧型 AI の命令を、脳の出力のお手本にする。
 // 返り値: {move: [x, y] (tanh の手前の値。攻撃のときは null), attack: 0 (攻撃しない) / 1〜3 (近い順の見えている敵), choices: 選べる数 (1 + 見えている敵の数、最大 4)}
 function toTarget(order, f, fleets, intel){
   const targets = B.visibleTargets(f, intel);
@@ -142,7 +142,7 @@ function train(w0, samples, rng, opts){
   return w;
 }
 
-// 旧ルール AI どうしの試合から、艦種ごとに (入力, お手本) を集める。opts: games, seed, dt, maxTime, world
+// 旧型 AI どうしの試合から、艦種ごとに (入力, お手本) を集める。opts: games, seed, dt, maxTime, world
 function collect(opts){
   const data = {};
   for(const r of B.ROLES) data[r] = [];
@@ -228,7 +228,7 @@ async function main(){
     await pool.close();
     const won = results.filter((r, k) => r.outcome !== 'timeout' && r.outcome !== 'draw' && (r.outcome === 'win') === (k % 2 === 0)).length;
     const timeouts = results.filter(r => r.outcome === 'timeout').length;
-    console.log(`まねした脳 対 旧ルール AI: ${args['eval-games']} 試合で ${won} 勝 (時間切れ ${timeouts})`);
+    console.log(`まねした脳 対 旧型 AI: ${args['eval-games']} 試合で ${won} 勝 (時間切れ ${timeouts})`);
   }
 }
 

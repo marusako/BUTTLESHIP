@@ -1,5 +1,5 @@
 // 試合を 1 つずつ受け取って回すワーカー (別のスレッドで動く)。scripts/pool.js から使う。
-// 受け取る: {id, blue, red, opts}。blue / red は {kind: 'brain', brains: 脳の組 (JSON にできる形)} か {kind: 'rule'} (旧ルール AI)
+// 受け取る: {id, blue, red, opts}。blue / red は {kind: 'brain', brains: 脳の組 (JSON にできる形)} か {kind: 'rule'} (旧型 AI)
 const {parentPort} = require('node:worker_threads');
 const B = require('../brain.js');
 const R = require('../rule-ai.js');

@@ -46,6 +46,7 @@ test('zip に入れるファイル: ゲームに必要なものだけを、そ�
   assert.deepEqual(P.pickGameFiles(['sound.js', 'music.js', 'music.test.js', 'settings.js', 'logic.js', 'index.html', 'classic']),
     ['index.html', 'logic.js', 'settings.js', 'music.js', 'sound.js', 'classic']);
   assert.deepEqual(P.pickGameFiles(['rule-ai.js', 'rule-ai.test.js', 'logic.js', 'index.html']), ['index.html', 'logic.js', 'rule-ai.js']);
+  assert.deepEqual(P.pickGameFiles(['learned-brain.js', 'brain.js', 'brain.test.js', 'rule-ai.js', 'logic.js', 'index.html']), ['index.html', 'logic.js', 'rule-ai.js', 'brain.js', 'learned-brain.js'], '学習型 AI (第 3.5 段階)');
 });
 
 test('存在しないタグはエラーになる', () => {

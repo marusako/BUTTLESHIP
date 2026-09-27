@@ -69,6 +69,14 @@ function saveState(state, best, info){
   fs.writeFileSync(path.join(DIR, 'best-brains.js'), `window.SAGITTARIUS_TRAINING_BEST = ${JSON.stringify(bestPlain)};\n`);
 }
 
+// 学習型 AI の脳 (training/best.json) を、ゲームが読む learned-brain.js に書き出す (学習の終わりと npm run export-brain)
+function exportLearnedBrain(){
+  const best = JSON.parse(fs.readFileSync(path.join(DIR, 'best.json'), 'utf8'));
+  const out = path.join(DIR, '..', 'learned-brain.js');
+  fs.writeFileSync(out, E.learnedBrainSource(best));
+  console.log(`学習型 AI の脳を learned-brain.js に書き出しました (第 ${best.generation} 世代)。差分を確認してコミットしてください`);
+}
+
 // 学習の進み具合 (観戦画面が残り時間を出すのに使う)
 function saveProgress(record){
   fs.mkdirSync(DIR, {recursive: true});
@@ -130,7 +138,7 @@ async function main(){
       seconds: 0
     };
 
-    // ものさし: 旧ルール AI と戦わせて勝率を測る (学習の成績には入れない)
+    // ものさし: 旧型 AI と戦わせて勝率を測る (学習の成績には入れない)
     if(state.generation % args['eval-every'] === 0){
       const evalRng = E.mulberry32(990001 + state.generation);
       const evalTasks = Array.from({length: args['eval-games']}, (_, k) => {
@@ -164,8 +172,12 @@ async function main(){
   }
   await pool.close();
   progress(true);
+  exportLearnedBrain();
   console.log(`学習終了: 第 ${state.generation} 世代まで保存しました (training/)`);
 }
 
-if(require.main === module) main().catch(e => { console.error(e); process.exit(1); });
+if(require.main === module){
+  if(process.argv.includes('--export-brain')) exportLearnedBrain();
+  else main().catch(e => { console.error(e); process.exit(1); });
+}
 module.exports = {parseArgs};

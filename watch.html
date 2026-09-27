@@ -45,16 +45,16 @@
     <div id="progress" class="stat" style="margin-top: 0"></div>
     <div id="logSummary" class="stat" style="margin-top: 0"></div>
     <canvas id="chart"></canvas>
-    <div class="legend"><span><i style="background:#4fa3ff"></i>成績の平均</span><span><i style="background:#9fb4dc"></i>成績の最高</span><span><i style="background:#ff5a5a"></i>時間切れの割合</span><span><i style="background:#ffd34f"></i>旧ルール AI への勝率</span></div>
+    <div class="legend"><span><i style="background:#4fa3ff"></i>成績の平均</span><span><i style="background:#9fb4dc"></i>成績の最高</span><span><i style="background:#ff5a5a"></i>時間切れの割合</span><span><i style="background:#ffd34f"></i>旧型 AI への勝率</span></div>
     <table id="logTable"></table>
-    <div class="hint">成績: 勝ち 1 / 負け 0 / 時間切れ -0.25 (+ 残存戦力の差 × 0.1)。旧ルール AI への勝率は 10 世代ごとに 20 試合で測る (ぶれが大きい)。30 秒ごとと、次の試合を始めるときに読み込み直す</div>
-    <div class="hint" id="noBrain">学習済みの脳がまだありません (npm run train で作られます)</div>
+    <div class="hint">成績: 勝ち 1 / 負け 0 / 時間切れ -0.25 (+ 残存戦力の差 × 0.1)。旧型 AI への勝率は 10 世代ごとに 20 試合で測る (ぶれが大きい)。30 秒ごとと、次の試合を始めるときに読み込み直す</div>
+    <div class="hint" id="noBrain">学習型 AI の脳がまだありません (npm run train で作られます)</div>
   </div>
 </div>
 <script src="logic.js"></script>
 <script src="rule-ai.js"></script>
 <script src="brain.js"></script>
-<!-- 学習の途中経過 (npm run train が書き出す)。なければ「学習済み」は選べない -->
+<!-- 学習の途中経過 (npm run train が書き出す)。なければ「学習型 AI」は選べない -->
 <script src="training/best-brains.js" onerror="window.SAGITTARIUS_TRAINING_BEST = null"></script>
 <script>
 'use strict';
@@ -73,8 +73,8 @@ function mulberry32(seed){ let a = seed | 0; return () => { a = a + 0x6D2B79F5 |
 
 function renderAiOptions(){
   const AIS = {};
-  if(trained) AIS.trained = `学習済み (第 ${trained.generation} 世代)`;
-  AIS.rule = '旧ルール AI';
+  if(trained) AIS.trained = `学習型 AI (第 ${trained.generation} 世代)`;
+  AIS.rule = '旧型 AI';
   AIS.random = 'ランダムな脳 (学習前)';
   for(const id of ['blueAi', 'redAi']){
     const prev = $(id).value;
@@ -122,7 +122,7 @@ function renderLog(){
   const last = logRows[logRows.length - 1];
   const evals = logRows.filter(r => r.vsRuleWin !== null);
   const lastEval = evals[evals.length - 1];
-  $('logSummary').innerHTML = `第 ${last.generation} 世代まで${last.world ? `  (学習のマップ ${last.world})` : ''}<br>成績 平均 ${last.mean.toFixed(2)} / 最高 ${last.best.toFixed(2)}<br>時間切れ ${pct(last.timeoutRate)} / 端にいる割合 ${pct(last.edgeRatio)}<br>旧ルール AI への勝率 <b style="color:var(--accent)">${lastEval ? pct(lastEval.vsRuleWin) : '-'}</b>${lastEval ? ` (第 ${lastEval.generation} 世代、時間切れ ${pct(lastEval.vsRuleTimeout)})` : ''}`;
+  $('logSummary').innerHTML = `第 ${last.generation} 世代まで${last.world ? `  (学習のマップ ${last.world})` : ''}<br>成績 平均 ${last.mean.toFixed(2)} / 最高 ${last.best.toFixed(2)}<br>時間切れ ${pct(last.timeoutRate)} / 端にいる割合 ${pct(last.edgeRatio)}<br>旧型 AI への勝率 <b style="color:var(--accent)">${lastEval ? pct(lastEval.vsRuleWin) : '-'}</b>${lastEval ? ` (第 ${lastEval.generation} 世代、時間切れ ${pct(lastEval.vsRuleTimeout)})` : ''}`;
   drawChart();
   const rows = logRows.slice(-10).reverse();
   $('logTable').innerHTML = '<tr><th>世代</th><th>マップ幅</th><th>平均</th><th>最高</th><th>時間切れ</th><th>端</th><th>対旧AI</th></tr>' +

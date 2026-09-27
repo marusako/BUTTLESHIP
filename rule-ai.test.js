@@ -359,7 +359,7 @@ test('AI (空母): 見えている敵が carrierSafeDistance より近ければ�
   assert.deepEqual([Math.round(o2.x), Math.round(o2.y)], [1200, 3000 + P.carrierDistance], '遠ければ定位置');
 });
 
-test('旧ルール AI どうしの試合が最後まで進む (艦種・艦載機があっても)', () => {
+test('旧型 AI どうしの試合が最後まで進む (艦種・艦載機があっても)', () => {
   const g = L.createGame({controllers: {blue: R.controller(), red: R.controller()}});
   g.fleets.find(f => f.isPlayer).isPlayer = false;
   let rngState = 7;

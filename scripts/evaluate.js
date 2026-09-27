@@ -1,7 +1,7 @@
-// 育った AI の強さを、旧ルール AI (ものさし) と戦わせて測る。本番と同じ 1/60 秒刻み。
-//   node scripts/evaluate.js                          training/best.json の脳 対 旧ルール AI を 200 試合
+// 育った AI の強さを、旧型 AI (ものさし) と戦わせて測る。本番と同じ 1/60 秒刻み。
+//   node scripts/evaluate.js                          training/best.json の脳 対 旧型 AI を 200 試合
 //   node scripts/evaluate.js --brains <file> --games 400 --workers 5
-//   node scripts/evaluate.js --rule-vs-rule           旧ルール AI どうし (偏りがないかの確認用)
+//   node scripts/evaluate.js --rule-vs-rule           旧型 AI どうし (偏りがないかの確認用)
 // 試合は、育った AI の担当 (青 / 赤) と処理順 (青が先 / 赤が先) の 4 通りを同じ数ずつ回す
 const fs = require('node:fs');
 const path = require('node:path');
@@ -59,7 +59,7 @@ async function main(){
     const s = summarize(pick(f), pickS(f));
     console.log(`${label}: 勝ち ${s.count.win} / 負け ${s.count.lose} / 時間切れ ${s.count.timeout} / 引き分け ${s.count.draw}  勝率 ${(s.winRate * 100).toFixed(1)}%  試合時間 中央値 ${s.medianTime.toFixed(0)} 秒・95% ${s.p95Time.toFixed(0)} 秒`);
   };
-  const who = args['rule-vs-rule'] ? '旧ルール AI (測る側)' : '育った AI';
+  const who = args['rule-vs-rule'] ? '旧型 AI (測る側)' : '育った AI';
   line(`${who} 全体`, () => true);
   line('  青を担当', k => k % 2 === 0);
   line('  赤を担当', k => k % 2 === 1);

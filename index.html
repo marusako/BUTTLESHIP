@@ -70,6 +70,11 @@
   button.job:hover:not(:disabled){ opacity: 0.85; border-color: var(--blue); background: rgba(79, 163, 255, 0.06); }
   button.job.selected, button.job.selected:hover:not(:disabled){ opacity: 1; border-color: var(--accent); background: rgba(255, 211, 79, 0.08); }
   .job .jobName{ font-weight: bold; }
+  .aiPick{ display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 6px 10px; margin: 0 0 14px; font-size: 14px; }
+  .aiPick .side{ color: var(--muted); margin-left: 8px; }
+  .aiPick button{ margin: 0; padding: 4px 12px; opacity: 0.55; }
+  .aiPick button.selected{ opacity: 1; border-color: var(--accent); background: rgba(255, 211, 79, 0.08); }
+  .aiPick .note{ flex-basis: 100%; text-align: center; color: var(--muted); font-size: 12px; }
   .job.watch small{ display: block; margin-top: 8px; color: var(--muted); }
   .job .jobStats{ display: grid; grid-template-columns: 34px 1fr 24px; align-items: center; gap: 2px 6px; margin: 8px 0 6px; font-size: 12px; color: var(--muted); }
   .job .bar{ height: 6px; background: #13233f; }
@@ -165,6 +170,7 @@
     <h2>出撃準備 (モダン)</h2>
     <div class="section" id="jobSection"></div>
     <div class="jobs" id="jobs"></div>
+    <div class="aiPick" id="aiPick"></div>
     <button id="backTitle">戻る</button>
     <button id="start">出撃</button>
   </div>
@@ -224,6 +230,8 @@
 
 <script src="logic.js"></script>
 <script src="rule-ai.js"></script>
+<script src="brain.js"></script>
+<script src="learned-brain.js" onerror="window.SagittariusLearnedBrain = null"></script>
 <script src="settings.js"></script>
 <script src="music.js"></script>
 <script src="sound.js"></script>
@@ -231,7 +239,9 @@
 'use strict';
 const L = window.SagittariusLogic;
 const S = window.SagittariusSettings;
-const RuleAI = window.SagittariusRuleAI; // 第 2.7 段階で学習した AI に置き換えるまで使う
+const RuleAI = window.SagittariusRuleAI; // 旧型 AI (人が書いたルール)
+const Brain = window.SagittariusBrain;
+const learnedBrain = window.SagittariusLearnedBrain || null; // 学習型 AI の脳 (learned-brain.js。なければ学習型 AI は選べない)
 const Snd = window.SagittariusSound;
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
@@ -380,6 +390,35 @@ function watchCard(){
   card.addEventListener('click', () => selectCard(WATCH_SLOT));
   return card;
 }
+// 対戦する AI (味方 / 敵。観戦では 味方 = 青、敵 = 赤)。旧型 AI / 学習型 AI から選び、設定と一緒に保存する
+function renderAiPick(){
+  const row = (side, label) => {
+    const span = document.createElement('span');
+    span.className = 'side';
+    span.textContent = label;
+    return [span, ...S.AI_KINDS.map(k => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = k.id === 'learned' && learnedBrain ? `${k.label} (第 ${learnedBrain.generation} 世代)` : k.label;
+      b.disabled = k.id === 'learned' && !learnedBrain;
+      b.classList.toggle('selected', aiKindOf(side) === k.id);
+      b.onclick = () => {
+        settings = S.normalize(Object.assign({}, settings, {ai: Object.assign({}, settings.ai, {[side]: k.id})}));
+        saveSettings();
+        renderAiPick();
+      };
+      return b;
+    })];
+  };
+  const note = document.createElement('span');
+  note.className = 'note';
+  note.textContent = learnedBrain ? '旧型 AI: 人が書いたルールで動く / 学習型 AI: AI どうしの試合で学習した脳で動く (学習するたびに新しくなる)' : '学習型 AI の脳 (learned-brain.js) がないので、旧型 AI だけ選べます';
+  $('aiPick').replaceChildren(...row('ally', '味方の AI'), ...row('enemy', '敵の AI'), note);
+}
+// 使う AI の種類 (学習型 AI の脳がなければ旧型 AI)
+const aiKindOf = side => (settings.ai[side] === 'learned' && learnedBrain ? 'learned' : 'rule');
+const aiController = side => (aiKindOf(side) === 'learned' ? Brain.controller(Brain.fromPlain(learnedBrain.brains)) : RuleAI.controller());
+
 // カードを選ぶ。選んでいるカードをもう一度クリックしたら出撃
 function selectCard(no){
   if(playerSlot === no){ startBattle(); return; }
@@ -390,7 +429,8 @@ function selectCard(no){
 // 選んだカードを明るくし、見出しに選んだ艦隊を出す (第 1 艦隊は戦艦で旗艦)
 function renderSetup(){
   for(const card of document.querySelectorAll('#jobs .job')) card.classList.toggle('selected', Number(card.dataset.slot) === playerSlot);
-  if(playerSlot === WATCH_SLOT){ $('jobSection').textContent = '観戦 (もう一度クリックで出撃)。10 隻すべてを AI が動かす'; return; }
+  renderAiPick();
+  if(playerSlot === WATCH_SLOT){ $('jobSection').textContent = '観戦 (もう一度クリックで出撃)。10 隻すべてを AI が動かす (味方の AI = 青、敵の AI = 赤)'; return; }
   const name = classOf(playerSlot).name;
   $('jobSection').textContent = (playerSlot === 1 ? `指揮する艦 (クリックで選ぶ): ${name}。旗艦なので、倒されたら負け` : `指揮する艦 (クリックで選ぶ): ${name}。味方の旗艦 (戦艦) は AI`) + '。もう一度クリックで出撃';
 }
@@ -399,7 +439,7 @@ renderSetup();
 function startBattle(){
   game = L.createGame({
     playerName: settings.name, playerSlot, spectate: playerSlot === WATCH_SLOT,
-    controllers: {blue: RuleAI.controller(), red: RuleAI.controller()}
+    controllers: {blue: aiController('ally'), red: aiController('enemy')}
   });
   dragMove = null;
   const me = statusFleet(); // 観戦なら味方の旗艦

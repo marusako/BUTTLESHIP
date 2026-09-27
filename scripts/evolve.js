@@ -176,4 +176,17 @@ function progressRecord({startedAt, minutes, generation, finished}){
   return {startedAt: new Date(startedAt).toISOString(), deadline: new Date(startedAt + minutes * 60000).toISOString(), minutes, generation, finished: !!finished};
 }
 
-module.exports = {progressRecord, TIMEOUT_SCORE, EDGE_MARGIN, WORLD_STAGES, advanceCurriculum, seedPopulation, mulberry32, gaussian, playMatch, matchScore, mutate, nextGeneration, schedule};
+// 学習型 AI の脳のファイル (learned-brain.js) の中身。best: training/best.json と同じ形 ({generation, brains, ...})。
+// ブラウザでは window.SagittariusLearnedBrain、Node では require() で読める
+function learnedBrainSource(best){
+  const data = JSON.stringify({generation: best.generation, brains: best.brains});
+  return `// 学習型 AI の脳 (第 ${best.generation} 世代)。npm run train の終わりか npm run export-brain で書き出す。手で書き換えない
+(function(root){
+  const brain = ${data};
+  if(typeof module !== 'undefined' && module.exports) module.exports = brain;
+  else root.SagittariusLearnedBrain = brain;
+})(typeof window !== 'undefined' ? window : globalThis);
+`;
+}
+
+module.exports = {learnedBrainSource, progressRecord, TIMEOUT_SCORE, EDGE_MARGIN, WORLD_STAGES, advanceCurriculum, seedPopulation, mulberry32, gaussian, playMatch, matchScore, mutate, nextGeneration, schedule};

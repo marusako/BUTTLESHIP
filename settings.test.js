@@ -173,3 +173,15 @@ test('読み込み: 第 2.5 段階の保存データ (SHELL / TORPID のキー) 
   assert.equal(s.keys.fire, 'KeyZ');
   assert.equal(s.keys.camUp, 'KeyI');
 });
+
+test('対戦する AI (第 3.5 段階): 味方と敵を 旧型 AI (rule) / 学習型 AI (learned) から選ぶ。初めは両方 旧型 AI。おかしな値は旧型 AI', () => {
+  assert.deepEqual(S.AI_KINDS.map(a => [a.id, a.label]), [['rule', '旧型 AI'], ['learned', '学習型 AI']]);
+  assert.deepEqual(S.defaults().ai, {ally: 'rule', enemy: 'rule'});
+  assert.deepEqual(S.normalize({ai: {ally: 'learned', enemy: 'random'}}).ai, {ally: 'learned', enemy: 'rule'});
+  assert.deepEqual(S.normalize({}).ai, {ally: 'rule', enemy: 'rule'});
+  const st = memoryStorage();
+  const s = Object.assign(S.defaults(), {ai: {ally: 'rule', enemy: 'learned'}});
+  S.save(st, s);
+  assert.deepEqual(S.load(st).ai, {ally: 'rule', enemy: 'learned'});
+  assert.deepEqual(S.assignKey(s, 'camUp', 'KeyI').ai, s.ai, 'キーを変えても AI の選択は残る');
+});

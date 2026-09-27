@@ -131,7 +131,7 @@ test('1 試合: 決まった種なら同じ結果。動かないチーム同士�
   assert.ok(a.metrics.edgeRatio >= 0 && a.metrics.edgeRatio <= 1);
 });
 
-test('1 試合: 旧ルール AI どうしなら決着がつき、青と赤の処理順を入れ替えられる', () => {
+test('1 試合: 旧型 AI どうしなら決着がつき、青と赤の処理順を入れ替えられる', () => {
   const r = E.playMatch(R.controller(), R.controller(), {seed: 3, dt: 1 / 20, maxTime: 900});
   assert.ok(['win', 'lose', 'draw'].includes(r.outcome), r.outcome);
   const rf = E.playMatch(R.controller(), R.controller(), {seed: 3, dt: 1 / 20, maxTime: 900, redFirst: true});
@@ -164,4 +164,24 @@ test('学習の進み具合 (progressRecord): 始めた時刻・終わる予定 
   const p = E.progressRecord({startedAt: start, minutes: 240, generation: 12, finished: false});
   assert.deepEqual(p, {startedAt: new Date(start).toISOString(), deadline: new Date(start + 240 * 60000).toISOString(), minutes: 240, generation: 12, finished: false});
   assert.equal(E.progressRecord({startedAt: start, minutes: 1, generation: 0}).finished, false, '省略時は終わっていない');
+});
+
+test('学習型 AI の脳のファイル (learnedBrainSource): ブラウザでは window.SagittariusLearnedBrain、Node では require() で読める', () => {
+  const vm = require('node:vm');
+  const best = {generation: 7, fitness: 1.2, brains: B.toPlain(B.randomBrainSet(E.mulberry32(3)))};
+  const src = E.learnedBrainSource(best);
+  const win = {};
+  vm.runInNewContext(src, {window: win});
+  assert.equal(win.SagittariusLearnedBrain.generation, 7);
+  assert.equal(JSON.stringify(win.SagittariusLearnedBrain.brains), JSON.stringify(best.brains), '別の実行環境 (vm) の値なので JSON で比べる');
+  const mod = {exports: {}};
+  vm.runInNewContext(src, {module: mod});
+  assert.equal(mod.exports.generation, 7);
+});
+
+test('今の学習型 AI (learned-brain.js) と旧型 AI の試合が最後まで進む', () => {
+  const learned = require('../learned-brain.js');
+  assert.ok(learned.generation > 0);
+  const r = E.playMatch(B.controller(B.fromPlain(learned.brains)), R.controller(), {seed: 5, dt: 1 / 10, maxTime: 900});
+  assert.ok(['win', 'lose', 'draw'].includes(r.outcome), r.outcome);
 });

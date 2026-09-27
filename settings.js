@@ -28,6 +28,10 @@
     {id: 'centerFlagship', label: '味方旗艦へ視点移動', key: 'KeyE'}
   ];
 
+  // 対戦する AI の種類 (第 3.5 段階): 旧型 AI (人が書いたルール) / 学習型 AI (学習した脳)
+  const AI_KINDS = [{id: 'rule', label: '旧型 AI'}, {id: 'learned', label: '学習型 AI'}];
+  const aiKind = v => (AI_KINDS.some(a => a.id === v) ? v : 'rule');
+
   // クレジット (原作 → 製作 → 開発支援)
   const CREDITS = [
     {role: '原作', name: '谷川流『涼宮ハルヒの暴走』「射手座の日」'},
@@ -43,12 +47,12 @@
   function defaults(){
     const keys = {};
     for(const a of ACTIONS) keys[a.id] = a.key;
-    return {keys, volume: {bgm: 70, sfx: 80}, name: ''};
+    return {keys, volume: {bgm: 70, sfx: 80}, name: '', ai: {ally: 'rule', enemy: 'rule'}};
   }
 
   // action のキーを code にした新しい設定を返す。ほかの操作が code を使っていれば、その操作と入れ替える
   function assignKey(settings, action, code){
-    const next = {keys: Object.assign({}, settings.keys), volume: Object.assign({}, settings.volume), name: settings.name};
+    const next = {keys: Object.assign({}, settings.keys), volume: Object.assign({}, settings.volume), name: settings.name, ai: Object.assign({}, settings.ai)};
     if(!(action in next.keys) || typeof code !== 'string' || isReservedKey(code)) return next;
     const other = Object.keys(next.keys).find(id => id !== action && next.keys[id] === code);
     if(other) next.keys[other] = next.keys[action];
@@ -71,6 +75,8 @@
     const vol = r.volume && typeof r.volume === 'object' ? r.volume : {};
     s.volume = {bgm: clampVolume(vol.bgm, s.volume.bgm), sfx: clampVolume(vol.sfx, s.volume.sfx)};
     s.name = typeof r.name === 'string' ? [...r.name.trim()].slice(0, NAME_MAX).join('') : '';
+    const ai = r.ai && typeof r.ai === 'object' ? r.ai : {};
+    s.ai = {ally: aiKind(ai.ally), enemy: aiKind(ai.enemy)};
     return s;
   }
 
@@ -116,7 +122,7 @@
     return settings.name || (className ? `味方${className}` : DEFAULT_NAME);
   }
 
-  const api = {STORAGE_KEY, SETTINGS_VERSION, NAME_MAX, DEFAULT_NAME, ACTIONS, CREDITS, isReservedKey, defaults, assignKey, normalize, load, save, keyLabel, fleetName, volumeStep, volumeFromStep};
+  const api = {AI_KINDS, STORAGE_KEY, SETTINGS_VERSION, NAME_MAX, DEFAULT_NAME, ACTIONS, CREDITS, isReservedKey, defaults, assignKey, normalize, load, save, keyLabel, fleetName, volumeStep, volumeFromStep};
   if(typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.SagittariusSettings = api;
 })(typeof window !== 'undefined' ? window : globalThis);

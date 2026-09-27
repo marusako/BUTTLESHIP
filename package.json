@@ -6,6 +6,7 @@
     "serve": "node scripts/serve.js",
     "package": "node scripts/package.js",
     "train": "node scripts/train.js",
+    "export-brain": "node scripts/train.js --export-brain",
     "evaluate": "node scripts/evaluate.js",
     "imitate": "node scripts/imitate.js"
   }
