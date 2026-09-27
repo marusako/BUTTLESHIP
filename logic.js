@@ -341,6 +341,7 @@
 
   // ゲームを作る。ルールはモダン (旗艦を倒したら勝ち)。編成は FORMATION で固定、プレイヤーは青の旗艦で好きなジョブを選べる。
   // options.profiles: チームごとの AI プロファイル ({blue, red}。省略時は標準)
+  // options.playerName: 自艦隊の名前 (省略・空なら「味方第1艦隊」)
   function createGame(playerParams, options){
     const opts = options || {};
     const profiles = Object.assign({blue: AI_PROFILES.standard, red: AI_PROFILES.standard}, opts.profiles);
@@ -354,7 +355,7 @@
         fleets.push({
           id: `${team}${no}`,
           team,
-          name: `${team === 'blue' ? '味方' : '敵'}第${no}艦隊`,
+          name: isPlayer && opts.playerName ? opts.playerName : `${team === 'blue' ? '味方' : '敵'}第${no}艦隊`,
           role: slot.role,
           // 各チームから見て左から SPAWN_ORDER の順。赤は南 (敵陣) を向くので東から並ぶ
           x: team === 'blue' ? SPAWN_XS[SPAWN_ORDER.indexOf(no)] : WORLD.w - SPAWN_XS[SPAWN_ORDER.indexOf(no)],

@@ -39,6 +39,12 @@ test('zip の中身: ゲームに必要なファイルだけが、バージョ�
   fs.rmSync(dir, {recursive: true, force: true});
 });
 
+test('zip に入れるファイル: ゲームに必要なものだけを、その版にあるぶんだけ選ぶ', () => {
+  assert.deepEqual(P.pickGameFiles(['README.md', 'logic.js', 'index.html', 'DESIGN.md']), ['index.html', 'logic.js']);
+  assert.deepEqual(P.pickGameFiles(['classic', 'settings.js', 'logic.js', 'index.html', 'logic.test.js', 'scripts']),
+    ['index.html', 'logic.js', 'settings.js', 'classic']);
+});
+
 test('存在しないタグはエラーになる', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sagittarius-'));
   assert.throws(() => P.buildZip('v99.0', dir));

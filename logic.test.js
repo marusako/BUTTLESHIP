@@ -791,3 +791,13 @@ test('迎撃: TORPID がオフでも迎撃はする。迎撃範囲の外は撃�
   L.interceptTorpedoes(g, 0.1, seq(0));
   assert.deepEqual(g.projectiles.map(p => p.id), [1]);
 });
+
+// ---------- 第 2.4 段階 (2.4b) ----------
+
+test('ゲーム作成: 自艦隊の名前を指定でき、指定しなければ「味方第1艦隊」', () => {
+  const named = L.createGame(L.JOBS.balancer.params, {playerName: 'ヤマト'});
+  assert.equal(named.fleets.find(f => f.isPlayer).name, 'ヤマト');
+  assert.equal(named.fleets.find(f => f.id === 'blue2').name, '味方第2艦隊');
+  assert.equal(L.createGame(L.JOBS.balancer.params).fleets.find(f => f.isPlayer).name, '味方第1艦隊');
+  assert.equal(L.createGame(L.JOBS.balancer.params, {playerName: ''}).fleets.find(f => f.isPlayer).name, '味方第1艦隊');
+});

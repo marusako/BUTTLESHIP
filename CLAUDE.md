@@ -8,6 +8,8 @@
 - `index.html` … 描画・入力・ゲームループ
 - `logic.js` … 描画や DOM に依存しないロジック。ブラウザでは `<script src>` で `window.SagittariusLogic` に、Node では `require()` で読み込める形にする (ES Modules は `file://` で動かないため使わない)
 - `logic.test.js` … `logic.js` の仕様テスト (`node:test`)
+- `settings.js` / `settings.test.js` … 設定 (キー配置・音量・自艦隊の名前・クレジット) とそのテスト
+- `classic/` … クラシック (v1.3 からジョブを取り除いたもの)。**開発は中断中なので、ユーザーの指示がない限り変更しない**
 - `DESIGN.md` … 設計書。**作業に入る前に必ず読む**
 - `PLAN.md` … MVP の計画
 - `scripts/serve.js` … 依存なしの開発用サーバー
