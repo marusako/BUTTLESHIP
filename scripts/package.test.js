@@ -45,6 +45,7 @@ test('zip に入れるファイル: ゲームに必要なものだけを、そ�
     ['index.html', 'logic.js', 'settings.js', 'classic']);
   assert.deepEqual(P.pickGameFiles(['sound.js', 'music.js', 'music.test.js', 'settings.js', 'logic.js', 'index.html', 'classic']),
     ['index.html', 'logic.js', 'settings.js', 'music.js', 'sound.js', 'classic']);
+  assert.deepEqual(P.pickGameFiles(['rule-ai.js', 'rule-ai.test.js', 'logic.js', 'index.html']), ['index.html', 'logic.js', 'rule-ai.js']);
 });
 
 test('存在しないタグはエラーになる', () => {

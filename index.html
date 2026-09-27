@@ -247,6 +247,7 @@
 <div id="console"><span>&gt;</span><input id="consoleInput" autocomplete="off" spellcheck="false"></div>
 
 <script src="logic.js"></script>
+<script src="rule-ai.js"></script>
 <script src="settings.js"></script>
 <script src="music.js"></script>
 <script src="sound.js"></script>
@@ -254,6 +255,7 @@
 'use strict';
 const L = window.SagittariusLogic;
 const S = window.SagittariusSettings;
+const RuleAI = window.SagittariusRuleAI; // 第 2.7 段階で学習した AI に置き換えるまで使う
 const Snd = window.SagittariusSound;
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
@@ -390,7 +392,10 @@ function renderSetup(){
 renderSetup();
 
 function startBattle(){
-  game = L.createGame(Object.assign({}, L.JOBS[playerJob].params), {playerName: settings.name, playerSlot});
+  game = L.createGame(Object.assign({}, L.JOBS[playerJob].params), {
+    playerName: settings.name, playerSlot,
+    controllers: {blue: RuleAI.controller(), red: RuleAI.controller()}
+  });
   dragMove = null;
   const me = player();
   camera.zoom = 0.6;

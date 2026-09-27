@@ -8,7 +8,7 @@ const path = require('node:path');
 
 const ROOT = path.resolve(__dirname, '..');
 // ゲームに必要なファイル (古い版にないものは、その版の zip には入らない)
-const GAME_FILES = ['index.html', 'logic.js', 'settings.js', 'music.js', 'sound.js', 'classic'];
+const GAME_FILES = ['index.html', 'logic.js', 'rule-ai.js', 'settings.js', 'music.js', 'sound.js', 'classic'];
 const EXCLUDE = [':(exclude)classic/*.test.js']; // クラシックのテストは遊ぶのに要らない
 const NAME = 'the-day-of-sagittarius';
 
