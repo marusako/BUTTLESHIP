@@ -678,6 +678,20 @@ test('AI (アタッカー): 旗艦から attackerLeash より遠い敵は追わ�
   assert.ok(o1.y < 3000 && o2.y < 3000, '旗艦より前');
 });
 
+test('AI (アタッカー): 攻撃対象がいなければ、旗艦から attackerDistance (標準 500) の左前・右前につく', () => {
+  assert.equal(P.attackerDistance, 500);
+  const flag = fleet({id: 'f', x: 1200, y: 3000, role: 'flagship', flagship: true, heading: -Math.PI / 2});
+  const a1 = fleet({id: 'a1', x: 1200, y: 3500, role: 'attacker'});
+  const a2 = fleet({id: 'a2', x: 1200, y: 3500, role: 'attacker'});
+  for(const a of [a1, a2]){
+    const o = L.aiDecide(a, [flag, a1, a2], {}, seq(0.5), P);
+    assert.equal(Math.round(Math.hypot(o.x - flag.x, o.y - flag.y)), P.attackerDistance, a.id);
+  }
+  const wide = Object.assign({}, P, {attackerDistance: 700});
+  const o = L.aiDecide(a1, [flag, a1, a2], {}, seq(0.5), wide);
+  assert.equal(Math.round(Math.hypot(o.x - flag.x, o.y - flag.y)), 700);
+});
+
 test('AI (アタッカー): 周りの戦力比が不利なら、旗艦のもとへ下がって合流する', () => {
   const flag = fleet({id: 'f', x: 1200, y: 4000, role: 'flagship', flagship: true});
   const me = fleet({id: 'a', x: 1200, y: 3200, role: 'attacker', ships: 4000});

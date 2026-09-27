@@ -58,14 +58,20 @@
       flagshipRetreatRatio: 1.5, // 旗艦はこの戦力比を超えたら味方の中心へ下がる
       tankDistance: 150,         // 副艦が旗艦から離れる距離
       tankDefendRadius: 500,     // 副艦は旗艦からこの距離以内の敵を迎え撃つ
+      attackerDistance: 500,     // アタッカーが普段保つ旗艦との距離 (左前・右前)
       attackerLeash: 900,        // アタッカーは旗艦からこの距離以内の敵を攻撃する
       attackerRetreatRatio: 1.3, // アタッカーはこの戦力比を超えたら旗艦のもとへ下がる
       speederMarkDistance: 420,  // スピーダーが敵旗艦を見張る距離 (索敵半径 450 より内側)
       speederSafeDistance: 350   // スピーダーはこれより近い敵から離れる (ビーム射程 260 より外)
     }
   };
-  // アタッカーの隊列位置 (旗艦から見て [前方, 右方向] の距離)。左前・右前
-  const ATTACKER_SLOTS = [[120, -260], [120, 260]];
+  // アタッカーの隊列位置の方向 (旗艦から見て [前方, 右方向] の単位ベクトル)。左前・右前。
+  // 旗艦からの距離は AI プロファイルの attackerDistance
+  const ATTACKER_SLOT_ANGLE = Math.atan2(260, 120); // 前方から約 65 度
+  const ATTACKER_SLOTS = [
+    [Math.cos(ATTACKER_SLOT_ANGLE), -Math.sin(ATTACKER_SLOT_ANGLE)],
+    [Math.cos(ATTACKER_SLOT_ANGLE), Math.sin(ATTACKER_SLOT_ANGLE)]
+  ];
 
   const alive = f => f.ships > 0;
   const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
@@ -297,7 +303,7 @@
     if(target) return {type: 'attack', targetId: target};
     const attackers = fleets.filter(a => a.team === f.team && a.role === 'attacker' && alive(a));
     const [fwd, right] = ATTACKER_SLOTS[Math.max(0, attackers.indexOf(f)) % ATTACKER_SLOTS.length];
-    return moveTo(offsetFrom(flag, fwd, right));
+    return moveTo(offsetFrom(flag, fwd * p.attackerDistance, right * p.attackerDistance));
   }
 
   // スピーダー: 戦わない > 見張る。近すぎる敵からは離れ、敵旗艦の位置が分かれば距離を保って見張り、分からなければ索敵する
