@@ -202,14 +202,32 @@ test('AI: 敵が見えず最終確認位置があれば、最も近いそこへ�
   assert.deepEqual(L.aiDecide(me, [me], intel, seq(0.5)), {type: 'move', x: 500, y: 0});
 });
 
-test('AI: 手がかりがなければ敵陣の方向へ索敵に出る', () => {
-  const blue = fleet({id: 'b', x: 300, y: 1500});
-  const red = fleet({id: 'r', team: 'red', x: 3700, y: 1500});
-  const ob = L.aiDecide(blue, [blue], {}, seq(0.5, 0.5));
-  const or = L.aiDecide(red, [red], {}, seq(0.5, 0.5));
-  assert.equal(ob.type, 'move');
-  assert.ok(ob.x > L.WORLD.w / 2);
-  assert.ok(or.x < L.WORLD.w / 2);
+test('AI: 手がかりがなければ敵陣の方向 (青は上・赤は下の半分) へ索敵に出る', () => {
+  const blue = fleet({id: 'b', x: 1200, y: L.WORLD.h - 300});
+  const red = fleet({id: 'r', team: 'red', x: 1200, y: 300});
+  for(const v of [0, 0.5, 0.99]){
+    const ob = L.aiDecide(blue, [blue], {}, seq(v));
+    const or = L.aiDecide(red, [red], {}, seq(v));
+    assert.equal(ob.type, 'move');
+    assert.ok(ob.y <= L.WORLD.h / 2, 'blue y=' + ob.y);
+    assert.ok(or.y >= L.WORLD.h / 2, 'red y=' + or.y);
+    assert.ok(ob.x >= 0 && ob.x <= L.WORLD.w);
+  }
+});
+
+test('マップ: 原作のミニマップと同じ縦長 (横 1 : 縦 2) の 2400 × 4800', () => {
+  assert.deepEqual(L.WORLD, {w: 2400, h: 4800});
+});
+
+test('ゲーム作成: 青は下の端、赤は上の端から、横に並んで出撃する', () => {
+  const g = L.createGame({speed: 34, defense: 33, attack: 33}, seq(0.5));
+  for(const f of g.fleets){
+    if(f.team === 'blue') assert.ok(f.y > L.WORLD.h * 0.9, f.id);
+    else assert.ok(f.y < L.WORLD.h * 0.1, f.id);
+    assert.ok(f.x > 0 && f.x < L.WORLD.w, f.id);
+  }
+  const xs = g.fleets.filter(f => f.team === 'blue').map(f => f.x);
+  assert.equal(new Set(xs).size, 5);
 });
 
 test('ゲーム作成: 5 vs 5、プレイヤーは青の 1 艦隊で、指定パラメータを持つ', () => {
@@ -265,10 +283,10 @@ test('向き: 移動した方向を向き、止まっている間は向きを保
   assert.equal(f.heading, -Math.PI / 2);
 });
 
-test('ゲーム作成: 初期の向きは青が東・赤が西', () => {
+test('ゲーム作成: 初期の向きは青が北 (上)・赤が南 (下)', () => {
   const g = L.createGame({speed: 34, defense: 33, attack: 33}, seq(0.5));
-  assert.ok(g.fleets.filter(f => f.team === 'blue').every(f => f.heading === 0));
-  assert.ok(g.fleets.filter(f => f.team === 'red').every(f => f.heading === Math.PI));
+  assert.ok(g.fleets.filter(f => f.team === 'blue').every(f => f.heading === -Math.PI / 2));
+  assert.ok(g.fleets.filter(f => f.team === 'red').every(f => f.heading === Math.PI / 2));
 });
 
 test('大将戦: 旗艦は各チーム 1 つで、味方の旗艦はプレイヤー艦隊', () => {
@@ -308,12 +326,12 @@ test('AI (大将戦): 見えている敵旗艦を、近くて弱い敵より優�
 });
 
 test('AI (大将戦): AI の旗艦は自陣側の半分だけを索敵し、最終確認位置も追わない', () => {
-  const flag = fleet({id: 'rf', team: 'red', x: 3700, y: 1500, flagship: true});
-  const intel = {b: {x: 1000, y: 1500, visible: false}};
+  const flag = fleet({id: 'rf', team: 'red', x: 1200, y: 300, flagship: true});
+  const intel = {b: {x: 1200, y: 3500, visible: false}};
   for(const r of [0, 0.5, 0.99]){
     const o = L.aiDecide(flag, [flag], intel, seq(r));
     assert.equal(o.type, 'move');
-    assert.ok(o.x >= L.WORLD.w / 2, 'x=' + o.x);
+    assert.ok(o.y <= L.WORLD.h / 2, 'y=' + o.y);
   }
 });
 

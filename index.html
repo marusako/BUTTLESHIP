@@ -19,7 +19,7 @@
     font-family: "Segoe UI", "Yu Gothic UI", "Meiryo", sans-serif; }
   canvas{ display: block; }
   /* 戦闘画面: 左にマップ、右にパネル (原作の配置) */
-  #app{ position: fixed; inset: 0; display: grid; grid-template-columns: 1fr 360px; gap: 6px; padding: 6px; }
+  #app{ position: fixed; inset: 0; display: grid; grid-template-columns: 1fr 380px; gap: 6px; padding: 6px; }
   .pane{ display: flex; flex-direction: column; min-height: 0; background: #0a1428; border: 1px solid var(--line); }
   .paneTitle{ flex: none; padding: 3px 10px; font-size: 13px; letter-spacing: 0.04em; color: #9fb4dc;
     background: linear-gradient(#1c3563, #12244a); border-bottom: 1px solid var(--line); }
@@ -37,7 +37,8 @@
   .allyRow::before{ content: "▶"; color: #ff7a3c; margin-right: 6px; font-size: 11px; }
   .allyRow .name{ flex: 1; color: var(--blue); }
   .allyRow.dead .name, .allyRow.dead .ships{ color: var(--muted); }
-  #command .body{ display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; }
+  .bottomRow{ flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  #command .body{ display: flex; flex-direction: column; gap: 10px; padding: 8px 10px; }
   .cmdGroup{ display: flex; flex-direction: column; gap: 4px; }
   .cmdHead{ color: var(--accent); font-weight: bold; font-size: 14px; padding: 2px 8px; letter-spacing: 0.06em;
     background: linear-gradient(90deg, #8a2a10, #3a1206); border-left: 3px solid #ff7a3c; }
@@ -46,8 +47,8 @@
   .cmdBtn.on{ color: #fff3c4; background: #7a2e10; border-color: #ff7a3c; }
   .cmdLabel{ color: #ffb48a; font-size: 12px; letter-spacing: 0.06em; margin-top: 2px; }
   .cmdLabel::before{ content: "▶ "; color: #ff7a3c; font-size: 10px; }
-  .speeds{ display: flex; gap: 4px; }
-  .speeds .cmdBtn{ width: 28px; padding: 3px 0; text-align: center; border-radius: 50%; }
+  .speeds{ display: flex; gap: 3px; }
+  .speeds .cmdBtn{ width: 27px; padding: 3px 0; text-align: center; border-radius: 50%; }
   .way{ display: grid; grid-template-columns: repeat(3, 30px); grid-template-rows: repeat(3, 24px); gap: 2px; }
   .way .cmdBtn{ padding: 0; text-align: center; }
   .way [data-way="up"]{ grid-column: 2; grid-row: 1; }
@@ -55,7 +56,6 @@
   .way [data-way="right"]{ grid-column: 3; grid-row: 2; }
   .way [data-way="down"]{ grid-column: 2; grid-row: 3; }
   #command.disabled .cmdBtn{ opacity: 0.35; pointer-events: none; }
-  #location{ flex: 1; }
   #location .mini{ position: relative; flex: 1; min-height: 120px; }
   #location canvas{ position: absolute; inset: 0; cursor: pointer; }
   .screen{ position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
@@ -118,6 +118,7 @@
       <div class="paneTitle">CONDITION OF YOUR SIDE</div>
       <div class="body" id="allies"></div>
     </section>
+    <div class="bottomRow">
     <section class="pane" id="command">
       <div class="paneTitle">COMMAND</div>
       <div class="body">
@@ -146,6 +147,7 @@
       <div class="paneTitle">LOCATION</div>
       <div class="mini"><canvas id="minimap"></canvas></div>
     </section>
+    </div>
   </aside>
 </div>
 
@@ -258,7 +260,9 @@ function resize(){
   minimap.width = mini.clientWidth;
   minimap.height = mini.clientHeight;
 }
-window.addEventListener('resize', resize);
+// ウィンドウの大きさだけでなく、パネルの中身が増えて枠の大きさが変わったときも合わせ直す
+new ResizeObserver(resize).observe($('mapWrap'));
+new ResizeObserver(resize).observe(minimap.parentElement);
 resize();
 
 // ---------- 画面遷移 ----------
@@ -324,8 +328,8 @@ function startBattle(){
   const me = player();
   camera.zoom = 1;
   camera.angle = 0;
-  camera.cx = me.x + 200;
-  camera.cy = me.y;
+  camera.cx = me.x;
+  camera.cy = me.y - 200;
   clampCamera();
   logs = [];
   prevVisible = new Set();
@@ -776,12 +780,13 @@ function drawMapOverlay(){
   logs.forEach((l, i) => {
     ctx.globalAlpha = 1 - i * 0.13;
     ctx.fillStyle = l.color;
-    ctx.fillText(l.text, 14, canvas.height - 40 - i * 20);
+    ctx.fillText(l.text, 14, canvas.height - 56 - i * 20);
   });
   ctx.globalAlpha = 1;
   ctx.fillStyle = COLORS.muted;
   ctx.font = '12px sans-serif';
-  ctx.fillText('左クリック: 移動 / 敵をクリック: 攻撃   0〜4: SPEED   WASD・矢印: 視点移動   Q・E: 回転   R: 北を上に   ホイール: 拡大縮小   C: 自艦隊へ   Space・Esc: 一時停止', 14, canvas.height - 12);
+  ctx.fillText('左クリック: 移動 / 敵をクリック: 攻撃   0〜4: SPEED   Space・Esc: 一時停止', 14, canvas.height - 30);
+  ctx.fillText('WASD・矢印: 視点移動   Q・E: 回転   R: 北を上に   ホイール: 拡大縮小   C: 自艦隊へ', 14, canvas.height - 12);
 }
 
 // ---------- 右側のパネル ----------
@@ -833,7 +838,7 @@ function updateSidePanels(me){
   }
 }
 
-// 画面上部のコンパス: 北 (N) と敵陣 (東) の方向
+// マップ上部のコンパス: 北 (N) の方向。敵陣は北側
 function drawCompass(){
   const x = canvas.width / 2, y = 46, r = 28;
   ctx.fillStyle = 'rgba(8, 16, 34, 0.85)';
@@ -851,8 +856,7 @@ function drawCompass(){
     ctx.textAlign = 'center';
     ctx.fillText(label, x + Math.cos(a) * (r + 10), y + Math.sin(a) * (r + 10) + 4);
   };
-  arrow(-Math.PI / 2, COLORS.text, r - 6, 'N');
-  arrow(0, COLORS.red, r - 10, '敵');
+  arrow(-Math.PI / 2, COLORS.text, r - 6, 'N 敵陣');
 }
 
 function drawMinimap(){

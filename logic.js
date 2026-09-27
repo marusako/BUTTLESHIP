@@ -3,7 +3,7 @@
 (function(root){
   'use strict';
 
-  const WORLD = {w: 4000, h: 3000};
+  const WORLD = {w: 2400, h: 4800}; // 原作のミニマップと同じ縦長 (横 1 : 縦 2)。青は下、赤は上に陣取る
   const INITIAL_SHIPS = 15000;   // 原作の画面に合わせた初期艦艇数
   const MAX_THROTTLE = 4;        // SPEED の段階の最大 (0〜4)
   const PARAM_TOTAL = 100;
@@ -204,13 +204,14 @@
     }
 
     // 手がかりなし: 索敵中なら目的地に着くまで続け、なければ索敵に出る。
-    // 通常は敵陣側の半分、旗艦は自陣側の半分
+    // 通常は敵陣側の半分 (青は上、赤は下)、旗艦は自陣側の半分
     if(f.order && f.order.explore) return f.order;
-    const half = WORLD.w / 2;
+    const half = WORLD.h / 2;
     const towardEnemy = !f.flagship;
-    const eastHalf = (f.team === 'blue') === towardEnemy;
-    const x = eastHalf ? half + rng() * half : rng() * half;
-    return {type: 'move', x, y: rng() * WORLD.h, explore: true};
+    const upperHalf = (f.team === 'blue') === towardEnemy;
+    const x = rng() * WORLD.w;
+    const y = upperHalf ? rng() * half : half + rng() * half;
+    return {type: 'move', x, y, explore: true};
   }
 
   // mode: 'annihilation' (全滅戦) / 'flagship' (大将戦)
@@ -224,9 +225,9 @@
           id: `${team}${i + 1}`,
           team,
           name: `${team === 'blue' ? '味方' : '敵'}第${i + 1}艦隊`,
-          x: team === 'blue' ? 300 : WORLD.w - 300,
-          y: 700 + i * 400,
-          heading: team === 'blue' ? 0 : Math.PI,
+          x: 400 + i * 400,
+          y: team === 'blue' ? WORLD.h - 300 : 300,
+          heading: team === 'blue' ? -Math.PI / 2 : Math.PI / 2,
           ships: INITIAL_SHIPS,
           params: Object.assign({}, isPlayer ? playerParams : preset.params),
           type: isPlayer ? 'プレイヤー' : preset.name,
