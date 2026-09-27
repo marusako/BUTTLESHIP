@@ -5,7 +5,7 @@
 
   const STORAGE_KEY = 'sagittarius.settings';
   const NAME_MAX = 12;
-  const DEFAULT_NAME = '味方第1艦隊';
+  const DEFAULT_NAME = '味方戦艦';
 
   // キーを変えられる操作 (設定画面に出す順)
   const ACTIONS = [
@@ -14,6 +14,7 @@
     {id: 'moveLeft', label: '移動 左', key: 'KeyK'},
     {id: 'moveRight', label: '移動 右', key: 'Semicolon'},
     {id: 'fire', label: 'FIRE (射撃) オン / オフ', key: 'Digit1'},
+    {id: 'special', label: 'SPECIAL (特殊攻撃)', key: 'Digit2'},
     {id: 'camUp', label: '視点 上', key: 'KeyW'},
     {id: 'camDown', label: '視点 下', key: 'KeyS'},
     {id: 'camLeft', label: '視点 左', key: 'KeyA'},
@@ -93,9 +94,9 @@
     return code;
   }
 
-  // 画面に出す自艦隊の名前。空なら「味方第N艦隊」(no: 選んだ艦隊の番号。省略時は 1)
-  function fleetName(settings, no){
-    return settings.name || (no ? `味方第${no}艦隊` : DEFAULT_NAME);
+  // 自艦隊の名前。空なら「味方」+ 艦種の名前 (className。省略時は戦艦)
+  function fleetName(settings, className){
+    return settings.name || (className ? `味方${className}` : DEFAULT_NAME);
   }
 
   const api = {STORAGE_KEY, NAME_MAX, DEFAULT_NAME, ACTIONS, CREDITS, isReservedKey, defaults, assignKey, normalize, load, save, keyLabel, fleetName};

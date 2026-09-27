@@ -20,6 +20,7 @@ test('初期設定: 操作ごとのキー、音量、名前 (空)', () => {
   assert.equal(d.keys.camRight, 'KeyD');
   assert.deepEqual([d.keys.moveUp, d.keys.moveLeft, d.keys.moveDown, d.keys.moveRight], ['KeyO', 'KeyK', 'KeyL', 'Semicolon']);
   assert.equal(d.keys.fire, 'Digit1');
+  assert.equal(d.keys.special, 'Digit2', '特殊攻撃 (第 2.8 段階)');
   assert.equal(d.keys.center, 'KeyC');
   assert.equal(d.keys.pause, 'Space');
   assert.deepEqual(d.volume, {bgm: 70, sfx: 80});
@@ -108,14 +109,15 @@ test('キーの表示名: 画面に出す短い名前', () => {
 
 test('操作の一覧: 設定画面に出す順番と名前', () => {
   const ids = S.ACTIONS.map(a => a.id);
-  assert.deepEqual(ids, ['moveUp', 'moveDown', 'moveLeft', 'moveRight', 'fire', 'camUp', 'camDown', 'camLeft', 'camRight', 'center', 'pause']);
+  assert.deepEqual(ids, ['moveUp', 'moveDown', 'moveLeft', 'moveRight', 'fire', 'special', 'camUp', 'camDown', 'camLeft', 'camRight', 'center', 'pause']);
   assert.ok(S.ACTIONS.every(a => a.label));
 });
 
-test('自艦隊の名前: 空なら「味方第N艦隊」(N は選んだ番号。省略時は 1)', () => {
-  assert.equal(S.fleetName(S.defaults()), '味方第1艦隊');
-  assert.equal(S.fleetName(S.defaults(), 4), '味方第4艦隊');
-  assert.equal(S.fleetName(Object.assign(S.defaults(), {name: 'ヤマト'}), 4), 'ヤマト');
+test('自艦隊の名前: 空なら「味方」+ 選んだ艦種の名前 (省略時は戦艦)', () => {
+  assert.equal(S.DEFAULT_NAME, '味方戦艦');
+  assert.equal(S.fleetName(S.defaults()), '味方戦艦');
+  assert.equal(S.fleetName(S.defaults(), '駆逐艦Ⅰ型'), '味方駆逐艦Ⅰ型');
+  assert.equal(S.fleetName(Object.assign(S.defaults(), {name: 'ヤマト'}), '駆逐艦Ⅰ型'), 'ヤマト');
 });
 
 test('クレジット: 原作 → 製作者 → 開発支援 の順', () => {

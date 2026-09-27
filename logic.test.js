@@ -6,7 +6,7 @@ const L = require('./logic.js');
 function fleet(over){
   return Object.assign({
     id: 'f', team: 'blue', name: 'f', x: 0, y: 0,
-    role: 'cruiser', ships: 50, maxShips: 50, stats: L.fleetStats(3), hitRadius: 25,
+    role: 'cruiser', ships: 50, maxShips: 50, stats: Object.assign({}, L.SHIP_TYPES.cruiser.stats), hitRadius: 25, charge: 0, boost: 0, lockId: null,
     order: null, isPlayer: false, ai: {nextThink: 0},
     heading: 0, flagship: false, cooldown: 0, aaCooldown: 0, stealth: 0,
     weapons: {fire: true}
@@ -25,8 +25,8 @@ function seq(...values){
   return () => values[i++ % values.length];
 }
 
-test('速度: 速力 (低速 80 / 高速 130 / 高速+ 180) で決まる', () => {
-  assert.deepEqual(['slow', 'fast', 'fastPlus'].map(speed => L.maxSpeed({speed})), [80, 130, 180]);
+test('速度: 速力 (低速 65 / 高速 105 / 高速+ 145。試合時間が 3 分前後になるように調整) で決まる', () => {
+  assert.deepEqual(['slow', 'fast', 'fastPlus'].map(speed => L.maxSpeed({speed})), [65, 105, 145]);
 });
 
 test('索敵: 味方のどれかの索敵範囲に入った敵だけが見える (情報共有)', () => {
@@ -257,10 +257,10 @@ test('隠しコマンド warp: 次のクリック地点へ瞬間移動し、マ�
 
 // ---------- 第 2.1 段階 ----------
 
-test('耐久: ゲーム開始時は、どの艦隊も艦隊の耐久 (最大 HP) で満タン', () => {
+test('耐久: ゲーム開始時は、どの艦隊も艦種の耐久 (最大 HP) で満タン', () => {
   const g = L.createGame();
   for(const f of g.fleets){
-    assert.equal(f.maxShips, L.FLEET_STATS[Number(f.id.slice(-1)) - 1].hp);
+    assert.equal(f.maxShips, L.SHIP_TYPES[f.role].stats.hp);
     assert.equal(f.ships, f.maxShips);
   }
 });
@@ -329,12 +329,12 @@ function projectile(over){
 
 // ---------- 第 2.4 段階 (2.4b) ----------
 
-test('ゲーム作成: 自艦隊の名前を指定でき、指定しなければ「味方第1艦隊」', () => {
+test('ゲーム作成: 自艦隊の名前を指定でき、指定しなければ「味方」+ 艦種の名前', () => {
   const named = L.createGame({playerName: 'ヤマト'});
   assert.equal(named.fleets.find(f => f.isPlayer).name, 'ヤマト');
-  assert.equal(named.fleets.find(f => f.id === 'blue2').name, '味方第2艦隊');
-  assert.equal(L.createGame().fleets.find(f => f.isPlayer).name, '味方第1艦隊');
-  assert.equal(L.createGame({playerName: ''}).fleets.find(f => f.isPlayer).name, '味方第1艦隊');
+  assert.equal(named.fleets.find(f => f.id === 'blue2').name, '味方空母');
+  assert.equal(L.createGame().fleets.find(f => f.isPlayer).name, '味方戦艦');
+  assert.equal(L.createGame({playerName: ''}).fleets.find(f => f.isPlayer).name, '味方戦艦');
 });
 
 // ---------- 第 2.4 段階 (2.4c) ----------
@@ -491,96 +491,112 @@ test('旗艦の位置がばれる (試合の中): 60 秒で相手の地図に旗
   assert.deepEqual([g.intel.blue.rf.x, g.intel.blue.rf.y], [9000, 9000], '最終確認位置が残る');
 });
 
-// ---------- 第 2.6 段階 (2.6a): 艦種・武器・艦載機 ----------
+// ---------- 第 2.8 段階: 艦種・ステータス・攻撃パターン (2.6 の艦種・艦載機・バフを含む) ----------
 
-// 艦種のデータを持ったテスト用の艦隊 (ステータスは、その艦種の最初の艦隊のもの。駆逐艦は第 4 艦隊)
+// 艦種のデータを持ったテスト用の艦隊。special を渡すと特殊攻撃を変えられる (駆逐艦は既定でⅠ型)
 function ship(type, over){
   const t = L.SHIP_TYPES[type];
-  const stats = L.fleetStats(L.FORMATION.indexOf(type) + 1);
-  const extra = type === 'carrier' ? {recon: {launched: 0, next: 0}} : {};
-  return fleet(Object.assign({role: type, type: t.name, stats, hitRadius: t.hitRadius, ships: stats.hp, maxShips: stats.hp}, extra, over));
+  const cls = L.FLEET_CLASSES.find(c => c.role === type);
+  const extra = type === 'carrier' ? {recon: {next: 0}} : {};
+  return fleet(Object.assign({role: type, type: cls.name, special: cls.special, stats: Object.assign({}, t.stats), hitRadius: t.hitRadius,
+    ships: t.stats.hp, maxShips: t.stats.hp, charge: 0, boost: 0, lockId: null}, extra, over));
 }
-// テスト用の弾 (射程内のみ必中)
+// テスト用の弾 (火力 fp、攻撃力の倍率 mult、会心率 crit、命中率 hitChance (null なら相手の回避で決まる))
 function shot(over){
-  return Object.assign({id: 1, kind: 'shot', team: 'blue', from: 'b', targetId: 'r', x: 0, y: 0, heading: 0, range: 450, homing: true, life: L.SHOT_LIFE, power: 100}, over);
+  return Object.assign({id: 1, kind: 'shot', team: 'blue', from: 'b', targetId: 'r', x: 0, y: 0, heading: 0, range: 450, life: L.SHOT_LIFE,
+    fp: 100, mult: 1, crit: 0.05, hitChance: null}, over);
 }
 
-test('艦種: 速力・武器・発射間隔・大きさ', () => {
+test('艦種: ステータス (耐久・火力・装甲・回避・対空・索敵・射程・速力)・武器・再装填・大きさ', () => {
   const T = L.SHIP_TYPES;
   assert.deepEqual(Object.keys(T), ['battleship', 'carrier', 'cruiser', 'destroyer']);
-  assert.deepEqual(Object.values(T).map(t => t.speed), ['slow', 'fast', 'fast', 'fastPlus']);
-  assert.deepEqual(Object.values(T).map(t => [t.weapon.kind, t.weapon.interval]), [['gun', 3], ['bomber', 9], ['gun', 1], ['gun', 0.7]]);
+  assert.deepEqual(Object.values(T).map(t => t.stats), [
+    {hp: 90, firepower: 120, armor: 85, evasion: 15, antiAir: 40, sensor: 500, range: 'long', speed: 'slow'},
+    {hp: 70, firepower: 50, armor: 40, evasion: 40, antiAir: 60, sensor: 800, range: 'veryLong', speed: 'fast'},
+    {hp: 50, firepower: 55, armor: 50, evasion: 60, antiAir: 40, sensor: 600, range: 'medium', speed: 'fast'},
+    {hp: 30, firepower: 20, armor: 20, evasion: 85, antiAir: 50, sensor: 700, range: 'short', speed: 'fastPlus'}
+  ]);
+  assert.deepEqual(L.RANGES, {short: 300, medium: 450, long: 650, veryLong: 1200});
+  assert.deepEqual(Object.values(T).map(t => [t.weapon.kind, t.weapon.interval]), [['gun', 4], ['bomber', 5], ['gun', 2], ['gun', 1.5]]);
   assert.deepEqual(Object.values(T).map(t => [t.size, t.hitRadius]), [['large', 40], ['large', 40], ['medium', 25], ['small', 15]]);
   for(const t of Object.values(T)) assert.ok(t.name && t.description);
 });
 
-test('ステータス: 艦隊ごと (艦これの改装後の艦が参考。耐久・火力・装甲・回避・対空・索敵・射程)。速力は艦種で決まる', () => {
-  assert.deepEqual([1, 2, 3, 4, 5].map(no => L.fleetStats(no)), [
-    {hp: 98, firepower: 144, armor: 122, evasion: 68, antiAir: 108, los: 59, range: 'veryLong', speed: 'slow'},
-    {hp: 84, firepower: 56, armor: 80, evasion: 70, antiAir: 84, los: 90, range: 'medium', speed: 'fast'},
-    {hp: 53, firepower: 81, armor: 74, evasion: 86, antiAir: 89, los: 60, range: 'medium', speed: 'fast'},
-    {hp: 34, firepower: 67, armor: 57, evasion: 98, antiAir: 87, los: 51, range: 'short', speed: 'fastPlus'},
-    {hp: 31, firepower: 74, armor: 52, evasion: 89, antiAir: 59, los: 49, range: 'short', speed: 'fastPlus'}
-  ]);
-  assert.notEqual(L.fleetStats(1), L.fleetStats(1), '毎回新しいオブジェクト (艦隊ごとに書き換えられるように)');
-  assert.deepEqual(L.RANGES, {short: 300, medium: 450, long: 650, veryLong: 850});
-});
-
-test('射程: 砲撃は艦隊の射程のステータスで決まる (戦艦 850 / 巡洋艦 450 / 駆逐艦 300)。空母の爆撃機は 1100', () => {
-  const g = L.createGame();
-  assert.deepEqual(g.fleets.filter(f => f.team === 'blue').map(L.weaponRange), [850, 1100, 450, 300, 300]);
-});
-
-test('編成: 第 1 戦艦 (旗艦)・第 2 空母・第 3 巡洋艦・第 4 と第 5 駆逐艦。敵味方とも同じ', () => {
+test('編成: 戦艦 (旗艦)・空母・巡洋艦・駆逐艦Ⅰ型・駆逐艦Ⅱ型。艦隊の名前は艦種の名前。敵味方とも同じ', () => {
   assert.deepEqual(L.FORMATION, ['battleship', 'carrier', 'cruiser', 'destroyer', 'destroyer']);
+  assert.deepEqual(L.FLEET_CLASSES.map(c => [c.role, c.name, c.special]), [
+    ['battleship', '戦艦', 'salvo'], ['carrier', '空母', null], ['cruiser', '巡洋艦', 'boost'], ['destroyer', '駆逐艦Ⅰ型', 'precision'], ['destroyer', '駆逐艦Ⅱ型', 'torpedo']
+  ]);
   const g = L.createGame();
   for(const team of ['blue', 'red']){
     const by = n => g.fleets.find(f => f.id === team + n);
-    assert.deepEqual([1, 2, 3, 4, 5].map(n => by(n).role), L.FORMATION);
-    assert.deepEqual([1, 2, 3, 4, 5].map(n => by(n).type), ['戦艦', '空母', '巡洋艦', '駆逐艦', '駆逐艦']);
+    const side = team === 'blue' ? '味方' : '敵';
+    assert.deepEqual([1, 2, 3, 4, 5].map(n => by(n).name), ['戦艦', '空母', '巡洋艦', '駆逐艦Ⅰ型', '駆逐艦Ⅱ型'].map(s => side + s));
+    assert.deepEqual([1, 2, 3, 4, 5].map(n => by(n).type), ['戦艦', '空母', '巡洋艦', '駆逐艦Ⅰ型', '駆逐艦Ⅱ型']);
     assert.deepEqual([1, 2, 3, 4, 5].map(n => by(n).flagship), [true, false, false, false, false]);
     for(const n of [1, 2, 3, 4, 5]){
       const t = L.SHIP_TYPES[by(n).role];
-      assert.deepEqual(by(n).stats, L.fleetStats(n));
+      assert.deepEqual(by(n).stats, t.stats);
+      assert.notEqual(by(n).stats, t.stats, '艦隊ごとの写し');
+      assert.deepEqual([by(n).ships, by(n).maxShips, by(n).charge, by(n).boost, by(n).lockId], [t.stats.hp, t.stats.hp, 0, 0, null]);
       assert.equal(by(n).hitRadius, t.hitRadius);
       assert.deepEqual(by(n).weapons, {fire: true});
     }
   }
 });
 
-test('出撃位置: 各チームから見て左から第 4 (駆逐)・第 3 (巡洋)・第 1 (戦艦)・第 2 (空母)・第 5 (駆逐)', () => {
+test('出撃位置: 各チームから見て左から第 4 (駆逐Ⅰ)・第 3 (巡洋)・第 1 (戦艦)・第 2 (空母)・第 5 (駆逐Ⅱ)', () => {
   const g = L.createGame();
   const xs = team => [4, 3, 1, 2, 5].map(n => g.fleets.find(f => f.id === team + n).x);
   assert.deepEqual(xs('blue'), [3400, 4200, 5000, 5800, 6600]);
   assert.deepEqual(xs('red'), [6600, 5800, 5000, 4200, 3400]);
 });
 
-test('自機の選択: 番号で艦種が決まる (省略時は第 1 艦隊 = 戦艦)。名前の既定値は選んだ番号', () => {
+test('自機の選択: 番号で艦種が決まる (省略時は第 1 艦隊 = 戦艦)。名前を指定しなければ艦種の名前', () => {
   const me = g => g.fleets.find(f => f.isPlayer);
-  assert.deepEqual([me(L.createGame()).id, me(L.createGame()).type], ['blue1', '戦艦']);
-  for(const [no, type] of [[2, '空母'], [3, '巡洋艦'], [4, '駆逐艦'], [5, '駆逐艦']]){
+  assert.deepEqual([me(L.createGame()).id, me(L.createGame()).type, me(L.createGame()).name], ['blue1', '戦艦', '味方戦艦']);
+  for(const [no, type] of [[2, '空母'], [3, '巡洋艦'], [4, '駆逐艦Ⅰ型'], [5, '駆逐艦Ⅱ型']]){
     const g = L.createGame({playerSlot: no});
-    assert.deepEqual([me(g).id, me(g).type, me(g).name, me(g).flagship], ['blue' + no, type, `味方第${no}艦隊`, false]);
-    assert.equal(g.fleets.find(f => f.id === 'blue1').type, '戦艦', '味方の旗艦はいつも戦艦');
+    assert.deepEqual([me(g).id, me(g).type, me(g).name, me(g).flagship], ['blue' + no, type, '味方' + type, false]);
   }
   assert.equal(me(L.createGame({playerSlot: 3, playerName: 'ヤマト'})).name, 'ヤマト');
 });
 
-test('狙い: 狙える範囲は「索敵範囲」と「射程」の長いほう。攻撃命令の相手を優先', () => {
-  const cr = ship('cruiser', {id: 'c'});
-  const cv = ship('carrier', {id: 'v'});
-  assert.equal(L.lockRange(cr), L.sensorRange(cr), '巡洋艦は索敵範囲 (810) が射程 (450) より長い');
-  assert.equal(L.lockRange(cv), 1100);
-  const near = ship('destroyer', {id: 'n', team: 'red', x: 300, y: 0});
-  const far = ship('destroyer', {id: 'f', team: 'red', x: 650, y: 0});
-  const out = ship('destroyer', {id: 'o', team: 'red', x: 900, y: 0});
-  assert.equal(L.lockTarget(cr, [near, far, out]).id, 'n');
-  assert.equal(L.lockTarget(Object.assign({}, cr, {order: {type: 'attack', targetId: 'f'}}), [near, far, out]).id, 'f');
-  assert.equal(L.lockTarget(cr, [out]), null);
-  assert.equal(L.lockTarget(cv, [out]).id, 'o', '空母は 1100 まで狙える');
+test('索敵: 索敵の値がそのまま索敵距離 (戦艦 500 / 空母 800 / 巡洋艦 600 / 駆逐艦 700)', () => {
+  assert.deepEqual(Object.keys(L.SHIP_TYPES).map(type => L.sensorRange(ship(type))), [500, 800, 600, 700]);
+  const dd = ship('destroyer', {id: 'd', x: 0, y: 0});
+  const bb = ship('battleship', {id: 'b', x: 0, y: 5000});
+  const e1 = ship('cruiser', {id: 'e1', team: 'red', x: 699, y: 0});
+  const e2 = ship('cruiser', {id: 'e2', team: 'red', x: 501, y: 5000});
+  assert.deepEqual(L.visibleEnemies([dd, bb, e1, e2], 'blue').map(f => f.id), ['e1'], '艦ごとの索敵範囲で見える');
 });
 
-test('発射 (砲): 射程の外なら撃たず狙いの線だけ。射程に入ったら撃ち、発射間隔が空くまで次は撃たない', () => {
+test('ロックオン: 見えている敵に狙いを定め (攻撃命令の相手を優先)、索敵範囲と射程の長いほうの外に出るまで続ける', () => {
+  const cr = ship('cruiser', {id: 'c'});
+  const near = ship('destroyer', {id: 'n', team: 'red', x: 300, y: 0});
+  const far = ship('destroyer', {id: 'f', team: 'red', x: 550, y: 0});
+  const out = ship('destroyer', {id: 'o', team: 'red', x: 700, y: 0});
+  assert.equal(L.lockRange(cr), 600);
+  assert.equal(L.lockTarget(cr, [near, far, out]).id, 'n');
+  assert.equal(cr.lockId, 'n');
+  assert.equal(L.lockTarget(Object.assign(cr, {lockId: null, order: {type: 'attack', targetId: 'f'}}), [near, far, out]).id, 'f');
+  assert.equal(L.lockTarget(ship('cruiser'), [out]), null);
+  // 空母 (射程 1200 > 索敵 800): 一度ロックオンした敵は、見えなくなっても射程 1200 の外に出るまで狙い続ける
+  const cv = ship('carrier', {id: 'v'});
+  const e = ship('cruiser', {id: 'e', team: 'red', x: 700, y: 0});
+  assert.equal(L.lockTarget(cv, [e]).id, 'e');
+  e.x = 1150;
+  assert.equal(L.lockTarget(cv, []).id, 'e', '見えていなくても射程の中なら続ける');
+  e.x = 1201;
+  assert.equal(L.lockTarget(cv, []), null, '射程の外に出たら解除');
+  assert.equal(cv.lockId, null);
+  const hidden = ship('cruiser', {id: 'h', team: 'red', x: 700, y: 0});
+  L.lockTarget(cv, [hidden]);
+  hidden.stealth = 5;
+  assert.equal(L.lockTarget(cv, []), null, '透明化したら解除');
+});
+
+test('通常攻撃 (砲): 射程に入ったら二段攻撃 (2 発目は 0.2 秒後)。再装填 (戦艦 4 秒 / 巡洋艦 2 秒 / 駆逐艦 1.5 秒) まで次は撃たない', () => {
   const b = ship('cruiser', {id: 'b'});
   const r = ship('cruiser', {id: 'r', team: 'red', x: 500, y: 0});
   const g = game([b, r]);
@@ -591,16 +607,18 @@ test('発射 (砲): 射程の外なら撃たず狙いの線だけ。射程に入
   L.fireWeapons(g, 0.1, {blue: [r], red: []});
   assert.equal(g.projectiles.length, 1);
   const p = g.projectiles[0];
-  assert.deepEqual([p.kind, p.from, p.targetId, p.range, p.homing], ['shot', 'b', 'r', 450, true]);
-  // 1 発の攻撃力 = 火力 + 5
-  assert.equal(p.power, 81 + 5);
-  L.fireWeapons(g, 0.5, {blue: [r], red: []});
-  assert.equal(g.projectiles.length, 1, '発射間隔 (1 秒) がまだ');
-  L.fireWeapons(g, 0.5, {blue: [r], red: []});
-  assert.equal(g.projectiles.length, 2);
+  assert.deepEqual([p.kind, p.from, p.targetId, p.range, p.fp, p.mult, p.crit, p.hitChance], ['shot', 'b', 'r', 450, 55, 1, 0.05, null]);
+  L.fireWeapons(g, 0.1, {blue: [r], red: []});
+  assert.equal(g.projectiles.length, 1, '2 発目はまだ');
+  L.fireWeapons(g, 0.1, {blue: [r], red: []});
+  assert.equal(g.projectiles.length, 2, '0.2 秒後に 2 発目');
+  L.fireWeapons(g, 1.7, {blue: [r], red: []});
+  assert.equal(g.projectiles.length, 2, '再装填 2 秒がまだ (撃ってから 1.9 秒)');
+  L.fireWeapons(g, 0.1, {blue: [r], red: []});
+  assert.equal(g.projectiles.length, 3);
 });
 
-test('発射: FIRE がオフなら撃たない (狙いは定める)', () => {
+test('通常攻撃: FIRE がオフなら撃たない (狙いは定める)', () => {
   const b = ship('cruiser', {id: 'b', weapons: {fire: false}});
   const r = ship('cruiser', {id: 'r', team: 'red', x: 300, y: 0});
   const g = game([b, r]);
@@ -609,151 +627,169 @@ test('発射: FIRE がオフなら撃たない (狙いは定める)', () => {
   assert.equal(g.locks.length, 1);
 });
 
-test('射程内のみ必中: 目標が撃った艦の射程の中にいる間は追いかけて必ず当たる', () => {
+test('射程: 弾は目標を追いかけ、目標が撃った艦の射程の外に出たら、その地点で消える', () => {
   const b = ship('cruiser', {id: 'b', x: 0, y: 0});
-  const r = ship('destroyer', {id: 'r', team: 'red', x: 300, y: 200}); // 距離 約 360 (射程 450 の中)
+  const r = ship('destroyer', {id: 'r', team: 'red', x: 300, y: 200});
   const g = game([b, r]);
   g.projectiles.push(shot({x: 0, y: 0}));
   const damage = new Map();
-  // 目標は動き続ける (射程の中のまま) が、弾は追いかけて当たる
-  for(let i = 0; i < 120 && g.projectiles.length; i++){ r.y += 1; L.moveProjectiles(g, 1 / 60, damage, seq(0.3)); }
+  for(let i = 0; i < 120 && g.projectiles.length; i++){ r.y += 1; L.moveProjectiles(g, 1 / 60, damage, seq(0.01)); }
   assert.equal(g.projectiles.length, 0);
-  assert.ok(damage.get(r) > 0);
+  assert.ok(damage.get(r) > 0, '射程の中なら追いかけて届く');
+  const g2 = game([b, Object.assign(r, {x: 460, y: 0})]);
+  g2.projectiles.push(shot({x: 0, y: 0}));
+  L.moveProjectiles(g2, 1 / 60, new Map(), seq(0.01));
+  assert.equal(g2.projectiles.length, 0, '射程 (450) の外なので消えた');
+  assert.ok(g2.events.some(e => e.type === 'fizzle'));
 });
 
-test('射程内のみ必中: 目標が射程の外に出たら追いかけるのをやめてまっすぐ飛び、当たり判定に触れれば当たる', () => {
-  const b = ship('cruiser', {id: 'b', x: 0, y: 0});
-  const small = ship('destroyer', {id: 'r', team: 'red', x: 1000, y: 30});  // 当たり判定 15 → まっすぐ (y = 0) では当たらない
-  const g = game([b, small]);
-  g.projectiles.push(shot({x: 500, y: 0, heading: 0}));
-  const damage = new Map();
-  L.moveProjectiles(g, 1 / 60, damage, seq(0.9));
-  assert.equal(g.projectiles[0].homing, false, '射程の外なので追いかけない');
-  assert.ok(Math.abs(g.projectiles[0].y) < 1e-9, 'まっすぐ飛ぶ');
-  small.x = 300; // 射程の中に戻っても、もう追いかけない
-  for(let i = 0; i < 60; i++) L.moveProjectiles(g, 1 / 60, damage, seq(0.9));
-  assert.equal(g.projectiles.length > 0 ? g.projectiles[0].homing : false, false);
-  assert.equal(damage.size, 0, '小さい艦には当たらない');
-
-  const big = ship('battleship', {id: 'r', team: 'red', x: 1000, y: 30}); // 当たり判定 40 → 触れる
-  const g2 = game([b, big]);
-  g2.projectiles.push(shot({x: 500, y: 0, heading: 0}));
-  const d2 = new Map();
-  for(let i = 0; i < 90 && g2.projectiles.length; i++) L.moveProjectiles(g2, 1 / 60, d2, seq(0.5));
-  assert.ok(d2.get(big) > 0, '大きい艦には当たる');
+test('命中率: 100% − 回避% (戦艦 85% / 空母 60% / 巡洋艦 40% / 駆逐艦 15%)', () => {
+  assert.deepEqual(Object.keys(L.SHIP_TYPES).map(type => Math.round(L.hitChance(ship(type)) * 100) / 100), [0.85, 0.6, 0.4, 0.15]);
+  const dd = ship('destroyer');
+  assert.equal(L.resolveHit(shot(), dd, seq(0.149)).hit, true);
+  assert.equal(L.resolveHit(shot(), dd, seq(0.15)).hit, false);
+  assert.equal(L.resolveHit(shot({hitChance: 1}), dd, seq(0.99)).hit, true, '回避を無視する攻撃');
+  assert.equal(L.resolveHit(shot({hitChance: 0.6}), dd, seq(0.59)).hit, true);
+  assert.equal(L.resolveHit(shot({hitChance: 0.6}), dd, seq(0.6)).hit, false);
 });
 
-test('射程内のみ必中: 撃った艦が全滅したら追いかけない。外れた弾は SHOT_LIFE 秒で消える', () => {
-  const b = ship('cruiser', {id: 'b', x: 0, y: 0, ships: 0});
-  const r = ship('destroyer', {id: 'r', team: 'red', x: 300, y: 200});
-  const g = game([b, r]);
-  g.projectiles.push(shot({x: 0, y: 0, heading: Math.PI})); // 反対向き
-  const damage = new Map();
-  L.moveProjectiles(g, 1 / 60, damage, seq(0.9));
-  assert.equal(g.projectiles[0].homing, false);
-  for(let t = 0; t < L.SHOT_LIFE + 0.1; t += 0.1) L.moveProjectiles(g, 0.1, damage, seq(0.9));
-  assert.equal(g.projectiles.length, 0);
+test('ダメージ: (火力 + 5) − 装甲 × 0.7 を切り捨て。会心 (5%) は 火力 × 1.5 + 5 − 装甲 × 0.7', () => {
+  const t = ship('cruiser'); // 装甲 50 → 35
+  // 乱数の順: 命中 → 会心 → (かすりなら HP) → 空母の弱点
+  assert.equal(L.resolveHit(shot({fp: 55}), t, seq(0, 0.5)).damage, 55 + 5 - 35);
+  const crit = L.resolveHit(shot({fp: 55}), t, seq(0, 0.04));
+  assert.deepEqual([crit.critical, crit.damage], [true, Math.floor(55 * 1.5 + 5 - 35)]);
+  assert.equal(L.resolveHit(shot({fp: 55}), t, seq(0, 0.05)).critical, false);
+  assert.equal(L.resolveHit(shot({fp: 55, crit: 0.2}), t, seq(0, 0.19)).critical, true, '会心率は弾ごと (巡洋艦の強化中は 20%)');
+  assert.equal(L.resolveHit(shot({fp: 55, mult: 0.7}), t, seq(0, 0.5)).damage, Math.floor(60 * 0.7 - 35), '中破・大破・バフの倍率は (火力 + 5) に掛ける');
 });
 
-test('爆撃機: 空母は射程 1100 以内の見えている敵 (味方が見つけた敵も) に 9 秒ごとに爆撃機を出す', () => {
+test('ダメージ: 0 以下ならかすり (今の HP の 5〜15%、切り捨て。最低 1)', () => {
+  const t = ship('battleship', {ships: 80}); // 装甲 85 → 59.5
+  const r = L.resolveHit(shot({fp: 20}), t, seq(0, 0.5, 0.5));
+  assert.equal(r.scratch, true);
+  assert.equal(r.damage, Math.floor(80 * (0.05 + 0.5 * 0.1)));
+  assert.equal(L.resolveHit(shot({fp: 20}), t, seq(0, 0.5, 0)).damage, 4);
+  assert.equal(L.resolveHit(shot({fp: 20}), ship('battleship', {ships: 3}), seq(0, 0.5, 0)).damage, 1, '最低 1');
+});
+
+test('攻撃の倍率: 中破 (HP 5 割以下) で × 0.7、大破 (2.5 割以下) で × 0.4、バフで × 1.2。損傷の状態は 7.5 割未満で小破', () => {
+  const m = over => L.attackMultiplier(ship('cruiser', Object.assign({maxShips: 100}, over)));
+  assert.equal(m({ships: 100}), 1);
+  assert.equal(m({ships: 51}), 1);
+  assert.equal(m({ships: 50}), 0.7);
+  assert.equal(m({ships: 25}), 0.4);
+  assert.ok(Math.abs(m({ships: 100, buffed: true}) - 1.2) < 1e-9);
+  assert.deepEqual([75, 74, 50, 25].map(hp => L.damageState(ship('cruiser', {ships: hp, maxShips: 100}))), ['none', 'minor', 'moderate', 'heavy']);
+});
+
+test('即死耐性: 1 回の攻撃で、HP 満タンから 0 にはならず 1 で耐える (満タンでなければ沈む)', () => {
+  const run = ships => {
+    const b = ship('battleship', {id: 'b', x: 0, y: 0});
+    const r = ship('destroyer', {id: 'r', team: 'red', x: 300, y: 0, ships});
+    const g = game([b, r]);
+    g.projectiles.push(shot({x: 290, y: 0, fp: 120, range: 650}));
+    const damage = new Map();
+    L.moveProjectiles(g, 1 / 60, damage, seq(0.01, 0.5));
+    return r.ships - damage.get(r);
+  };
+  assert.equal(run(30), 1);
+  assert.ok(run(29) <= 0);
+});
+
+test('空母の弱点: 攻撃を受けたとき 15% の確率でダメージが 2 倍 (ほかの艦種はならない)', () => {
+  const cv = ship('carrier', {id: 'v'});
+  const normal = L.resolveHit(shot({fp: 100}), cv, seq(0, 0.5, 0.2));
+  const weak = L.resolveHit(shot({fp: 100}), cv, seq(0, 0.5, 0.14));
+  assert.equal(normal.weakness, false);
+  assert.equal(weak.weakness, true);
+  assert.equal(weak.damage, normal.damage * 2);
+  assert.equal(L.resolveHit(shot({fp: 100}), ship('cruiser'), seq(0, 0.5, 0)).weakness, false);
+});
+
+test('爆撃機: 空母は射程 1200 以内のロックオンした敵に、5 秒ごとに爆撃機を 1 機出す', () => {
   const cv = ship('carrier', {id: 'v', x: 1000, y: 3000});
-  const e = ship('cruiser', {id: 'e', team: 'red', x: 1000, y: 2000}); // 距離 1000 (空母の索敵範囲 810 の外)
+  const e = ship('cruiser', {id: 'e', team: 'red', x: 1000, y: 2000}); // 距離 1000 (空母の索敵 800 の外。味方が見つけた敵)
   const g = game([cv, e]);
   L.fireWeapons(g, 0.1, {blue: [e], red: []});
   assert.equal(g.aircraft.length, 1);
   const a = g.aircraft[0];
-  assert.deepEqual([a.kind, a.team, a.from, a.targetId, a.life], ['bomber', 'blue', 'v', 'e', L.BOMBER_LIFE]);
+  assert.deepEqual([a.kind, a.team, a.from, a.targetId, a.life, a.fp, a.range], ['bomber', 'blue', 'v', 'e', L.BOMBER_LIFE, 50, 1200]);
   assert.equal(g.projectiles.length, 0, '空母は弾を撃たない');
-  L.fireWeapons(g, 8, {blue: [e], red: []});
-  assert.equal(g.aircraft.length, 1);
-  L.fireWeapons(g, 1, {blue: [e], red: []});
+  L.fireWeapons(g, 4.8, {blue: [e], red: []});
+  assert.equal(g.aircraft.length, 1, '二段攻撃ではない');
+  L.fireWeapons(g, 0.2, {blue: [e], red: []});
   assert.equal(g.aircraft.length, 2);
-  e.y = 1850; // 距離 1150
-  L.fireWeapons(g, 9, {blue: [e], red: []});
-  assert.equal(g.aircraft.length, 2, '射程の外には出さない');
 });
 
-test('爆撃機: 目標へ向かい、届いたら爆撃して消える。曲がる速さに限りがあり、BOMBER_LIFE 秒で消える', () => {
+test('爆撃機: 目標へ向かい、届いたら爆撃して (回避で抽選) 消える。曲がる速さに限りがあり、BOMBER_LIFE 秒で消える。目標が射程の外に出たら消える', () => {
   const cv = ship('carrier', {id: 'v'});
   const e = ship('cruiser', {id: 'e', team: 'red', x: 300, y: 0});
   const g = game([cv, e]);
-  g.aircraft.push({id: 5, kind: 'bomber', team: 'blue', from: 'v', targetId: 'e', x: 0, y: 0, heading: 0, life: L.BOMBER_LIFE, power: 200});
+  g.aircraft.push({id: 5, kind: 'bomber', team: 'blue', from: 'v', targetId: 'e', x: 0, y: 0, heading: 0, life: L.BOMBER_LIFE, fp: 50, mult: 1, crit: 0.05, hitChance: null, range: 1200});
   const damage = new Map();
-  for(let i = 0; i < 120 && g.aircraft.length; i++) L.moveAircraft(g, 1 / 60, damage, seq(0.5));
+  for(let i = 0; i < 120 && g.aircraft.length; i++) L.moveAircraft(g, 1 / 60, damage, seq(0.01));
   assert.equal(g.aircraft.length, 0);
   assert.ok(damage.get(e) > 0);
-
   const back = game([cv, ship('cruiser', {id: 'e', team: 'red', x: -300, y: 0})]);
-  back.aircraft.push({id: 6, kind: 'bomber', team: 'blue', from: 'v', targetId: 'e', x: 0, y: 0, heading: 0, life: L.BOMBER_LIFE, power: 200});
+  back.aircraft.push({id: 6, kind: 'bomber', team: 'blue', from: 'v', targetId: 'e', x: 0, y: 0, heading: 0, life: L.BOMBER_LIFE, fp: 50, mult: 1, crit: 0.05, hitChance: null, range: 1200});
   L.moveAircraft(back, 0.1, new Map(), seq(0.9));
   assert.ok(Math.abs(back.aircraft[0].heading) <= L.BOMBER_TURN_RATE * 0.1 + 1e-9, '一度に曲がれる角度に限りがある');
-
-  const lost = game([cv, ship('cruiser', {id: 'e', team: 'red', x: 9000, y: 9000})]);
-  lost.aircraft.push({id: 7, kind: 'bomber', team: 'blue', from: 'v', targetId: 'e', x: 0, y: 0, heading: Math.PI, life: L.BOMBER_LIFE, power: 200});
-  for(let t = 0; t < L.BOMBER_LIFE + 0.2; t += 0.1) L.moveAircraft(lost, 0.1, new Map(), seq(0.9));
-  assert.equal(lost.aircraft.length, 0);
+  const gone = game([cv, ship('cruiser', {id: 'e', team: 'red', x: 1300, y: 0})]);
+  gone.aircraft.push({id: 7, kind: 'bomber', team: 'blue', from: 'v', targetId: 'e', x: 0, y: 0, heading: 0, life: L.BOMBER_LIFE, fp: 50, mult: 1, crit: 0.05, hitChance: null, range: 1200});
+  L.moveAircraft(gone, 0.1, new Map(), seq(0.9));
+  assert.equal(gone.aircraft.length, 0, '射程の外');
 });
 
-test('偵察機: 空母は最初に 3 機、その後 60 秒ごとに 2 機を、進行方向の左右 15° の範囲へ自動で射出する', () => {
+test('偵察機: 空母は 20 秒ごとに 1 機を、進行方向の左右 15° の範囲へ自動で出す。まっすぐ飛び、40 秒かマップの外で消える', () => {
   const cv = ship('carrier', {id: 'v', x: 5000, y: 10000, heading: -Math.PI / 2});
-  const g = game([cv, ship('cruiser', {id: 'far', team: 'red', x: 100, y: 100})]); // 敵がいないと勝敗が決まって止まる
-  L.step(g, 0.1, seq(0, 0.5, 1));
+  const g = game([cv, ship('cruiser', {id: 'far', team: 'red', x: 100, y: 100})]);
+  L.step(g, 0.1, seq(0));
   const recon = () => g.aircraft.filter(a => a.kind === 'recon');
-  assert.equal(recon().length, 3);
-  for(const a of recon()){
-    assert.equal(a.team, 'blue');
-    assert.ok(Math.abs(a.heading + Math.PI / 2) <= Math.PI / 12 + 1e-9, String(a.heading));
-  }
-  assert.ok(recon().some(a => Math.abs(a.heading + Math.PI / 2 + Math.PI / 12) < 1e-9) && recon().some(a => Math.abs(a.heading + Math.PI / 2) < 1e-9));
-  for(let i = 0; i < 598; i++) L.step(g, 0.1, seq(0.5));
-  assert.equal(recon().length, 0, '40 秒で消える');
-  L.step(g, 0.2, seq(0.5));
-  assert.equal(recon().length, 2, '60 秒で 2 機');
+  assert.equal(recon().length, 1);
+  assert.ok(Math.abs(recon()[0].heading + Math.PI / 2 + Math.PI / 12) < 1e-9);
+  for(let i = 0; i < 199; i++) L.step(g, 0.1, seq(0.5));
+  assert.equal(recon().length, 2, '20 秒で 2 機目');
+  const plane = recon()[1];
+  const y0 = plane.y;
+  L.step(g, 0.1, seq(0.5));
+  assert.ok(Math.abs(plane.y - (y0 - L.RECON_SPEED * 0.1)) < 1e-6);
+  const edge = game([ship('cruiser', {id: 'e', team: 'red', x: 100, y: 50})]);
+  edge.aircraft.push({id: 1, kind: 'recon', team: 'blue', from: 'v', x: 100, y: 100, heading: -Math.PI / 2, life: L.RECON_LIFE, sensor: 400});
+  L.moveAircraft(edge, 1, new Map(), seq(0.9));
+  assert.equal(edge.aircraft.length, 0, 'マップの外');
 });
 
-test('偵察機: まっすぐ速さ RECON_SPEED で飛び、マップの外に出たら消える。攻撃はしない', () => {
-  const g = game([ship('cruiser', {id: 'e', team: 'red', x: 100, y: 50})]);
-  g.aircraft.push({id: 1, kind: 'recon', team: 'blue', from: 'v', x: 100, y: 100, heading: -Math.PI / 2, life: L.RECON_LIFE});
-  const damage = new Map();
-  L.moveAircraft(g, 0.1, damage, seq(0.9));
-  assert.ok(Math.abs(g.aircraft[0].y - (100 - L.RECON_SPEED * 0.1)) < 1e-9);
-  assert.equal(damage.size, 0);
-  L.moveAircraft(g, 1, damage, seq(0.9));
-  assert.equal(g.aircraft.length, 0, 'マップの外');
-});
-
-test('偵察機: 索敵範囲 375 (艦の半分) で、見つけた敵は味方全員に共有される', () => {
-  assert.equal(L.RECON_SENSOR, 375);
+test('偵察機: 索敵範囲は空母の索敵の半分 (400)。見つけた敵は味方全員に共有される', () => {
+  const g = game([ship('carrier', {id: 'v', x: 5000, y: 10000}), ship('cruiser', {id: 'far', team: 'red', x: 100, y: 100})]);
+  L.step(g, 0.01, seq(0.5));
+  assert.equal(g.aircraft[0].sensor, 400);
   const me = ship('cruiser', {id: 'me', x: 100, y: 100});
-  const e = ship('cruiser', {id: 'e', team: 'red', x: 5000, y: 5300});
-  const plane = {id: 1, kind: 'recon', team: 'blue', x: 5000, y: 5000, heading: 0, life: 10};
+  const e = ship('cruiser', {id: 'e', team: 'red', x: 5000, y: 5400});
+  const plane = {id: 1, kind: 'recon', team: 'blue', x: 5000, y: 5000, heading: 0, life: 10, sensor: 400};
   assert.deepEqual(L.visibleEnemies([me, e], 'blue', false, false, [plane]).map(f => f.id), ['e']);
-  e.y = 5400;
+  e.y = 5401;
   assert.deepEqual(L.visibleEnemies([me, e], 'blue', false, false, [plane]).map(f => f.id), []);
   assert.deepEqual(L.visibleEnemies([me, e], 'red', false, false, [plane]).map(f => f.id), [], '相手の偵察機は自分の目にならない');
 });
 
-test('対空射撃: 全艦種が、400 以内の敵の艦載機を 0.5 秒ごとに撃ち、対空 ÷ AA_DIVISOR の確率で撃ち落とす', () => {
-  assert.equal(L.AA_DIVISOR, 450, '対空の高い改装後の艦でも撃ち落としすぎないように (シミュレーションで決めた)');
-  const plane = () => ({id: 1, kind: 'recon', team: 'blue', x: 300, y: 0, heading: 0, life: 10});
+test('対空射撃: 全艦種が、400 以内の敵の艦載機を 0.5 秒ごとに撃ち、対空% で撃ち落とす。よけた機体は免疫がつき、もう撃たれない', () => {
+  const plane = () => ({id: 1, kind: 'recon', team: 'blue', x: 300, y: 0, heading: 0, life: 10, sensor: 400});
   for(const type of Object.keys(L.SHIP_TYPES)){
-    const chance = ship(type).stats.antiAir / L.AA_DIVISOR;
+    const chance = L.SHIP_TYPES[type].stats.antiAir / 100;
     assert.equal(L.antiAirChance(ship(type)), chance);
-    for(const [roll, left] of [[chance - 0.001, 0], [chance, 1]]){
-      const g = game([ship(type, {id: 'r', team: 'red'})]);
-      g.aircraft.push(plane());
-      L.antiAir(g, 0.1, seq(roll));
-      assert.equal(g.aircraft.length, left, type + ' ' + roll);
-    }
+    const g = game([ship(type, {id: 'r', team: 'red'})]);
+    g.aircraft.push(plane());
+    L.antiAir(g, 0.1, seq(chance - 0.001));
+    assert.equal(g.aircraft.length, 0, type);
   }
-  const miss = game([ship('destroyer', {id: 'r', team: 'red'})]);
-  miss.aircraft.push(plane());
-  L.antiAir(miss, 0.1, seq(0.99));
-  assert.equal(miss.aircraft.length, 1, '外した');
-  L.antiAir(miss, 0.3, seq(0));
-  assert.equal(miss.aircraft.length, 1, '0.5 秒たつまで次は撃たない');
-  L.antiAir(miss, 0.2, seq(0));
-  assert.equal(miss.aircraft.length, 0);
+  const g = game([ship('destroyer', {id: 'r', team: 'red'}), ship('destroyer', {id: 'r2', team: 'red'})]);
+  g.aircraft.push(plane());
+  L.antiAir(g, 0.1, seq(0.99, 0));
+  assert.equal(g.aircraft.length, 1, 'よけた');
+  assert.equal(g.aircraft[0].immune, true);
+  L.antiAir(g, 1, seq(0));
+  assert.equal(g.aircraft.length, 1, '免疫がついた機体は撃ち落とせない');
   const far = game([ship('destroyer', {id: 'r', team: 'red'})]);
   far.aircraft.push(Object.assign(plane(), {x: 401}));
   L.antiAir(far, 0.1, seq(0));
@@ -764,45 +800,153 @@ test('対空射撃: 全艦種が、400 以内の敵の艦載機を 0.5 秒ごと
   assert.equal(own.aircraft.length, 1, '味方の艦載機は撃たない');
 });
 
-test('空母の弱点: 攻撃を受けたとき 15% の確率でダメージが 2 倍 (ほかの艦種はならない)', () => {
-  // 乱数の順: 命中 → クリティカル → 装甲 → (かすりなら HP) → 空母の弱点
-  const cv = ship('carrier', {id: 'v'});
-  const normal = L.resolveHit(150, cv, seq(0.5, 0.5, 0.5, 0.2));
-  const weak = L.resolveHit(150, cv, seq(0.5, 0.5, 0.5, 0.14));
-  assert.equal(normal.weakness, false);
-  assert.equal(weak.weakness, true);
-  assert.equal(weak.damage, normal.damage * 2);
-  const cr = L.resolveHit(150, ship('cruiser'), seq(0.5, 0.5, 0.5, 0));
-  assert.equal(cr.weakness, false);
+test('特殊攻撃のゲージ: 毎秒 +1、与えたダメージ 1 につき +1、満タン 100。空母にはない', () => {
+  assert.deepEqual([L.CHARGE_MAX, L.CHARGE_PER_SECOND, L.CHARGE_PER_DAMAGE], [100, 1, 1]);
+  const b = ship('cruiser', {id: 'b', x: 0, y: 0});
+  const r = ship('destroyer', {id: 'r', team: 'red', x: 5000, y: 5000});
+  const cv = ship('carrier', {id: 'v', x: 100, y: 0});
+  const g = game([b, r, cv]);
+  L.step(g, 2, seq(0.5));
+  assert.equal(b.charge, 2);
+  assert.equal(cv.charge, 0);
+  b.charge = 99.5;
+  L.step(g, 1, seq(0.5));
+  assert.equal(b.charge, 100);
+  const h = game([ship('cruiser', {id: 'b', x: 0, y: 0}), ship('destroyer', {id: 'r', team: 'red', x: 290, y: 0})]);
+  h.projectiles.push(shot({x: 280, y: 0, fp: 55}));
+  L.step(h, 0.01, seq(0.01, 0.5, 0.5));
+  const dealt = h.events.find(e => e.type === 'hit').damage;
+  assert.ok(Math.abs(h.fleets[0].charge - (0.01 + dealt)) < 1e-9, '与えたダメージの分たまる');
+});
+
+test('特殊攻撃: ゲージが満たないと使えない。使うと 0 に戻り、出来事 special を記録', () => {
+  const b = ship('destroyer', {id: 'b', x: 0, y: 0, charge: 99});
+  const r = ship('cruiser', {id: 'r', team: 'red', x: 200, y: 0});
+  const g = game([b, r]);
+  L.fireWeapons(g, 0, {blue: [r], red: []});
+  assert.equal(L.useSpecial(g, b), false);
+  b.charge = 100;
+  assert.equal(L.useSpecial(g, b), true);
+  assert.equal(b.charge, 0);
+  assert.ok(g.events.some(e => e.type === 'special' && e.kind === 'precision' && e.from === 'b'));
+  assert.equal(L.useSpecial(g, ship('carrier', {charge: 100})), false, '空母には特殊攻撃がない');
+});
+
+test('特殊攻撃 (駆逐艦Ⅰ型) 精密射撃: 火力 100 の単発弾。回避を無視して必ず当たる。狙いが射程の外なら使えない', () => {
+  const b = ship('destroyer', {id: 'b', x: 0, y: 0, charge: 100});
+  const r = ship('cruiser', {id: 'r', team: 'red', x: 400, y: 0});
+  const g = game([b, r]);
+  L.fireWeapons(g, 0, {blue: [r], red: []});
+  assert.equal(L.useSpecial(g, b), false, '射程 300 の外');
+  r.x = 200;
+  L.fireWeapons(g, 0, {blue: [r], red: []});
+  const before = g.projectiles.length;
+  assert.equal(L.useSpecial(g, b), true);
+  const p = g.projectiles.slice(before);
+  assert.deepEqual(p.map(x => [x.kind, x.fp, x.hitChance]), [['shot', 100, 1]]);
+});
+
+test('特殊攻撃 (駆逐艦Ⅱ型) 魚雷: 火力 100 の二連攻撃 (2 発目は 0.2 秒後)。回避を無視し、命中率 60%', () => {
+  const b = ship('destroyer', {id: 'b', x: 0, y: 0, charge: 100, special: 'torpedo'});
+  const r = ship('cruiser', {id: 'r', team: 'red', x: 200, y: 0});
+  const g = game([b, r]);
+  L.fireWeapons(g, 0, {blue: [r], red: []});
+  const before = g.projectiles.length;
+  assert.equal(L.useSpecial(g, b), true);
+  L.fireWeapons(g, 0.2, {blue: [r], red: []});
+  const torps = g.projectiles.filter(x => x.kind === 'torpedo');
+  assert.deepEqual(torps.map(x => [x.fp, x.hitChance]), [[100, 0.6], [100, 0.6]]);
+  assert.ok(g.projectiles.length >= before + 2);
+});
+
+test('特殊攻撃 (巡洋艦) 強化: 15 秒間、火力・装甲・速力が 1.5 倍、会心率 20%', () => {
+  const c = ship('cruiser', {id: 'c', charge: 100});
+  const g = game([c]);
+  assert.equal(L.useSpecial(g, c), true);
+  assert.equal(c.boost, L.BOOST_DURATION);
+  assert.equal(L.BOOST_DURATION, 15);
+  assert.equal(L.firepowerOf(c), 55 * 1.5);
+  assert.equal(L.armorOf(c), 50 * 1.5);
+  assert.equal(L.speedOf(c), L.maxSpeed(c.stats) * 1.5);
+  assert.equal(L.critChanceOf(c), 0.2);
+  const r = ship('cruiser', {id: 'r', team: 'red', x: 300, y: 0});
+  const g2 = game([c, r]);
+  L.fireWeapons(g2, 0, {blue: [r], red: []});
+  assert.deepEqual([g2.projectiles[0].fp, g2.projectiles[0].crit], [55 * 1.5, 0.2]);
+  L.step(g2, 15, seq(0.99));
+  assert.equal(c.boost, 0);
+  assert.deepEqual([L.firepowerOf(c), L.armorOf(c), L.critChanceOf(c)], [55, 50, 0.05]);
+});
+
+test('特殊攻撃 (戦艦) 全艦一斉射撃: 射程の中の敵を狙っている味方の全艦が、火力 100 の攻撃を 5 回ずつ (0.2 秒おき)。空母は爆撃機', () => {
+  const bb = ship('battleship', {id: 'bb', x: 0, y: 0, charge: 100});
+  const cr = ship('cruiser', {id: 'cr', x: 2000, y: 0});
+  const cv = ship('carrier', {id: 'cv', x: 0, y: 3000});
+  const idle = ship('destroyer', {id: 'dd', x: 9000, y: 9000});
+  const e1 = ship('cruiser', {id: 'e1', team: 'red', x: 500, y: 0});
+  const e2 = ship('cruiser', {id: 'e2', team: 'red', x: 2300, y: 0});
+  const e3 = ship('cruiser', {id: 'e3', team: 'red', x: 0, y: 2000});
+  const g = game([bb, cr, cv, idle, e1, e2, e3]);
+  L.fireWeapons(g, 0, {blue: [e1, e2, e3], red: []});
+  g.projectiles = []; g.aircraft = []; g.pending = [];
+  assert.equal(L.useSpecial(g, bb), true);
+  for(let i = 0; i < 5; i++) L.fireWeapons(g, i === 0 ? 0 : 0.2, {blue: [e1, e2, e3], red: []});
+  const hi = g.projectiles.filter(p => p.fp === 100);
+  assert.equal(hi.filter(p => p.from === 'bb').length, 5);
+  assert.equal(hi.filter(p => p.from === 'cr').length, 5);
+  assert.equal(g.aircraft.filter(a => a.fp === 100 && a.from === 'cv').length, 5);
+  assert.equal(hi.filter(p => p.from === 'dd').length, 0, '狙いのない艦は撃たない');
+  assert.equal(L.useSpecial(game([ship('battleship', {charge: 100})]), g.fleets[0]), false, '誰も狙っていなければ使えない');
+});
+
+test('特殊攻撃 (AI): 満タンで使える相手がいれば、AI の艦隊は自動で使う。プレイヤー艦隊は自動では使わない', () => {
+  const ai = ship('destroyer', {id: 'a', x: 0, y: 0, charge: 100});
+  const me = ship('destroyer', {id: 'm', x: 0, y: 100, charge: 100, isPlayer: true});
+  const r = ship('battleship', {id: 'r', team: 'red', x: 200, y: 0, flagship: true});
+  const g = game([ai, me, r]);
+  g.controllers = {blue: () => null, red: null};
+  L.step(g, 0.01, seq(0.99));
+  assert.equal(ai.charge < 1, true, 'AI は使った');
+  assert.ok(me.charge >= 100, 'プレイヤーは使わない');
 });
 
 test('出来事: 砲撃・爆撃機・偵察機の射出、命中、撃墜、全滅が記録される', () => {
   const b = ship('battleship', {id: 'b', flagship: true, isPlayer: true});
   const r = ship('destroyer', {id: 'r', team: 'red', x: 200, y: 0, ships: 1, flagship: true});
   const g = game([b, r]);
-  L.step(g, 1 / 60, seq(0.3));
+  L.step(g, 1 / 60, seq(0.01));
   const fire = g.events.find(e => e.type === 'fire');
   assert.deepEqual([fire.kind, fire.team, fire.size], ['gun', 'blue', 'large']);
-  for(let i = 0; i < 60 && !g.outcome; i++) L.step(g, 1 / 60, seq(0.3)); // 回避で抽選するので当たる値で
+  for(let i = 0; i < 60 && !g.outcome; i++) L.step(g, 1 / 60, seq(0.01));
   assert.equal(g.outcome, 'win');
-
   const cv = ship('carrier', {id: 'v', x: 5000, y: 10000});
   const g2 = game([cv, ship('cruiser', {id: 'far', team: 'red', x: 100, y: 100})]);
   L.step(g2, 0.1, seq(0.5));
-  assert.equal(g2.events.filter(e => e.type === 'launch').length, 3);
-  assert.deepEqual(Object.keys(g2.events.find(e => e.type === 'launch')).sort(), ['kind', 'team', 'type', 'x', 'y']);
-
-  const d = ship('destroyer', {id: 'd', team: 'red', x: 5000, y: 9800});
-  const g3 = game([ship('carrier', {id: 'v', x: 5000, y: 10000, recon: {launched: 3, next: 999}}), d]);
-  g3.aircraft.push({id: 9, kind: 'recon', team: 'blue', from: 'v', x: 5000, y: 9900, heading: 0, life: 10});
+  assert.equal(g2.events.filter(e => e.type === 'launch').length, 1);
+  const g3 = game([ship('carrier', {id: 'v', x: 5000, y: 10000, recon: {next: 999}}), ship('destroyer', {id: 'd', team: 'red', x: 5000, y: 9800})]);
+  g3.aircraft.push({id: 9, kind: 'recon', team: 'blue', from: 'v', x: 5000, y: 9900, heading: 0, life: 10, sensor: 400});
   L.step(g3, 0.01, seq(0));
   assert.ok(g3.events.some(e => e.type === 'intercept' && e.team === 'red'));
+});
+
+test('出来事: 命中 (hit) には撃った艦 (from) と与えたダメージ (damage) が入る', () => {
+  const b = ship('cruiser', {id: 'b'});
+  const t = ship('cruiser', {id: 'r', team: 'red', x: 10, y: 0});
+  const g = game([b, t]);
+  g.projectiles.push(shot({x: 0, y: 0, from: 'b', fp: 60}));
+  const damage = new Map();
+  L.moveProjectiles(g, 1 / 60, damage, seq(0.01, 0.5));
+  const hit = g.events.find(e => e.type === 'hit');
+  assert.equal(hit.from, 'b');
+  assert.equal(hit.damage, damage.get(t));
+  assert.equal(hit.damage, 65 - 35);
 });
 
 test('ゲーム作成: 艦載機は空で始まり、空母には偵察機の射出の予定がある', () => {
   const g = L.createGame();
   assert.deepEqual(g.aircraft, []);
-  assert.deepEqual(g.fleets.find(f => f.id === 'blue2').recon, {launched: 0, next: 0});
+  assert.deepEqual(g.pending, []);
+  assert.deepEqual(g.fleets.find(f => f.id === 'blue2').recon, {next: 0});
   assert.equal(g.fleets.find(f => f.id === 'blue1').recon, undefined);
 });
 
@@ -845,7 +989,7 @@ test('移動: 攻撃命令は見えている相手に、自分の射程の内側
   assert.ok(Math.abs(f.x - (2000 - 450 * 0.8)) < 1e-6, String(f.x));
 });
 
-// ---------- 第 2.6 段階 (2.6b): バフ ----------
+// ---------- バフ ----------
 
 test('バフ: 空母と巡洋艦は、味方の戦艦から 1000 以内で強化される', () => {
   assert.equal(L.BUFF_RANGE, 1000);
@@ -871,32 +1015,11 @@ test('バフ: 戦艦は、味方の空母か巡洋艦が 1000 以内にいると
   assert.equal(L.isBuffed(bb, [bb, ship('carrier', {id: 'cv', x: 0, y: 999, ships: 0})]), false);
 });
 
-test('バフ: 強化中は与えるダメージ × 1.2 (砲弾と爆撃の威力)', () => {
-  const run = buffedShooter => {
-    const bb = ship('battleship', {id: 'bb', x: 0, y: 5000});
-    const cr = ship('cruiser', {id: 'b', x: 0, y: buffedShooter ? 4500 : 3000});
-    const r = ship('destroyer', {id: 'r', team: 'red', x: 0, y: cr.y - 300}); // いつも射程 (450) の中
-    const g = game([bb, cr, r]);
-    L.updateBuffs(g);
-    L.fireWeapons(g, 0.1, {blue: [r], red: []});
-    return g.projectiles.find(p => p.from === 'b').power;
-  };
-  assert.ok(Math.abs(run(true) / run(false) - 1.2) < 1e-9);
-  const cv = ship('carrier', {id: 'v', x: 0, y: 0});
-  const bb = ship('battleship', {id: 'bb', x: 500, y: 0});
-  const e = ship('cruiser', {id: 'e', team: 'red', x: 0, y: 1000});
-  const g = game([cv, bb, e]);
-  L.updateBuffs(g);
-  L.fireWeapons(g, 0.1, {blue: [e], red: []});
-  const bomber = g.aircraft.find(a => a.kind === 'bomber');
-  assert.ok(Math.abs(bomber.power - L.capAttack((56 * 1.5 + 55) * 1.2)) < 1e-9, '空母の爆撃は 火力 × 1.5 + 55');
-});
-
 test('バフ: 強化中は受けるダメージ ÷ 1.2 (切り捨て)', () => {
   const t = ship('cruiser', {id: 'r', team: 'red'});
-  const plain = L.resolveHit(150, t, seq(0.5));
+  const plain = L.resolveHit(shot({fp: 100}), t, seq(0, 0.5));
   t.buffed = true;
-  const buffed = L.resolveHit(150, t, seq(0.5));
+  const buffed = L.resolveHit(shot({fp: 100}), t, seq(0, 0.5));
   assert.equal(buffed.damage, Math.floor(plain.damage / 1.2));
 });
 
@@ -910,96 +1033,4 @@ test('バフ: 1 ステップごとに付け直す (離れたら外れる)', () =
   cr.x = 7000;
   L.step(g, 0.01, seq(0.5));
   assert.deepEqual([bb.buffed, cr.buffed], [false, false]);
-});
-
-test('出来事: 命中 (hit) には撃った艦 (from) と与えたダメージ (damage) が入る', () => {
-  const b = ship('cruiser', {id: 'b'});
-  const t = ship('cruiser', {id: 'r', team: 'red', x: 10, y: 0});
-  const g = game([b, t]);
-  g.projectiles.push(shot({x: 0, y: 0, from: 'b', power: 80}));
-  const damage = new Map();
-  L.moveProjectiles(g, 1 / 60, damage, seq(0.5));
-  const hit = g.events.find(e => e.type === 'hit');
-  assert.equal(hit.from, 'b');
-  assert.equal(hit.damage, damage.get(t));
-  assert.ok(hit.damage > 0);
-});
-
-// ---------- 第 2.6 段階 (2.6d): 艦これ風のステータス ----------
-
-test('索敵範囲: 450 + 索敵 × 6 (艦隊ごと。第 1〜5 艦隊 804 / 990 / 810 / 756 / 744)', () => {
-  assert.deepEqual([1, 2, 3, 4, 5].map(no => L.sensorRange({stats: L.fleetStats(no)})), [804, 990, 810, 756, 744]);
-  const dd = ship('destroyer', {id: 'd', x: 0, y: 0});
-  const bb = ship('battleship', {id: 'b', x: 0, y: 5000});
-  const e1 = ship('cruiser', {id: 'e1', team: 'red', x: 755, y: 0});
-  const e2 = ship('cruiser', {id: 'e2', team: 'red', x: 805, y: 5000});
-  assert.deepEqual(L.visibleEnemies([dd, bb, e1, e2], 'blue').map(f => f.id), ['e1'], '艦ごとの索敵範囲で見える');
-});
-
-test('命中率: 96% − 回避 × 0.5% (第 1〜5 艦隊 62% / 61% / 53% / 47% / 51.5%)', () => {
-  assert.deepEqual([1, 2, 3, 4, 5].map(no => Math.round(L.hitChance({stats: L.fleetStats(no)}) * 1000) / 1000), [0.62, 0.61, 0.53, 0.47, 0.515]);
-  const dd = ship('destroyer');
-  assert.equal(L.resolveHit(100, dd, seq(0.469)).hit, true);
-  assert.equal(L.resolveHit(100, dd, seq(0.47)).hit, false);
-  assert.equal(L.resolveHit(100, dd, seq(0.47)).damage, 0);
-});
-
-test('ダメージ: 攻撃力 − 防御力 (装甲 × 0.7 + (0〜装甲−1 の整数の乱数) × 0.6) を切り捨て', () => {
-  const t = ship('cruiser'); // 装甲 74
-  // 命中 0 → クリティカル 0.5 (なし) → 装甲の乱数 0 (防御 51.8) / 0.999 (73 → 防御 51.8 + 43.8)
-  assert.equal(L.resolveHit(100, t, seq(0, 0.5, 0)).damage, Math.floor(100 - 74 * 0.7));
-  assert.equal(L.resolveHit(100, t, seq(0, 0.5, 0.999)).damage, Math.floor(100 - 74 * 0.7 - 73 * 0.6));
-});
-
-test('ダメージ: クリティカル (10%) は攻撃力 × 1.5', () => {
-  const t = ship('cruiser');
-  const crit = L.resolveHit(100, t, seq(0, 0.09, 0));
-  assert.deepEqual([crit.critical, crit.damage], [true, Math.floor(150 - 74 * 0.7)]);
-  assert.equal(L.resolveHit(100, t, seq(0, 0.1, 0)).critical, false);
-});
-
-test('ダメージ: 攻撃力 − 防御力が 0 以下なら、かすり (今の HP × 0.06 + (0〜今の HP−1 の整数の乱数) × 0.08 を切り捨て)', () => {
-  const t = ship('battleship', {ships: 80}); // 装甲 85 → 防御 59.5 以上
-  const r = L.resolveHit(40, t, seq(0, 0.5, 0, 0.5));
-  assert.equal(r.scratch, true);
-  assert.equal(r.damage, Math.floor(80 * 0.06 + 40 * 0.08));
-  assert.equal(L.resolveHit(40, t, seq(0, 0.5, 0, 0)).damage, Math.floor(80 * 0.06));
-});
-
-test('攻撃力: 砲撃は 火力 + 5、空母の爆撃は 火力 × 1.5 + 55。中破 (HP 5 割以下) で × 0.7、大破 (2.5 割以下) で × 0.4。バフ × 1.2。上限 150 (超えた分は √)', () => {
-  const at = (type, over) => L.attackPower(ship(type, Object.assign({maxShips: 50}, over)));
-  assert.equal(at('cruiser', {ships: 50}), 86);
-  assert.equal(at('cruiser', {ships: 26}), 86, '5 割を超えていれば補正なし');
-  assert.ok(Math.abs(at('cruiser', {ships: 25}) - 86 * 0.7) < 1e-9);
-  assert.ok(Math.abs(at('cruiser', {ships: 12.5}) - 86 * 0.4) < 1e-9);
-  assert.ok(Math.abs(at('cruiser', {ships: 50, buffed: true}) - 86 * 1.2) < 1e-9);
-  assert.equal(at('carrier', {ships: 50}), 56 * 1.5 + 55);
-  assert.ok(Math.abs(at('battleship', {ships: 50}) - 149) < 1e-9);
-  assert.ok(Math.abs(at('battleship', {ships: 50, buffed: true}) - L.capAttack(149 * 1.2)) < 1e-9);
-  assert.ok(Math.abs(L.capAttack(150) - 150) < 1e-9);
-  assert.ok(Math.abs(L.capAttack(166) - 154) < 1e-9);
-  // 損傷の状態: 小破 = 7.5 割以下、中破 = 5 割以下、大破 = 2.5 割以下
-  assert.deepEqual([38, 37, 25, 12].map(hp => L.damageState(ship('cruiser', {ships: hp, maxShips: 50}))), ['none', 'minor', 'moderate', 'heavy']);
-});
-
-test('命中: 弾が当たり判定に触れたとき回避で抽選し、外れたらダメージなしで消え、miss が記録される。爆撃も同じ', () => {
-  const run = roll => {
-    const b = ship('cruiser', {id: 'b', x: 0, y: 0});
-    const r = ship('destroyer', {id: 'r', team: 'red', x: 300, y: 0});
-    const g = game([b, r]);
-    g.projectiles.push(shot({x: 290, y: 0}));
-    const damage = new Map();
-    L.moveProjectiles(g, 1 / 60, damage, seq(roll));
-    return {hit: damage.has(r), left: g.projectiles.length, miss: g.events.some(e => e.type === 'miss' && e.from === 'b' && e.targetId === 'r')};
-  };
-  assert.deepEqual(run(0.3), {hit: true, left: 0, miss: false});
-  assert.deepEqual(run(0.9), {hit: false, left: 0, miss: true});
-  const cv = ship('carrier', {id: 'v'});
-  const e = ship('destroyer', {id: 'e', team: 'red', x: 10, y: 0});
-  const g = game([cv, e]);
-  g.aircraft.push({id: 5, kind: 'bomber', team: 'blue', from: 'v', targetId: 'e', x: 0, y: 0, heading: 0, life: L.BOMBER_LIFE, power: 55});
-  const damage = new Map();
-  L.moveAircraft(g, 1 / 60, damage, seq(0.9));
-  assert.equal(damage.size, 0);
-  assert.ok(g.events.some(ev => ev.type === 'miss' && ev.from === 'v'));
 });

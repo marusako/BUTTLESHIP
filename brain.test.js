@@ -7,7 +7,7 @@ const B = require('./brain.js');
 function fleet(over){
   return Object.assign({
     id: 'f', team: 'blue', name: 'f', role: 'cruiser', x: 5000, y: 10000, hitRadius: 25,
-    ships: 50, maxShips: 50, stats: L.fleetStats(3),
+    ships: 50, maxShips: 50, stats: Object.assign({}, L.SHIP_TYPES.cruiser.stats), charge: 0, boost: 0, lockId: null,
     order: null, isPlayer: false, ai: {nextThink: 0}, heading: 0, flagship: false,
     cooldown: 0, aaCooldown: 0, stealth: 0, weapons: {fire: true}
   }, over);
