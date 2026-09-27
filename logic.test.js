@@ -803,24 +803,25 @@ test('対空射撃: 全艦種が、400 以内の敵の艦載機を 0.5 秒ごと
   assert.equal(own.aircraft.length, 1, '味方の艦載機は撃たない');
 });
 
-test('NP (特殊攻撃のゲージ): 時間でたまる速さは艦種ごと (毎秒 戦艦 +1 / 巡洋艦 +2 / 駆逐艦 +3)。与えたダメージ 1 につき +1、満タン 100。空母にはない', () => {
-  assert.deepEqual([L.CHARGE_MAX, L.CHARGE_PER_DAMAGE], [100, 1]);
-  assert.deepEqual(Object.values(L.SHIP_TYPES).map(t => t.npPerSecond), [1, 0, 2, 3]);
+test('NP (特殊攻撃のゲージ): たまる速さは艦種ごと (毎秒 戦艦 +0.3 / 巡洋艦 +5 / 駆逐艦 +3、与えたダメージ 1 につき 戦艦 0.3 / 巡洋艦 3 / 駆逐艦 1)。満タン 100。空母にはない', () => {
+  assert.equal(L.CHARGE_MAX, 100);
+  assert.deepEqual(Object.values(L.SHIP_TYPES).map(t => t.npPerDamage), [0.3, 0, 3, 1], '与えたダメージでたまる速さも艦種ごと');
+  assert.deepEqual(Object.values(L.SHIP_TYPES).map(t => t.npPerSecond), [0.3, 0, 5, 3]);
   const b = ship('cruiser', {id: 'b', x: 0, y: 0});
   const r = ship('destroyer', {id: 'r', team: 'red', x: 5000, y: 5000});
   const cv = ship('carrier', {id: 'v', x: 100, y: 0});
   const bb = ship('battleship', {id: 'bb', x: 0, y: 3000});
   const g = game([b, r, cv, bb]);
   L.step(g, 2, seq(0.5));
-  assert.deepEqual([bb.charge, b.charge, r.charge, cv.charge], [2, 4, 6, 0]);
-  b.charge = 99.5;
+  assert.deepEqual([bb.charge, b.charge, r.charge, cv.charge], [0.6, 10, 6, 0]);
+  b.charge = 97;
   L.step(g, 1, seq(0.5));
   assert.equal(b.charge, 100);
   const h = game([ship('cruiser', {id: 'b', x: 0, y: 0}), ship('destroyer', {id: 'r', team: 'red', x: 290, y: 0})]);
   h.projectiles.push(shot({x: 280, y: 0, fp: 55}));
   L.step(h, 0.01, seq(0.01, 0.5, 0.5));
   const dealt = h.events.find(e => e.type === 'hit').damage;
-  assert.ok(Math.abs(h.fleets[0].charge - (0.02 + dealt)) < 1e-9, '与えたダメージの分たまる (時間の分は巡洋艦 毎秒 +2)');
+  assert.ok(Math.abs(h.fleets[0].charge - (0.05 + dealt * 3)) < 1e-9, '与えたダメージの分たまる (巡洋艦は 1 につき 3。時間の分は毎秒 +5)');
 });
 
 test('特殊攻撃: ゲージが満たないと使えない。使うと 0 に戻り、出来事 special を記録', () => {
@@ -902,6 +903,20 @@ test('特殊攻撃 (戦艦) 全艦一斉射撃: 射程の中の敵を狙って�
   assert.equal(g.aircraft.filter(a => a.fp === 100 && a.from === 'cv' && a.hitChance === 1).length, 5, '爆撃機は回避できない');
   assert.equal(hi.filter(p => p.from === 'dd').length, 0, '狙いのない艦は撃たない');
   assert.equal(L.useSpecial(game([ship('battleship', {charge: 100})]), g.fleets[0]), false, '誰も狙っていなければ使えない');
+});
+
+test('特殊行動 (AI): 巡洋艦の強化は、NP 満タンで何かにロックオンしていれば使う (射程の外でも)', () => {
+  const c = ship('cruiser', {id: 'c', x: 0, y: 0, charge: 100});
+  const r = ship('battleship', {id: 'r', team: 'red', x: 550, y: 0, flagship: true});
+  const g = game([c, r]);
+  g.controllers = {blue: () => null, red: null};
+  L.step(g, 0.01, seq(0.99));
+  assert.ok(c.boost > 0, '射程 450 の外、索敵 600 の中');
+  const alone = ship('cruiser', {id: 'c2', x: 0, y: 0, charge: 100});
+  const g2 = game([alone, ship('battleship', {id: 'r', team: 'red', x: 5000, y: 0, flagship: true})]);
+  g2.controllers = {blue: () => null, red: null};
+  L.step(g2, 0.01, seq(0.99));
+  assert.equal(alone.boost, 0, 'ロックオンしていなければ使わない');
 });
 
 test('特殊攻撃 (AI): 満タンで使える相手がいれば、AI の艦隊は自動で使う。プレイヤー艦隊は自動では使わない', () => {

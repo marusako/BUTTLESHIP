@@ -17,8 +17,7 @@
   const DAMAGE_STATES = [{maxRatio: 0.25, state: 'heavy', attack: 0.4}, {maxRatio: 0.5, state: 'moderate', attack: 0.7}, {maxRatio: 0.75 - 1e-9, state: 'minor', attack: 1}]; // 大破 (2.5 割以下)・中破 (5 割以下)・小破 (7.5 割未満)
   const DOUBLE_SHOT_DELAY = 0.2; // 二段攻撃の 2 発目・特殊攻撃の連続攻撃の間隔 (秒)
   const SPECIAL_FIREPOWER = 100; // 特殊攻撃 (高火力攻撃) の火力
-  const CHARGE_MAX = 100;        // 特殊攻撃のゲージ (NP) の満タン。時間でたまる量は艦種ごと (SHIP_TYPES の npPerSecond)
-  const CHARGE_PER_DAMAGE = 1;   // NP が与えたダメージでたまる量 (ダメージ 1 あたり)
+  const CHARGE_MAX = 100;        // 特殊攻撃のゲージ (NP) の満タン。たまる速さは艦種ごと (SHIP_TYPES の npPerSecond・npPerDamage)
   const SALVO_SHOTS = 5;         // 戦艦の全艦一斉射撃の回数 (五段攻撃)
   const TORPEDO_SHOTS = 2;       // 駆逐艦Ⅱ型の魚雷の回数 (二連攻撃)
   const TORPEDO_HIT = 0.7;       // 魚雷の命中率 (回避を無視)
@@ -56,16 +55,16 @@
   const TEAMS = ['blue', 'red'];
 
   // 艦種。stats: 耐久 (hp = 最大 HP)・火力・装甲・回避 (%)・対空 (%)・索敵 (索敵距離)・射程 (RANGES のキー)・速力 (SPEEDS のキー)
-  // npPerSecond: 特殊攻撃のゲージ (NP) が時間でたまる速さ (毎秒)。通常攻撃は艦種ごとに 1 種類 (weapon.kind: 'gun' = 主砲の二段攻撃 / 'bomber' = 爆撃機)。interval は再装填 (秒)。大きさは当たり判定の半径と見た目に効く
+  // npPerSecond / npPerDamage: 特殊攻撃のゲージ (NP) が時間でたまる速さ (毎秒) と、与えたダメージでたまる速さ (ダメージ 1 あたり)。通常攻撃は艦種ごとに 1 種類 (weapon.kind: 'gun' = 主砲の二段攻撃 / 'bomber' = 爆撃機)。interval は再装填 (秒)。大きさは当たり判定の半径と見た目に効く
   const SHIP_TYPES = {
     battleship: {name: '戦艦', stats: {hp: 90, firepower: 120, armor: 85, evasion: 15, antiAir: 40, sensor: 500, range: 'long', speed: 'slow'},
-      size: 'large', hitRadius: 40, weapon: {kind: 'gun', interval: 4}, npPerSecond: 1, description: '旗艦。重装甲・高火力だが遅く、よけられない'},
+      size: 'large', hitRadius: 40, weapon: {kind: 'gun', interval: 4}, npPerSecond: 0.3, npPerDamage: 0.3, description: '旗艦。重装甲・高火力だが遅く、よけられない'},
     carrier: {name: '空母', stats: {hp: 70, firepower: 50, armor: 40, evasion: 40, antiAir: 60, sensor: 800, range: 'veryLong', speed: 'fast'},
-      size: 'large', hitRadius: 40, weapon: {kind: 'bomber', interval: 5}, npPerSecond: 0, description: '制空タイプ。遠くの敵に爆撃機を送り、偵察機で敵を探す。攻撃を受けると大きな被害が出ることがある'},
+      size: 'large', hitRadius: 40, weapon: {kind: 'bomber', interval: 5}, npPerSecond: 0, npPerDamage: 0, description: '制空タイプ。遠くの敵に爆撃機を送り、偵察機で敵を探す。攻撃を受けると大きな被害が出ることがある'},
     cruiser: {name: '巡洋艦', stats: {hp: 50, firepower: 55, armor: 50, evasion: 60, antiAir: 40, sensor: 600, range: 'medium', speed: 'fast'},
-      size: 'medium', hitRadius: 25, weapon: {kind: 'gun', interval: 2}, npPerSecond: 2, description: '主砲タイプの主力。攻守のバランスがよい'},
+      size: 'medium', hitRadius: 25, weapon: {kind: 'gun', interval: 2}, npPerSecond: 5, npPerDamage: 3, description: '主砲タイプの主力。攻守のバランスがよい'},
     destroyer: {name: '駆逐艦', stats: {hp: 30, firepower: 20, armor: 20, evasion: 85, antiAir: 50, sensor: 700, range: 'short', speed: 'fastPlus'},
-      size: 'small', hitRadius: 15, weapon: {kind: 'gun', interval: 1.5}, npPerSecond: 3, description: '最速。当たりにくいが打たれ弱い'}
+      size: 'small', hitRadius: 15, weapon: {kind: 'gun', interval: 1.5}, npPerSecond: 3, npPerDamage: 1, description: '最速。当たりにくいが打たれ弱い'}
   };
 
   // 特殊攻撃 (category: 'attack') と特殊行動 ('action')。NP (ゲージ) が満タンのときに使え、使うと 0 に戻る
@@ -443,10 +442,10 @@
     return true;
   }
 
-  // AI の艦隊の特殊攻撃: ゲージが満タンで使える状況なら使う (巡洋艦の強化は、狙いが射程に入ったとき)
+  // AI の艦隊の特殊攻撃: NP が満タンで使える状況なら使う (巡洋艦の強化は、何かにロックオンしているとき)
   function autoSpecial(g, f){
     if(!f.special || !(f.charge >= CHARGE_MAX - EPS)) return;
-    if(f.special === 'boost' && !targetInRange(f)) return;
+    if(f.special === 'boost' && !(f.lockRef && f.lockRef.id === f.lockId && alive(f.lockRef))) return;
     useSpecial(g, f);
   }
 
@@ -520,7 +519,7 @@
     if(before === 0 && t.ships >= t.maxShips && amount >= t.ships) amount = t.ships - 1;
     damage.set(t, before + amount);
     const shooter = g.fleets.find(f => f.id === p.from);
-    if(shooter && shooter.special) shooter.charge = Math.min(CHARGE_MAX, shooter.charge + amount * CHARGE_PER_DAMAGE);
+    if(shooter && shooter.special) shooter.charge = Math.min(CHARGE_MAX, shooter.charge + amount * SHIP_TYPES[shooter.role].npPerDamage);
     record(g, {type: 'hit', kind, team: p.team, from: p.from, targetId: t.id, critical: r.critical, scratch: r.scratch, weakness: r.weakness, damage: amount, x: t.x, y: t.y});
   }
 
@@ -688,7 +687,7 @@
   const api = {
     WORLD, DEFAULT_WORLD, setWorld, BEACON_INTERVAL, BEACON_DURATION, beaconActive, RANGES, SPEEDS, weaponRange, sensorRange, hpRatio, damageState,
     attackMultiplier, hitChance, antiAirChance, resolveHit, speedOf, firepowerOf, armorOf, critChanceOf, GHOST_CLEAR_RANGE,
-    CHARGE_MAX, CHARGE_PER_DAMAGE, evasionCutOf, BOOST_DURATION, SPECIALS, FLEET_CLASSES, useSpecial,
+    CHARGE_MAX, evasionCutOf, BOOST_DURATION, SPECIALS, FLEET_CLASSES, useSpecial,
     STEALTH_DURATION, SHOT_LIFE, BOMBER_LIFE, BOMBER_TURN_RATE, RECON_SPEED, RECON_LIFE, AA_RANGE,
     BUFF_RANGE, isBuffed, updateBuffs, SHIP_TYPES, FORMATION, AI_THINK_INTERVAL, maxSpeed, lockRange, visibleEnemies, updateIntel,
     lockTarget, moveFleet, checkOutcome, createGame, step,
