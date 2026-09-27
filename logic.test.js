@@ -511,7 +511,7 @@ test('艦種: ステータス (耐久・火力・装甲・回避・対空・索�
   const T = L.SHIP_TYPES;
   assert.deepEqual(Object.keys(T), ['battleship', 'carrier', 'cruiser', 'destroyer']);
   assert.deepEqual(Object.values(T).map(t => t.stats), [
-    {hp: 90, firepower: 120, armor: 85, evasion: 15, antiAir: 40, sensor: 500, range: 'long', speed: 'slow'},
+    {hp: 300, firepower: 120, armor: 85, evasion: 15, antiAir: 40, sensor: 500, range: 'long', speed: 'slow'},
     {hp: 70, firepower: 50, armor: 40, evasion: 40, antiAir: 60, sensor: 800, range: 'veryLong', speed: 'fast'},
     {hp: 50, firepower: 55, armor: 50, evasion: 60, antiAir: 40, sensor: 600, range: 'medium', speed: 'fast'},
     {hp: 30, firepower: 20, armor: 20, evasion: 85, antiAir: 50, sensor: 700, range: 'short', speed: 'fastPlus'}
@@ -659,11 +659,11 @@ test('命中率: 100% − 回避% (戦艦 85% / 空母 60% / 巡洋艦 40% / 駆
 test('期待ダメージ (AI の狙いの判断用): 通常攻撃 1 発の 命中率 × ダメージ。0 以下ならかすり (今の HP の 10%、最低 1)。会心は数えない', () => {
   const near = (a, b) => Math.abs(a - b) < 1e-9;
   assert.ok(near(L.expectedDamage(ship('battleship'), ship('battleship')), 0.85 * 65), '戦艦 → 戦艦: floor(125 − 59.5) = 65、命中 85%');
-  assert.ok(near(L.expectedDamage(ship('cruiser'), ship('battleship')), 0.85 * 9), '巡洋艦 → 戦艦: floor(60 − 59.5) = 0 → かすり 90 × 10%');
+  assert.ok(near(L.expectedDamage(ship('cruiser'), ship('battleship')), 0.85 * 30), '巡洋艦 → 戦艦: floor(60 − 59.5) = 0 → かすり 300 × 10%');
   assert.ok(near(L.expectedDamage(ship('cruiser'), ship('carrier')), 0.6 * 32), '巡洋艦 → 空母: floor(60 − 28) = 32、命中 60%');
   assert.ok(near(L.expectedDamage(ship('carrier'), ship('destroyer')), 41), '爆撃機は回避できない: floor(55 − 14) = 41');
   assert.ok(near(L.expectedDamage(ship('cruiser', {boost: 5}), ship('destroyer')), 0.55 * 73), '強化中: 火力 82.5、命中 +40%');
-  assert.ok(near(L.expectedDamage(ship('battleship', {ships: 20}), ship('carrier')), 0.6 * 22), '大破 (× 0.4): floor(50 − 28) = 22');
+  assert.ok(near(L.expectedDamage(ship('battleship', {ships: 60}), ship('carrier')), 0.6 * 22), '大破 (× 0.4): floor(50 − 28) = 22');
   assert.ok(near(L.expectedDamage(ship('cruiser'), ship('battleship', {ships: 5})), 0.85 * 1), 'かすりは最低 1');
 });
 

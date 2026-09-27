@@ -28,15 +28,16 @@ test('乱数 mulberry32: 同じ種なら同じ列、0 以上 1 未満、近い�
 
 test('成績: 勝ち 1、負け 0、時間切れは負けより悪い。残存戦力の差、与えたダメージ、敵旗艦の発見を少しだけ足す', () => {
   const near = (a, b) => assert.ok(Math.abs(a - b) < 1e-12, `${a} と ${b}`);
-  // チームの最大 HP の合計は 270 (戦艦 90 + 空母 70 + 巡洋艦 50 + 駆逐艦 30 × 2)
+  // チームの最大 HP の合計は 480 (戦艦 300 + 空母 70 + 巡洋艦 50 + 駆逐艦 30 × 2)
   const ships = {blue: 180, red: 90};
-  // 青: 勝ち 1 + 差 0.1 × 90/270 + 与えたダメージ 0.2 × 180/270
-  near(E.matchScore({outcome: 'win', ships, spotted: {blue: false, red: false}}, 'blue'), 1 + 0.1 * 90 / 270 + 0.2 * 180 / 270);
-  // 赤: 負け 0 - 差 + 与えたダメージ 0.2 × 90/270 + 敵旗艦の発見 0.1
-  near(E.matchScore({outcome: 'win', ships, spotted: {blue: false, red: true}}, 'red'), 0 - 0.1 * 90 / 270 + 0.2 * 90 / 270 + 0.1);
-  const timeout = E.matchScore({outcome: 'timeout', ships: {blue: 270, red: 270}, spotted: {blue: true, red: true}}, 'blue');
-  assert.ok(timeout < E.matchScore({outcome: 'lose', ships: {blue: 0, red: 270}, spotted: {blue: false, red: false}}, 'blue'), '逃げ回って時間切れにするより負けたほうがまし');
-  near(E.matchScore({outcome: 'draw', ships: {blue: 270, red: 270}}, 'red'), E.TIMEOUT_SCORE);
+  // 与えたダメージ = 合計 480 − 相手の残り (青は 480 − 90 = 390、赤は 480 − 180 = 300)
+  // 青: 勝ち 1 + 差 0.1 × 90/480 + 与えたダメージ 0.2 × 390/480
+  near(E.matchScore({outcome: 'win', ships, spotted: {blue: false, red: false}}, 'blue'), 1 + 0.1 * 90 / 480 + 0.2 * 390 / 480);
+  // 赤: 負け 0 - 差 + 与えたダメージ 0.2 × 300/480 + 敵旗艦の発見 0.1
+  near(E.matchScore({outcome: 'win', ships, spotted: {blue: false, red: true}}, 'red'), 0 - 0.1 * 90 / 480 + 0.2 * 300 / 480 + 0.1);
+  const timeout = E.matchScore({outcome: 'timeout', ships: {blue: 480, red: 480}, spotted: {blue: true, red: true}}, 'blue');
+  assert.ok(timeout < E.matchScore({outcome: 'lose', ships: {blue: 0, red: 480}, spotted: {blue: false, red: false}}, 'blue'), '逃げ回って時間切れにするより負けたほうがまし');
+  near(E.matchScore({outcome: 'draw', ships: {blue: 480, red: 480}}, 'red'), E.TIMEOUT_SCORE);
 });
 
 test('1 試合: 敵旗艦を見つけたかを記録する (旗艦の位置がばれる時間にも見つかる)', () => {
@@ -71,7 +72,7 @@ test('小さいマップから始める: 同じ広さで最低 20 世代。時�
 });
 
 test('成績: 端にいた割合 (チームごと) × 0.3 を引く', () => {
-  const base = {outcome: 'win', ships: {blue: 270, red: 270}, spotted: {blue: false, red: false}};
+  const base = {outcome: 'win', ships: {blue: 480, red: 480}, spotted: {blue: false, red: false}};
   const a = E.matchScore(base, 'blue');
   const b = E.matchScore(Object.assign({}, base, {metrics: {edgeByTeam: {blue: 0.5, red: 0.1}}}), 'blue');
   const r = E.matchScore(Object.assign({}, base, {metrics: {edgeByTeam: {blue: 0.5, red: 0.1}}}), 'red');
@@ -126,7 +127,7 @@ test('1 試合: 決まった種なら同じ結果。動かないチーム同士�
   assert.deepEqual(a, b);
   assert.equal(a.outcome, 'timeout');
   assert.equal(a.time >= 20, true);
-  assert.deepEqual(a.ships, {blue: 270, red: 270});
+  assert.deepEqual(a.ships, {blue: 480, red: 480});
   assert.ok(a.metrics.edgeRatio >= 0 && a.metrics.edgeRatio <= 1);
 });
 
