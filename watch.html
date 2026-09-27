@@ -42,6 +42,7 @@
     <div class="stat" id="stat"></div>
     <div class="hint" id="hint">ホイール: 拡大縮小 / ドラッグ: 視点移動 / ダブルクリック: 全体表示<br>試合の制限時間は 600 秒 (学習と同じ)。「自動で次の試合」がオンなら、決着の 3 秒後に最新の脳を読み込み直して次の試合を始める</div>
     <h2>学習の記録</h2>
+    <div id="progress" class="stat" style="margin-top: 0"></div>
     <div id="logSummary" class="stat" style="margin-top: 0"></div>
     <canvas id="chart"></canvas>
     <div class="legend"><span><i style="background:#4fa3ff"></i>成績の平均</span><span><i style="background:#9fb4dc"></i>成績の最高</span><span><i style="background:#ff5a5a"></i>時間切れの割合</span><span><i style="background:#ffd34f"></i>旧ルール AI への勝率</span></div>
@@ -150,6 +151,31 @@ function drawChart(){
   logRows.forEach((r, i) => { if(r.vsRuleWin !== null){ g.beginPath(); g.arc(X(i), Yrate(r.vsRuleWin), 3, 0, Math.PI * 2); g.fill(); } });
 }
 setInterval(reloadLog, 30000);
+
+// 学習全体の残り時間 (training/progress.json。学習スクリプトが書き出す)。30 秒ごとに読み直し、1 秒ごとに数え下げる
+let progress = null;
+async function reloadProgress(){
+  try{
+    const res = await fetch(`training/progress.json?t=${Date.now()}`);
+    progress = res.ok ? await res.json() : null;
+  }catch(e){
+    progress = null;
+  }
+  renderProgress();
+}
+const hms = ms => { const s = Math.max(0, Math.round(ms / 1000)); return `${Math.floor(s / 3600)}:${String(Math.floor(s / 60) % 60).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`; };
+function renderProgress(){
+  if(!progress){ $('progress').textContent = ''; return; }
+  const end = new Date(progress.deadline);
+  const left = end - Date.now();
+  const at = end.toLocaleTimeString('ja-JP', {hour: '2-digit', minute: '2-digit'});
+  $('progress').textContent = progress.finished ? `学習は終わりました (${progress.minutes} 分)`
+    : left > 0 ? `学習の残り ${hms(left)} (${progress.minutes} 分のうち。${at} ごろ終了)`
+    : '予定の時間になりました。今の世代を仕上げています';
+}
+reloadProgress();
+setInterval(reloadProgress, 30000);
+setInterval(renderProgress, 1000);
 
 let speed = 64, paused = false, showSensor = true, showOrders = true, autoNext = true;
 $('speeds').replaceChildren(...[1, 4, 16, 64].map(n => {

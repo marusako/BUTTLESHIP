@@ -170,4 +170,10 @@ function seedPopulation(seed, size, rng, opts){
   return Array.from({length: size}, (_, i) => (i === 0 ? seed : mutate(seed, rng, opts)));
 }
 
-module.exports = {TIMEOUT_SCORE, EDGE_MARGIN, WORLD_STAGES, advanceCurriculum, seedPopulation, mulberry32, gaussian, playMatch, matchScore, mutate, nextGeneration, schedule};
+// 学習の進み具合 (training/progress.json に書き出す): 始めた時刻・終わる予定 (始め + minutes 分)・今の世代・終わったか。
+// 観戦画面 (watch.html) が学習全体の残り時間を出すのに使う。時刻は ISO 8601 の文字列
+function progressRecord({startedAt, minutes, generation, finished}){
+  return {startedAt: new Date(startedAt).toISOString(), deadline: new Date(startedAt + minutes * 60000).toISOString(), minutes, generation, finished: !!finished};
+}
+
+module.exports = {progressRecord, TIMEOUT_SCORE, EDGE_MARGIN, WORLD_STAGES, advanceCurriculum, seedPopulation, mulberry32, gaussian, playMatch, matchScore, mutate, nextGeneration, schedule};

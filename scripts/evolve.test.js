@@ -158,3 +158,10 @@ test('出発点の脳から集団を作る: 1 個体目はそのまま、残り�
   const again = E.seedPopulation(seed, 5, E.mulberry32(8), {sigma: 0.05, rate: 0.2});
   assert.deepEqual(pop.map(B.toPlain), again.map(B.toPlain));
 });
+
+test('学習の進み具合 (progressRecord): 始めた時刻・終わる予定 (始め + 分)・世代・終わったか。観戦画面が残り時間を出すのに使う', () => {
+  const start = Date.UTC(2026, 8, 28, 0, 0, 0);
+  const p = E.progressRecord({startedAt: start, minutes: 240, generation: 12, finished: false});
+  assert.deepEqual(p, {startedAt: new Date(start).toISOString(), deadline: new Date(start + 240 * 60000).toISOString(), minutes: 240, generation: 12, finished: false});
+  assert.equal(E.progressRecord({startedAt: start, minutes: 1, generation: 0}).finished, false, '省略時は終わっていない');
+});

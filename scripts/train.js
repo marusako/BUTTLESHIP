@@ -69,6 +69,12 @@ function saveState(state, best, info){
   fs.writeFileSync(path.join(DIR, 'best-brains.js'), `window.SAGITTARIUS_TRAINING_BEST = ${JSON.stringify(bestPlain)};\n`);
 }
 
+// 学習の進み具合 (観戦画面が残り時間を出すのに使う)
+function saveProgress(record){
+  fs.mkdirSync(DIR, {recursive: true});
+  fs.writeFileSync(path.join(DIR, 'progress.json'), JSON.stringify(record));
+}
+
 function appendLog(row){
   fs.mkdirSync(DIR, {recursive: true});
   const file = path.join(DIR, 'log.csv');
@@ -80,7 +86,10 @@ async function main(){
   const args = parseArgs(process.argv.slice(2));
   const state = loadState(args);
   const pool = createPool(args.workers);
-  const deadline = Date.now() + args.minutes * 60 * 1000;
+  const startedAt = Date.now();
+  const deadline = startedAt + args.minutes * 60 * 1000;
+  const progress = finished => saveProgress(E.progressRecord({startedAt, minutes: args.minutes, generation: state.generation, finished}));
+  progress(false);
   const FULL_WORLD = E.WORLD_STAGES[E.WORLD_STAGES.length - 1];
   const worldLabel = w => `${w.w}x${w.h}`;
   console.log(`学習開始: 第 ${state.generation} 世代から、マップ ${worldLabel(E.WORLD_STAGES[state.curriculum.stage])}、${args.minutes} 分、ワーカー ${args.workers}、集団 ${args.pop}、1 個体 ${args.games} 試合`);
@@ -151,8 +160,10 @@ async function main(){
     state.population = E.nextGeneration(state.population, fitness, rng, {elite: args.elite, sigma: args.sigma, rate: args.rate, tournament: args.tournament});
     state.generation++;
     saveState(state, best, {fitness: fitness[bestIndex], vsRuleWin: row.vsRuleWin});
+    progress(false);
   }
   await pool.close();
+  progress(true);
   console.log(`学習終了: 第 ${state.generation} 世代まで保存しました (training/)`);
 }
 
