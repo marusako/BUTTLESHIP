@@ -91,5 +91,5 @@ test('お手本集め: 旧ルール AI どうしの試合から、艦種ごと�
     assert.ok(data[r].length > 0, r);
     assert.equal(data[r][0].input.length, B.INPUTS);
   }
-  assert.deepEqual(L.WORLD, {w: 10000, h: 20000}, '終わったら本番の広さに戻る');
+  assert.deepEqual(L.WORLD, {w: 13000, h: 26000}, '終わったら本番の広さに戻る');
 });

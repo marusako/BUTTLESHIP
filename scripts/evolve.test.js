@@ -51,11 +51,11 @@ test('1 試合: マップの広さを指定でき、終わったら本番の広�
   const L = require('../logic.js');
   const r = E.playMatch(B.controller(stay()), B.controller(stay()), {seed: 2, dt: 1 / 10, maxTime: 5, world: {w: 2500, h: 5000}});
   assert.equal(r.outcome, 'timeout');
-  assert.deepEqual(L.WORLD, {w: 10000, h: 20000});
+  assert.deepEqual(L.WORLD, {w: 13000, h: 26000});
 });
 
 test('小さいマップから始める: 同じ広さで最低 20 世代。時間切れ 30% 未満かつ端 50% 未満が 5 世代続いたら次の広さへ。最後の広さで止まる', () => {
-  assert.deepEqual(E.WORLD_STAGES, [{w: 2500, h: 5000}, {w: 5000, h: 10000}, {w: 10000, h: 20000}]);
+  assert.deepEqual(E.WORLD_STAGES, [{w: 3250, h: 6500}, {w: 6500, h: 13000}, {w: 13000, h: 26000}], '最後が本番の広さ (その 1/4・1/2 から)');
   let c = {stage: 0, streak: 0, gens: 0};
   for(let i = 0; i < 19; i++) c = E.advanceCurriculum(c, 0.1, 0.1);
   assert.deepEqual(c, {stage: 0, streak: 19, gens: 19}, '20 世代まではとどまる');

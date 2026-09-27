@@ -3,7 +3,7 @@
 (function(root){
   'use strict';
 
-  const DEFAULT_WORLD = {w: 10000, h: 20000}; // 原作のミニマップと同じ縦長 (横 1 : 縦 2)。青は下、赤は上に陣取る
+  const DEFAULT_WORLD = {w: 13000, h: 26000}; // 原作のミニマップと同じ縦長 (横 1 : 縦 2)。青は下、赤は上に陣取る (第 2.11 段階で 10000 × 20000 から広げた)
   const WORLD = Object.assign({}, DEFAULT_WORLD); // 今のマップの広さ (学習では setWorld で狭くする。ゲームは常に本番の広さ)
   // ステータスは艦種ごと (SHIP_TYPES)。耐久 = 最大 HP (艦隊の ships は今の HP)
   const RANGES = {short: 300, medium: 450, long: 650, veryLong: 1200}; // 射程 (短・中・長・超長)
@@ -58,7 +58,7 @@
   // npPerSecond / npPerDamage: 特殊攻撃のゲージ (NP) が時間でたまる速さ (毎秒) と、与えたダメージでたまる速さ (ダメージ 1 あたり)。通常攻撃は艦種ごとに 1 種類 (weapon.kind: 'gun' = 主砲の二段攻撃 / 'bomber' = 爆撃機)。interval は再装填 (秒)。大きさは当たり判定の半径と見た目に効く
   const SHIP_TYPES = {
     battleship: {name: '戦艦', stats: {hp: 300, firepower: 120, armor: 85, evasion: 15, antiAir: 40, sensor: 500, range: 'long', speed: 'slow'},
-      size: 'large', hitRadius: 40, weapon: {kind: 'gun', interval: 4}, npPerSecond: 0.3, npPerDamage: 0.3, description: '旗艦。重装甲・高火力だが遅く、よけられない'},
+      size: 'large', hitRadius: 40, weapon: {kind: 'gun', interval: 4}, npPerSecond: 0.3, npPerDamage: 0.2, description: '旗艦。重装甲・高火力だが遅く、よけられない'},
     carrier: {name: '空母', stats: {hp: 70, firepower: 50, armor: 40, evasion: 40, antiAir: 60, sensor: 800, range: 'veryLong', speed: 'fast'},
       size: 'large', hitRadius: 40, weapon: {kind: 'bomber', interval: 5}, npPerSecond: 0, npPerDamage: 0, description: '制空タイプ。遠くの敵に爆撃機を送り、偵察機で敵を探す。攻撃を受けると大きな被害が出ることがある'},
     cruiser: {name: '巡洋艦', stats: {hp: 50, firepower: 55, armor: 50, evasion: 60, antiAir: 40, sensor: 600, range: 'medium', speed: 'fast'},

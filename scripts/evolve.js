@@ -9,7 +9,7 @@ const DAMAGE_BONUS = 0.2;    // 途中のごほうび: 敵に与えたダメー�
 const SPOT_BONUS = 0.1;      // 途中のごほうび: 敵の旗艦を一度でも見つけたら足す
 const EDGE_PENALTY = 0.3;    // 端にいた艦隊の割合 (チームごと) に掛けて成績から引く (端に張りつく癖を防ぐ)
 // 小さいマップから始める (カリキュラム学習): 学習の試合のマップの広さの段階。最後が本番の広さ
-const WORLD_STAGES = [{w: 2500, h: 5000}, {w: 5000, h: 10000}, {w: 10000, h: 20000}];
+const WORLD_STAGES = [{w: 3250, h: 6500}, {w: 6500, h: 13000}, {w: 13000, h: 26000}];
 const STAGE_TIMEOUT_RATE = 0.3; // 時間切れの割合がこれ未満で
 const STAGE_EDGE_RATE = 0.5;    // 端にいる割合がこれ未満の世代が
 const STAGE_STREAK = 5;         // これだけ続き、

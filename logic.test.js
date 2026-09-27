@@ -109,8 +109,8 @@ test('勝敗: 敵全滅で勝ち、味方全滅で負け、同時なら引き分
   assert.equal(L.checkOutcome([b, r]), 'draw');
 });
 
-test('マップ: 原作のミニマップと同じ縦長 (横 1 : 縦 2) の 10000 × 20000', () => {
-  assert.deepEqual(L.WORLD, {w: 10000, h: 20000});
+test('マップ: 原作のミニマップと同じ縦長 (横 1 : 縦 2) の 13000 × 26000 (第 2.11 段階で広げた)', () => {
+  assert.deepEqual(L.WORLD, {w: 13000, h: 26000});
 });
 
 test('ゲーム作成: 青は下の端、赤は上の端から、横に並んで出撃する', () => {
@@ -615,8 +615,8 @@ test('編成: 戦艦 (旗艦)・空母・巡洋艦・駆逐艦Ⅰ型・駆逐艦
 test('出撃位置: 各チームから見て左から第 4 (駆逐Ⅰ)・第 3 (巡洋)・第 1 (戦艦)・第 2 (空母)・第 5 (駆逐Ⅱ)', () => {
   const g = L.createGame();
   const xs = team => [4, 3, 1, 2, 5].map(n => g.fleets.find(f => f.id === team + n).x);
-  assert.deepEqual(xs('blue'), [3400, 4200, 5000, 5800, 6600]);
-  assert.deepEqual(xs('red'), [6600, 5800, 5000, 4200, 3400]);
+  assert.deepEqual(xs('blue'), [4900, 5700, 6500, 7300, 8100]);
+  assert.deepEqual(xs('red'), [8100, 7300, 6500, 5700, 4900]);
 });
 
 test('自機の選択: 番号で艦種が決まる (省略時は第 1 艦隊 = 戦艦)。名前を指定しなければ艦種の名前', () => {
@@ -883,7 +883,7 @@ test('対空射撃: 全艦種が、400 以内の敵の艦載機を 0.5 秒ごと
 
 test('NP (特殊攻撃のゲージ): たまる速さは艦種ごと (毎秒 戦艦 +0.3 / 巡洋艦 +5 / 駆逐艦 +3、与えたダメージ 1 につき 戦艦 0.3 / 巡洋艦 3 / 駆逐艦 1)。満タン 100。空母にはない', () => {
   assert.equal(L.CHARGE_MAX, 100);
-  assert.deepEqual(Object.values(L.SHIP_TYPES).map(t => t.npPerDamage), [0.3, 0, 3, 1], '与えたダメージでたまる速さも艦種ごと');
+  assert.deepEqual(Object.values(L.SHIP_TYPES).map(t => t.npPerDamage), [0.2, 0, 3, 1], '与えたダメージでたまる速さも艦種ごと');
   assert.deepEqual(Object.values(L.SHIP_TYPES).map(t => t.npPerSecond), [0.3, 0, 5, 3]);
   const b = ship('cruiser', {id: 'b', x: 0, y: 0});
   const r = ship('destroyer', {id: 'r', team: 'red', x: 5000, y: 5000});
@@ -1090,7 +1090,7 @@ test('マップの広さ (学習用): setWorld で変えると出撃位置と移
   }finally{
     L.setWorld();
   }
-  assert.deepEqual(L.WORLD, {w: 10000, h: 20000});
+  assert.deepEqual(L.WORLD, {w: 13000, h: 26000});
 });
 
 test('移動: 攻撃命令は見えている相手に、自分の射程の内側 (8 割) まで近づいて止まる', () => {
