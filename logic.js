@@ -3,7 +3,7 @@
 (function(root){
   'use strict';
 
-  const WORLD = {w: 5000, h: 10000}; // 原作のミニマップと同じ縦長 (横 1 : 縦 2)。青は下、赤は上に陣取る
+  const WORLD = {w: 10000, h: 20000}; // 原作のミニマップと同じ縦長 (横 1 : 縦 2)。青は下、赤は上に陣取る
   const INITIAL_SHIPS = 15000;   // 原作の画面に合わせた初期艦艇数
   const PARAM_TOTAL = 100;
   const PARAM_MIN = 10;
@@ -53,7 +53,7 @@
     {role: 'attacker', job: 'attacker'},
     {role: 'speeder', job: 'speeder'}
   ];
-  const SPAWN_XS = [900, 1700, 2500, 3300, 4100];
+  const SPAWN_XS = [3400, 4200, 5000, 5800, 6600]; // 800 おきに中央へ寄せる (間隔を広げると隣の索敵範囲とすき間ができる)
   const SPAWN_ORDER = [3, 2, 1, 4, 5]; // 横一列に (各チームから見て) 左から第 3・第 2・第 1 (旗艦)・第 4・第 5 艦隊
 
   // AI プロファイル: 役割別 AI の判断に使うつまみ。第 2.7 段階 (AI 学習) でこの値を調整する
