@@ -608,6 +608,54 @@
     return {time: g.time, fleets, ships, units};
   }
 
+  // ---------- 表示のための計算 (描画はしない) ----------
+  // 視点の中心 (cx, cy) を、画面 (ワールドの大きさで viewW × viewH) の端がマップの外に出ないように止める。
+  // 画面のほうがマップより大きい (か同じ) 向きは、マップの真ん中に置く
+  function clampView(cx, cy, viewW, viewH, world){
+    const axis = (c, view, size) => (view >= size ? size / 2 : Math.min(size - view / 2, Math.max(view / 2, c)));
+    return {cx: axis(cx, viewW, world.w), cy: axis(cy, viewH, world.h)};
+  }
+
+  // 上から見た艦の形の大きさ (ワールドの長さ)。length は船首から船尾、beam は幅
+  const SHIP_SHAPES = {
+    battleship: {length: 96, beam: 22},
+    carrier: {length: 96, beam: 26},
+    cruiser: {length: 64, beam: 15},
+    destroyer: {length: 42, beam: 10}
+  };
+
+  // 撃沈エフェクト: 船体を長さの方向に割った破片が、離れながら回り、薄く小さくなって (沈んで) 消える
+  const WRECK_DURATION = 1.6;                         // 消えるまでの秒数
+  const WRECK_PIECES = {large: 5, medium: 4, small: 3}; // 艦の大きさごとの破片の数
+  // 沈んだ艦 f から破片を作る。破片は艦の向きに沿った座標 (前が +) で、from〜to の長さの部分
+  function createWreck(f, rng){
+    const len = SHIP_SHAPES[f.role].length;
+    const n = WRECK_PIECES[SHIP_TYPES[f.role].size];
+    const pieces = [];
+    for(let i = 0; i < n; i++){
+      const from = -len / 2 + len * i / n, to = -len / 2 + len * (i + 1) / n;
+      const side = i % 2 ? 1 : -1;
+      pieces.push({
+        from, to,
+        vx: (from + to) / 2 * 0.8 + (rng() - 0.5) * 20, // 前後へ散る (中心から離れる向き)
+        vy: side * 12 + (rng() - 0.5) * 20,              // 左右へ散る (隣どうしは逆向き)
+        spin: side * (1 + rng() * 2)                     // 回る速さ (ラジアン/秒)
+      });
+    }
+    return {x: f.x, y: f.y, heading: f.heading, role: f.role, team: f.team, pieces};
+  }
+  // 撃沈から t 秒後の破片の位置 (ワールド)・向き、全体の濃さ (alpha) と大きさ (scale)。done なら消えた
+  function wreckState(w, t){
+    const k = Math.min(1, Math.max(0, t / WRECK_DURATION));
+    const travel = t * (1 - k / 2); // だんだん遅くなる
+    const c = Math.cos(w.heading), s = Math.sin(w.heading);
+    const pieces = w.pieces.map(p => {
+      const lx = (p.from + p.to) / 2 + p.vx * travel, ly = p.vy * travel;
+      return {x: w.x + lx * c - ly * s, y: w.y + lx * s + ly * c, angle: w.heading + p.spin * t};
+    });
+    return {pieces, alpha: 1 - k, scale: 1 - 0.3 * k, done: k >= 1};
+  }
+
   // ---------- 隠しコマンド ----------
   function newCheatProgress(){
     return {index: 0, start: 0};
@@ -707,6 +755,7 @@
     BUFF_RANGE, isBuffed, updateBuffs, SHIP_TYPES, FORMATION, AI_THINK_INTERVAL, maxSpeed, lockRange, visibleEnemies, updateIntel,
     lockTarget, moveFleet, checkOutcome, createGame, step,
     fireWeapons, launchRecon, antiAir, moveProjectiles, moveAircraft, keyCourse, battleStats,
+    clampView, SHIP_SHAPES, WRECK_DURATION, createWreck, wreckState,
     newCheatProgress, cheatSequenceStep, parseCommand, applyCommand, warpFleet
   };
   if(typeof module !== 'undefined' && module.exports) module.exports = api;

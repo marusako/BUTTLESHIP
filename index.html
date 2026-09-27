@@ -283,6 +283,7 @@ const camera = {cx: 0, cy: 0, zoom: 1};
 const keys = new Set();
 const wayHeld = new Set(); // 押している WAY ボタン (視点移動)
 let logs = [];
+let wrecks = []; // 撃沈エフェクト {w: createWreck の結果, t0: 始まった時刻 (実時間の秒)}
 let prevVisible = new Set();
 let prevBeacon = false; // 前のフレームで旗艦の位置がばれていたか
 let prevAlive = new Set();
@@ -429,6 +430,7 @@ function startBattle(){
   camera.cy = me.y - 200;
   clampCamera();
   logs = [];
+  wrecks = [];
   prevVisible = new Set();
   prevBeacon = false;
   prevAlive = new Set(game.fleets.map(f => f.id));
@@ -464,6 +466,14 @@ function playEventSounds(){
     else if(ev.type === 'hit') Snd.hit(ev.kind, pan);
     else if(ev.type === 'intercept') Snd.intercept(pan);
     else if(ev.type === 'destroyed') Snd.destroyed(pan); // 全滅はいつも鳴らす (敵を倒せるのは見えている敵だけ)
+  }
+}
+// 撃沈エフェクトを始める。味方の艦と、味方から見えている場所で沈んだ敵だけ (見えていない敵は音だけ)
+function startWrecks(){
+  const allies = game.fleets.filter(f => f.team === 'blue' && f.ships > 0);
+  for(const ev of game.events){
+    if(ev.type !== 'destroyed' || (ev.team !== 'blue' && !seenByBlue(ev.x, ev.y, allies))) continue;
+    wrecks.push({w: L.createWreck(fleetById(ev.id), Math.random), t0: performance.now() / 1000});
   }
 }
 
@@ -719,9 +729,11 @@ function minimapArea(){
   const w = L.WORLD.w * s, h = L.WORLD.h * s;
   return {x: (minimap.width - w) / 2, y: (minimap.height - h) / 2, w, h};
 }
+// 視点の制限: 画面の端がマップの外に出ないように中心を止める (画面がマップより大きければ真ん中)
 function clampCamera(){
-  camera.cx = Math.min(L.WORLD.w, Math.max(0, camera.cx));
-  camera.cy = Math.min(L.WORLD.h, Math.max(0, camera.cy));
+  const c = L.clampView(camera.cx, camera.cy, canvas.width / camera.zoom, canvas.height / camera.zoom, L.WORLD);
+  camera.cx = c.cx;
+  camera.cy = c.cy;
 }
 function centerOnPlayer(){
   const me = player();
@@ -812,6 +824,7 @@ function update(dt){
   if(!applyKeyMove()) applyDragMove();
   L.step(game, dt, Math.random);
   playEventSounds();
+  startWrecks();
   trackEvents();
   if(game.outcome) finish();
 }
@@ -850,6 +863,7 @@ function finish(){
 
 // ---------- 描画 ----------
 function draw(){
+  if(game) clampCamera(); // 拡大縮小や画面の大きさが変わっても、マップの外を映さない
   drawSea();
   if(!game) return;
 
@@ -884,6 +898,7 @@ function draw(){
     ctx.fillText(`? ${displayName(fleetById(id))}`, p.x, p.y - 16 * camera.zoom - 10);
   }
 
+  drawWrecks();
   for(const f of allies) drawFleet(f);
   for(const [id, info] of Object.entries(game.intel.blue)) if(info.visible) drawFleet(fleetById(id));
 
@@ -1007,13 +1022,96 @@ function drawAircraft(allies){
   }
 }
 
+// ---------- 艦の形 (上から見た 1 隻。x が船首の向き、単位はワールドの長さ) ----------
+const SHIP_MIN_PX = {battleship: 26, carrier: 26, cruiser: 20, destroyer: 14}; // 縮小しても、この長さ (画面 px) より小さくしない
+const hullPaths = {};
+function hullPath(role){
+  if(hullPaths[role]) return hullPaths[role];
+  const {length: len, beam} = L.SHIP_SHAPES[role];
+  const h = len / 2, b = beam / 2;
+  const p = new Path2D();
+  if(role === 'carrier'){ // 空母: 平らな甲板 (前の角を少し落とす)
+    p.moveTo(h, -b * 0.5); p.lineTo(h - len * 0.08, -b); p.lineTo(-h, -b); p.lineTo(-h, b); p.lineTo(h - len * 0.08, b); p.lineTo(h, b * 0.5);
+  }else{ // 砲を積む艦: とがった船首と、角を落とした船尾
+    p.moveTo(h, 0); p.lineTo(h - len * 0.2, -b); p.lineTo(-h + len * 0.05, -b); p.lineTo(-h, -b * 0.6);
+    p.lineTo(-h, b * 0.6); p.lineTo(-h + len * 0.05, b); p.lineTo(h - len * 0.2, b);
+  }
+  p.closePath();
+  return (hullPaths[role] = p);
+}
+// 甲板の上のもの (砲塔・艦橋・空母の艦橋と中心線) を暗い色で描く
+function drawDeck(role){
+  const {length: len, beam} = L.SHIP_SHAPES[role];
+  ctx.fillStyle = 'rgba(0, 10, 25, 0.45)';
+  const turret = (x, r) => { ctx.beginPath(); ctx.arc(x * len, 0, r * beam, 0, Math.PI * 2); ctx.fill(); };
+  const block = (x0, x1, w) => ctx.fillRect(x0 * len, -w * beam / 2, (x1 - x0) * len, w * beam);
+  if(role === 'carrier'){
+    ctx.fillRect(-0.1 * len, beam * 0.22, 0.2 * len, beam * 0.24); // 右舷の艦橋
+    ctx.strokeStyle = 'rgba(0, 10, 25, 0.45)';
+    ctx.setLineDash([len * 0.06, len * 0.04]);
+    ctx.beginPath(); ctx.moveTo(-0.45 * len, 0); ctx.lineTo(0.42 * len, 0); ctx.stroke();
+    ctx.setLineDash([]);
+  }else if(role === 'battleship'){
+    turret(0.3, 0.3); turret(0.15, 0.3); turret(-0.3, 0.3); block(-0.12, 0.05, 0.5);
+  }else if(role === 'cruiser'){
+    turret(0.26, 0.3); turret(-0.28, 0.3); block(-0.1, 0.08, 0.5);
+  }else{
+    turret(0.28, 0.32); block(-0.12, 0.06, 0.45);
+  }
+}
+// 艦の大きさの倍率 (ワールド → 画面 px)。縮小しても SHIP_MIN_PX より小さくしない
+const shipScale = role => Math.max(camera.zoom, SHIP_MIN_PX[role] / L.SHIP_SHAPES[role].length);
+// 艦を 1 隻描く (中心は画面 px の x, y、向き heading)。clip があれば、長さの方向の from〜to の部分だけ描く (撃沈の破片)
+function drawShipShape(role, x, y, heading, scale, color, clip){
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(heading);
+  ctx.scale(scale, scale);
+  if(clip){
+    const c = (clip.from + clip.to) / 2;
+    ctx.beginPath(); ctx.rect(clip.from - c, -L.SHIP_SHAPES[role].beam, clip.to - clip.from, L.SHIP_SHAPES[role].beam * 2); ctx.clip();
+    ctx.translate(-c, 0);
+  }
+  const hull = hullPath(role);
+  ctx.fillStyle = color;
+  ctx.fill(hull);
+  drawDeck(role);
+  ctx.lineWidth = 1.2 / scale;
+  ctx.strokeStyle = 'rgba(230, 240, 255, 0.55)';
+  ctx.stroke(hull);
+  ctx.restore();
+}
+
+// 撃沈エフェクト: 船体が割れた破片が回りながら散って沈み、水しぶきの輪が広がる
+function drawWrecks(){
+  const now = performance.now() / 1000;
+  wrecks = wrecks.filter(({w, t0}) => {
+    const st = L.wreckState(w, now - t0);
+    if(st.done) return false;
+    const scale = shipScale(w.role) * st.scale;
+    const center = toScreen(w.x, w.y);
+    const k = 1 - st.alpha;
+    ctx.strokeStyle = `rgba(200, 230, 255, ${0.6 * st.alpha})`;
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(center.x, center.y, L.SHIP_SHAPES[w.role].length / 2 * shipScale(w.role) * (0.6 + k * 1.2), 0, Math.PI * 2); ctx.stroke();
+    ctx.lineWidth = 1;
+    ctx.globalAlpha = st.alpha;
+    st.pieces.forEach((p, i) => {
+      const sp = toScreen(p.x, p.y);
+      drawShipShape(w.role, sp.x, sp.y, p.angle, scale, COLORS[w.team], w.pieces[i]);
+    });
+    ctx.globalAlpha = 1;
+    return true;
+  });
+}
+
 function drawFleet(f){
   if(f.stealth > 0) ctx.globalAlpha = 0.35; // 透明化中 (隠しコマンド stealth) は半透明
   const p = toScreen(f.x, f.y);
   const color = COLORS[f.team];
-  // 大きさは艦種の当たり判定 (大 40 / 中 25 / 小 15) に合わせ、HP が減ると少し小さくなる
-  const size = (f.hitRadius * 0.5 + f.hitRadius * 0.25 * L.hpRatio(f)) * camera.zoom + 4;
-  const hx = Math.cos(f.heading), hy = Math.sin(f.heading);
+  // 上から見た 1 隻の艦の形。size は艦の長さの半分 (画面 px。まわりの輪と名前の位置に使う)
+  const scale = shipScale(f.role);
+  const size = L.SHIP_SHAPES[f.role].length / 2 * scale;
   if(f.isPlayer){
     ctx.strokeStyle = COLORS.accent;
     ctx.lineWidth = 2;
@@ -1032,21 +1130,7 @@ function drawFleet(f){
     ctx.beginPath(); ctx.arc(p.x, p.y, size + 13, 0, Math.PI * 2); ctx.stroke();
     ctx.setLineDash([]);
   }
-  // 艦隊を、向きに沿った小さな三角形の集まりで表す (HP が減ると数も減る)
-  const n = Math.max(1, Math.ceil(7 * L.hpRatio(f)));
-  ctx.fillStyle = color;
-  for(let i = 0; i < n; i++){
-    const ang = i / 7 * Math.PI * 2;
-    const r = i === 0 ? 0 : size * 0.6;
-    const x = p.x + Math.cos(ang) * r, y = p.y + Math.sin(ang) * r;
-    const s = size * 0.35;
-    ctx.beginPath();
-    ctx.moveTo(x + hx * s, y + hy * s);
-    ctx.lineTo(x - hx * s * 0.7 - hy * s * 0.6, y - hy * s * 0.7 + hx * s * 0.6);
-    ctx.lineTo(x - hx * s * 0.7 + hy * s * 0.6, y - hy * s * 0.7 - hx * s * 0.6);
-    ctx.closePath();
-    ctx.fill();
-  }
+  drawShipShape(f.role, p.x, p.y, f.heading, scale, color);
   ctx.font = '12px sans-serif';
   ctx.textAlign = 'center';
   ctx.fillStyle = flagshipKnown(f) ? COLORS.accent : color;

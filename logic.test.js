@@ -414,6 +414,52 @@ test('AI (旗艦以外を選んだとき): 味方の AI 旗艦は AI の命令�
   assert.equal(g.fleets.find(f => f.isPlayer).order, null, '自機には AI の命令が入らない');
 });
 
+// ---------- 第 2.10 段階 (2.10c) ----------
+
+test('視点の制限 (clampView): 画面の端がマップの外に出ないように中心を止める。画面のほうが大きければマップの真ん中', () => {
+  const world = {w: 1000, h: 800};
+  assert.deepEqual(L.clampView(50, 10, 400, 300, world), {cx: 200, cy: 150});
+  assert.deepEqual(L.clampView(990, 790, 400, 300, world), {cx: 800, cy: 650});
+  assert.deepEqual(L.clampView(500, 400, 400, 300, world), {cx: 500, cy: 400}, '中なら動かさない');
+  assert.deepEqual(L.clampView(100, 100, 1200, 300, world), {cx: 500, cy: 150}, '横が入りきらなければ横は真ん中');
+  assert.deepEqual(L.clampView(100, 100, 400, 800, world), {cx: 200, cy: 400}, 'ちょうど同じ大きさでも真ん中');
+});
+
+test('艦の形 (SHIP_SHAPES): 艦種ごとの長さと幅。大きい艦ほど長い', () => {
+  const S = L.SHIP_SHAPES;
+  assert.deepEqual(Object.keys(S), Object.keys(L.SHIP_TYPES));
+  assert.ok(S.battleship.length > S.cruiser.length && S.cruiser.length > S.destroyer.length);
+  for(const k of Object.keys(S)) assert.ok(S[k].beam < S[k].length / 2.5, k + ' は細長い');
+});
+
+test('撃沈エフェクト (createWreck): 船体を長さの方向に割った破片。大きい艦ほど多い (大 5 / 中 4 / 小 3)。破片をつなぐと船体の長さになる', () => {
+  const rng = seq(0.3, 0.7, 0.5, 0.9, 0.1);
+  const bb = L.createWreck(ship('battleship', {x: 100, y: 200, heading: 0}), rng);
+  assert.deepEqual([bb.x, bb.y, bb.role, bb.team, bb.heading], [100, 200, 'battleship', 'blue', 0]);
+  assert.deepEqual([bb.pieces.length, L.createWreck(ship('cruiser'), rng).pieces.length, L.createWreck(ship('destroyer'), rng).pieces.length], [5, 4, 3]);
+  const half = L.SHIP_SHAPES.battleship.length / 2;
+  assert.equal(bb.pieces[0].from, -half);
+  assert.equal(bb.pieces[bb.pieces.length - 1].to, half);
+  for(let i = 1; i < bb.pieces.length; i++) assert.equal(bb.pieces[i].from, bb.pieces[i - 1].to, 'すき間なく並ぶ');
+});
+
+test('撃沈エフェクト (wreckState): 始めは船体の形のまま、時間とともに破片が離れて回り、薄く小さくなって WRECK_DURATION で消える', () => {
+  const w = L.createWreck(ship('cruiser', {x: 0, y: 0, heading: Math.PI / 2}), seq(0.5));
+  const s0 = L.wreckState(w, 0);
+  assert.deepEqual([s0.alpha, s0.scale, s0.done], [1, 1, false]);
+  w.pieces.forEach((p, i) => {
+    const c = (p.from + p.to) / 2;
+    assert.ok(Math.abs(s0.pieces[i].x) < 1e-9 && Math.abs(s0.pieces[i].y - c) < 1e-9, '向き (南) に沿って並ぶ');
+    assert.equal(s0.pieces[i].angle, Math.PI / 2);
+  });
+  const s1 = L.wreckState(w, L.WRECK_DURATION / 2);
+  assert.ok(s1.alpha < 1 && s1.alpha > 0 && s1.scale < 1);
+  s1.pieces.forEach((p, i) => assert.ok(Math.hypot(p.x, p.y) > Math.hypot(s0.pieces[i].x, s0.pieces[i].y), '中心から離れる'));
+  assert.ok(s1.pieces.some((p, i) => p.angle !== s0.pieces[i].angle), '回る');
+  const end = L.wreckState(w, L.WRECK_DURATION);
+  assert.deepEqual([end.alpha, end.done], [0, true]);
+});
+
 // ---------- 第 2.10 段階 (2.10b) ----------
 
 test('観戦 (spectate): プレイヤーの艦はなく、10 隻すべてを AI が動かす。自艦の名前は使わない', () => {
