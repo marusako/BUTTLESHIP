@@ -18,7 +18,7 @@ test('初期設定: 操作ごとのキー、音量、名前 (空)', () => {
   assert.equal(d.keys.camDown, 'KeyS');
   assert.equal(d.keys.camLeft, 'KeyA');
   assert.equal(d.keys.camRight, 'KeyD');
-  assert.deepEqual([d.keys.moveUp, d.keys.moveLeft, d.keys.moveDown, d.keys.moveRight], ['ArrowUp', 'ArrowLeft', 'ArrowDown', 'ArrowRight'], '移動は矢印キー (第 2.10 段階)');
+  assert.deepEqual([d.keys.moveUp, d.keys.moveLeft, d.keys.moveDown, d.keys.moveRight], ['ArrowUp', 'ArrowLeft', 'ArrowDown', 'ArrowRight'], '移動は矢印キー (第 3.3 段階)');
   assert.equal(d.keys.fire, 'KeyZ');
   assert.equal(d.keys.autoSpecial, 'KeyX', '特殊攻撃の自動使用 オン / オフ');
   assert.equal(d.keys.special, 'Space', '特殊攻撃を今使う');
@@ -141,7 +141,7 @@ test('読み込み: 前の版の保存データ (回転・SPEED のキーがあ�
   assert.deepEqual(s.volume, {bgm: 40, sfx: 60});
 });
 
-test('読み込み: 第 2.10 段階より前の保存データは、前の初期のキーのままの操作を新しい初期のキーにする (自分で変えたキーは残す)。一時停止は捨てる', () => {
+test('読み込み: 第 3.3 段階より前の保存データは、前の初期のキーのままの操作を新しい初期のキーにする (自分で変えたキーは残す)。一時停止は捨てる', () => {
   const old = {keys: {moveUp: 'KeyO', moveDown: 'KeyL', moveLeft: 'KeyK', moveRight: 'Semicolon', fire: 'Digit1', special: 'Digit2', center: 'KeyC', pause: 'Space', camUp: 'KeyI'}, volume: {bgm: 0, sfx: 80}, name: ''};
   const s = S.load(memoryStorage({[S.STORAGE_KEY]: JSON.stringify(old)}));
   assert.deepEqual(s.keys, Object.assign(S.defaults().keys, {camUp: 'KeyI'}));

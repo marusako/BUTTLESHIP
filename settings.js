@@ -4,8 +4,8 @@
   'use strict';
 
   const STORAGE_KEY = 'sagittarius.settings';
-  const SETTINGS_VERSION = 2; // 保存データの版 (版がない = 第 2.10 段階より前)
-  // 第 2.10 段階より前の初期のキー。前の版の保存データで、これと同じキーのままの操作は新しい初期のキーにする
+  const SETTINGS_VERSION = 2; // 保存データの版 (版がない = 第 3.3 段階より前)
+  // 第 3.3 段階より前の初期のキー。前の版の保存データで、これと同じキーのままの操作は新しい初期のキーにする
   // (前は何かを変えると全部のキーが保存されたので、自分で選んだキーと区別するため)
   const LEGACY_DEFAULT_KEYS = {moveUp: 'KeyO', moveDown: 'KeyL', moveLeft: 'KeyK', moveRight: 'Semicolon', fire: 'Digit1', special: 'Digit2', center: 'KeyC'};
   const NAME_MAX = 12;

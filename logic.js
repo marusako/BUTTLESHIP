@@ -3,7 +3,7 @@
 (function(root){
   'use strict';
 
-  const DEFAULT_WORLD = {w: 13000, h: 26000}; // 原作のミニマップと同じ縦長 (横 1 : 縦 2)。青は下、赤は上に陣取る (第 2.11 段階で 10000 × 20000 から広げた)
+  const DEFAULT_WORLD = {w: 13000, h: 26000}; // 原作のミニマップと同じ縦長 (横 1 : 縦 2)。青は下、赤は上に陣取る (第 3.4 段階で 10000 × 20000 から広げた)
   const WORLD = Object.assign({}, DEFAULT_WORLD); // 今のマップの広さ (学習では setWorld で狭くする。ゲームは常に本番の広さ)
   // ステータスは艦種ごと (SHIP_TYPES)。耐久 = 最大 HP (艦隊の ships は今の HP)
   const RANGES = {short: 300, medium: 450, long: 650, veryLong: 1200}; // 射程 (短・中・長・超長)

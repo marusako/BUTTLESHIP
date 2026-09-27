@@ -58,7 +58,7 @@ test('用意した曲: タイトル用と戦闘用があり、どのパートも
   assert.ok(M.SONGS.battle.tempo > M.SONGS.title.tempo, '戦闘の曲のほうが速い');
 });
 
-test('海の舞台の曲 (第 2.8 段階): タイトルは 3 拍子の舟歌風で、波のような分散和音 (8 分音符) がある。戦闘は 4 拍子の行進曲風で小太鼓がある (第 2.11 段階で戦闘の曲は作り直した)', () => {
+test('海の舞台の曲 (第 3.1 段階): タイトルは 3 拍子の舟歌風で、波のような分散和音 (8 分音符) がある。戦闘は 4 拍子の行進曲風で小太鼓がある (第 3.4 段階で戦闘の曲は作り直した)', () => {
   const {title, battle} = M.SONGS;
   assert.equal(title.beatsPerBar, 3);
   assert.ok(Object.values(title.parts).some(p => !p.drum && p.notes.length === title.bars * 6 && p.notes.every(x => x.dur === 0.5)), '1 小節に 8 分音符 6 つの分散和音');
@@ -66,7 +66,7 @@ test('海の舞台の曲 (第 2.8 段階): タイトルは 3 拍子の舟歌風�
   assert.ok(battle.parts.snare && battle.parts.snare.drum);
 });
 
-test('戦闘の曲 (第 2.11 段階): 艦これの雰囲気のオリジナル曲。4 拍子・16 小節・テンポ 140 以上、金管の主旋律、弦の 8 分音符の刻み、行進の小太鼓 (区切りの小節は連打)', () => {
+test('戦闘の曲 (第 3.4 段階): 艦これの雰囲気のオリジナル曲。4 拍子・16 小節・テンポ 140 以上、金管の主旋律、弦の 8 分音符の刻み、行進の小太鼓 (区切りの小節は連打)', () => {
   const b = M.SONGS.battle;
   assert.deepEqual([b.beatsPerBar, b.bars], [4, 16]);
   assert.ok(b.tempo >= 140);

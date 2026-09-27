@@ -109,7 +109,7 @@ test('勝敗: 敵全滅で勝ち、味方全滅で負け、同時なら引き分
   assert.equal(L.checkOutcome([b, r]), 'draw');
 });
 
-test('マップ: 原作のミニマップと同じ縦長 (横 1 : 縦 2) の 13000 × 26000 (第 2.11 段階で広げた)', () => {
+test('マップ: 原作のミニマップと同じ縦長 (横 1 : 縦 2) の 13000 × 26000 (第 3.4 段階で広げた)', () => {
   assert.deepEqual(L.WORLD, {w: 13000, h: 26000});
 });
 
@@ -414,7 +414,7 @@ test('AI (旗艦以外を選んだとき): 味方の AI 旗艦は AI の命令�
   assert.equal(g.fleets.find(f => f.isPlayer).order, null, '自機には AI の命令が入らない');
 });
 
-// ---------- 第 2.10 段階 (2.10c) ----------
+// ---------- 第 3.3 段階 (3.3c) ----------
 
 test('視点の制限 (clampView): 画面の端がマップの外に出ないように中心を止める。画面のほうが大きければマップの真ん中', () => {
   const world = {w: 1000, h: 800};
@@ -460,7 +460,7 @@ test('撃沈エフェクト (wreckState): 始めは船体の形のまま、時�
   assert.deepEqual([end.alpha, end.done], [0, true]);
 });
 
-// ---------- 第 2.11 段階 (2.11b) ----------
+// ---------- 第 3.4 段階 (3.4b) ----------
 
 test('TARGET パネル (targetInfo): ロックオンしている敵の HP・損傷・距離・命中率・1 発の期待ダメージ・射程の中か。狙いがなければ null', () => {
   const me = ship('cruiser', {id: 'me', x: 0, y: 0});
@@ -479,7 +479,7 @@ test('TARGET パネル (targetInfo): ロックオンしている敵の HP・損�
   assert.equal(L.targetInfo(me), null, '沈んだ敵は狙いにしない');
 });
 
-// ---------- 第 2.10 段階 (2.10b) ----------
+// ---------- 第 3.3 段階 (3.3b) ----------
 
 test('観戦 (spectate): プレイヤーの艦はなく、10 隻すべてを AI が動かす。自艦の名前は使わない', () => {
   const g = L.createGame({spectate: true, playerName: 'ヤマト', controllers: {blue: goNorth, red: goNorth}});
@@ -577,7 +577,7 @@ test('旗艦の位置がばれる (試合の中): 60 秒で相手の地図に旗
   assert.deepEqual([g.intel.blue.rf.x, g.intel.blue.rf.y], [9000, 9000], '最終確認位置が残る');
 });
 
-// ---------- 第 2.8 段階: 艦種・ステータス・攻撃パターン (2.6 の艦種・艦載機・バフを含む) ----------
+// ---------- 第 3.1 段階: 艦種・ステータス・攻撃パターン (3.0 の艦種・艦載機・バフを含む) ----------
 
 // 艦種のデータを持ったテスト用の艦隊。special を渡すと特殊攻撃を変えられる (駆逐艦は既定でⅠ型)
 function ship(type, over){
@@ -1027,7 +1027,7 @@ test('特殊攻撃 (AI): 満タンで使える相手がいれば、AI の艦隊�
   assert.ok(me.charge >= 100, 'プレイヤーは使わない');
 });
 
-test('特殊攻撃の自動使用 (プレイヤー): autoSpecial がオンなら、AI と同じ条件で自動で使う (第 2.10 段階)', () => {
+test('特殊攻撃の自動使用 (プレイヤー): autoSpecial がオンなら、AI と同じ条件で自動で使う (第 3.3 段階)', () => {
   const me = ship('destroyer', {id: 'm', x: 0, y: 100, charge: 100, isPlayer: true, autoSpecial: true});
   const r = ship('battleship', {id: 'r', team: 'red', x: 200, y: 0, flagship: true});
   const g = game([me, r]);

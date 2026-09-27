@@ -252,7 +252,7 @@ test('AI (駆逐艦): NP が満タンなら、近くに敵がいても攻撃し�
   assert.equal(R.aiDecide(Object.assign(me, {charge: L.CHARGE_MAX}), [flag, me, near, far], {}, seq(0.5), P).type, 'move', '見えている敵がいなければ今までどおり');
 });
 
-test('AI (駆逐艦): 強化中の敵巡洋艦が speederBoostAvoidDistance より近ければ、NP が満タンでも離れる (第 2.11 段階)', () => {
+test('AI (駆逐艦): 強化中の敵巡洋艦が speederBoostAvoidDistance より近ければ、NP が満タンでも離れる (第 3.4 段階)', () => {
   assert.ok(P.speederBoostAvoidDistance > L.RANGES.medium, '巡洋艦の射程の外');
   const flag = fleet({id: 'f', x: 1200, y: 4000, role: 'battleship', flagship: true});
   const me = fleet({id: 's', x: 1200, y: 2000, role: 'destroyer', special: 'torpedo', charge: L.CHARGE_MAX});
@@ -266,7 +266,7 @@ test('AI (駆逐艦): 強化中の敵巡洋艦が speederBoostAvoidDistance よ�
   assert.deepEqual(R.aiDecide(me, [flag, me, rf, cr], intel, seq(0.5), P), {type: 'attack', targetId: 'rf'}, '強化していなければ今までどおり攻める');
 });
 
-test('AI (駆逐艦): HP の割合が speederRetreatHp 以下なら、NP が満タンでも味方の旗艦のもとへ下がる (第 2.11 段階)', () => {
+test('AI (駆逐艦): HP の割合が speederRetreatHp 以下なら、NP が満タンでも味方の旗艦のもとへ下がる (第 3.4 段階)', () => {
   const flag = fleet({id: 'f', x: 1200, y: 4000, role: 'battleship', flagship: true});
   const me = fleet({id: 's', x: 1200, y: 2000, role: 'destroyer', special: 'torpedo', charge: L.CHARGE_MAX, maxShips: 30, ships: 30 * P.speederRetreatHp});
   const rf = fleet({id: 'rf', team: 'red', x: 1200, y: 1500, role: 'battleship', flagship: true});
@@ -276,7 +276,7 @@ test('AI (駆逐艦): HP の割合が speederRetreatHp 以下なら、NP が満�
   assert.equal(R.aiDecide(me, [flag, me, rf], intel, seq(0.5), P).type, 'attack');
 });
 
-test('AI (駆逐艦): 見えている敵空母から speederCarrierDistance (爆撃機の射程の外) を保つ。NP が満タンなら今までどおり攻める (第 2.11 段階)', () => {
+test('AI (駆逐艦): 見えている敵空母から speederCarrierDistance (爆撃機の射程の外) を保つ。NP が満タンなら今までどおり攻める (第 3.4 段階)', () => {
   assert.ok(P.speederCarrierDistance > L.RANGES.veryLong, '爆撃機の射程の外');
   const flag = fleet({id: 'f', x: 1200, y: 4000, role: 'battleship', flagship: true});
   const me = fleet({id: 's', x: 1200, y: 2000, role: 'destroyer', special: 'torpedo', charge: 0});
