@@ -7,10 +7,10 @@
 <style>
   :root{ --bg: #03060f; --panel: #0a1428; --line: #2a4a7a; --text: #d8e4ff; --muted: #7f93bb; --blue: #4fa3ff; --red: #ff5a5a; --accent: #ffd34f; }
   html, body{ margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 14px system-ui, sans-serif; }
-  #app{ position: fixed; inset: 0; display: grid; grid-template-columns: 1fr 300px; }
+  #app{ position: fixed; inset: 0; display: grid; grid-template-columns: 1fr 360px; }
   #view{ position: relative; min-width: 0; }
   canvas{ position: absolute; inset: 0; display: block; }
-  #side{ background: var(--panel); border-left: 1px solid var(--line); padding: 12px; overflow-y: auto; }
+  #side{ background: var(--panel); border-left: 1px solid var(--line); padding: 12px; overflow-y: auto; overflow-x: hidden; min-width: 0; }
   h1{ font-size: 16px; margin: 0 0 10px; color: var(--accent); }
   label{ display: block; margin: 8px 0 2px; color: var(--muted); font-size: 12px; }
   select, button{ font: inherit; color: var(--text); background: #0f2446; border: 1px solid var(--line); padding: 4px 8px; }
@@ -20,6 +20,13 @@
   .fl{ display: flex; justify-content: space-between; font-size: 13px; }
   .blue{ color: var(--blue); } .red{ color: var(--red); } .dead{ color: var(--muted); text-decoration: line-through; }
   .hint{ color: var(--muted); font-size: 12px; margin-top: 12px; line-height: 1.6; }
+  h2{ font-size: 14px; margin: 16px 0 6px; color: var(--accent); border-top: 1px solid var(--line); padding-top: 10px; }
+  #chart{ position: static; width: 100%; height: 150px; background: #060c1a; border: 1px solid var(--line); }
+  .legend{ font-size: 11px; color: var(--muted); display: flex; gap: 10px; flex-wrap: wrap; margin: 4px 0; }
+  .legend i{ display: inline-block; width: 10px; height: 3px; margin-right: 4px; vertical-align: middle; }
+  table{ width: 100%; border-collapse: collapse; font-size: 11px; font-variant-numeric: tabular-nums; }
+  th, td{ text-align: right; padding: 1px 3px; }
+  th{ color: var(--muted); font-weight: normal; }
 </style>
 </head>
 <body>
@@ -34,6 +41,12 @@
     <label>表示</label><div class="row"><button id="showSensor" class="on">索敵範囲</button><button id="showOrders" class="on">命令</button></div>
     <div class="stat" id="stat"></div>
     <div class="hint" id="hint">ホイール: 拡大縮小 / ドラッグ: 視点移動 / ダブルクリック: 全体表示<br>試合の制限時間は 600 秒 (学習と同じ)。「自動で次の試合」がオンなら、決着の 3 秒後に最新の脳を読み込み直して次の試合を始める</div>
+    <h2>学習の記録</h2>
+    <div id="logSummary" class="stat" style="margin-top: 0"></div>
+    <canvas id="chart"></canvas>
+    <div class="legend"><span><i style="background:#4fa3ff"></i>成績の平均</span><span><i style="background:#9fb4dc"></i>成績の最高</span><span><i style="background:#ff5a5a"></i>時間切れの割合</span><span><i style="background:#ffd34f"></i>旧ルール AI への勝率</span></div>
+    <table id="logTable"></table>
+    <div class="hint">成績: 勝ち 1 / 負け 0 / 時間切れ -0.25 (+ 残存戦力の差 × 0.1)。旧ルール AI への勝率は 10 世代ごとに 20 試合で測る (ぶれが大きい)。30 秒ごとと、次の試合を始めるときに読み込み直す</div>
     <div class="hint" id="noBrain">学習済みの脳がまだありません (npm run train で作られます)</div>
   </div>
 </div>
@@ -85,6 +98,57 @@ function reloadBrains(){
     document.head.appendChild(tag);
   });
 }
+
+// 学習の記録 (training/log.csv)。http で開いたときだけ読める (file:// では読めない)
+let logRows = [];
+async function reloadLog(){
+  try{
+    const res = await fetch(`training/log.csv?t=${Date.now()}`);
+    if(!res.ok) throw new Error(res.status);
+    const lines = (await res.text()).trim().split('\n');
+    const head = lines.shift().split(',');
+    logRows = lines.map(l => { const v = l.split(','); const o = {}; head.forEach((h, i) => { o[h] = v[i] === '' ? null : Number(v[i]); }); return o; });
+  }catch(e){
+    logRows = null;
+  }
+  renderLog();
+}
+function renderLog(){
+  const pct = v => (v === null || v === undefined ? '-' : `${Math.round(v * 100)}%`);
+  if(!logRows){ $('logSummary').textContent = '学習の記録を読めません (npm run serve で開くと読めます)'; return; }
+  if(!logRows.length){ $('logSummary').textContent = '学習の記録はまだありません'; return; }
+  const last = logRows[logRows.length - 1];
+  const evals = logRows.filter(r => r.vsRuleWin !== null);
+  const lastEval = evals[evals.length - 1];
+  $('logSummary').innerHTML = `第 ${last.generation} 世代まで  成績 平均 ${last.mean.toFixed(2)} / 最高 ${last.best.toFixed(2)}<br>時間切れ ${pct(last.timeoutRate)} / 端にいる割合 ${pct(last.edgeRatio)}<br>旧ルール AI への勝率 <b style="color:var(--accent)">${lastEval ? pct(lastEval.vsRuleWin) : '-'}</b>${lastEval ? ` (第 ${lastEval.generation} 世代、時間切れ ${pct(lastEval.vsRuleTimeout)})` : ''}`;
+  drawChart();
+  const rows = logRows.slice(-10).reverse();
+  $('logTable').innerHTML = '<tr><th>世代</th><th>平均</th><th>最高</th><th>時間切れ</th><th>端</th><th>対旧AI</th></tr>' +
+    rows.map(r => `<tr><td>${r.generation}</td><td>${r.mean.toFixed(2)}</td><td>${r.best.toFixed(2)}</td><td>${pct(r.timeoutRate)}</td><td>${pct(r.edgeRatio)}</td><td>${pct(r.vsRuleWin)}</td></tr>`).join('');
+}
+// グラフ: 横が世代。成績は -0.5〜1.5、割合は 0〜100% を同じ高さに描く
+function drawChart(){
+  const c = $('chart'), g = c.getContext('2d');
+  c.width = c.clientWidth; c.height = c.clientHeight;
+  g.clearRect(0, 0, c.width, c.height);
+  const n = logRows.length, pad = 6;
+  const X = i => pad + (n > 1 ? i / (n - 1) : 0) * (c.width - pad * 2);
+  const Yscore = v => c.height - pad - (v + 0.5) / 2 * (c.height - pad * 2);
+  const Yrate = v => c.height - pad - v * (c.height - pad * 2);
+  g.strokeStyle = 'rgba(42,74,122,0.6)';
+  g.beginPath(); g.moveTo(pad, Yscore(0)); g.lineTo(c.width - pad, Yscore(0)); g.stroke(); // 成績 0 (負け) の線
+  const line = (key, Y, color) => {
+    g.strokeStyle = color; g.beginPath();
+    logRows.forEach((r, i) => { const y = Y(r[key]); i ? g.lineTo(X(i), y) : g.moveTo(X(i), y); });
+    g.stroke();
+  };
+  line('best', Yscore, '#9fb4dc');
+  line('mean', Yscore, '#4fa3ff');
+  line('timeoutRate', Yrate, '#ff5a5a');
+  g.fillStyle = '#ffd34f';
+  logRows.forEach((r, i) => { if(r.vsRuleWin !== null){ g.beginPath(); g.arc(X(i), Yrate(r.vsRuleWin), 3, 0, Math.PI * 2); g.fill(); } });
+}
+setInterval(reloadLog, 30000);
 
 let speed = 64, paused = false, showSensor = true, showOrders = true, autoNext = true;
 $('speeds').replaceChildren(...[1, 4, 16, 64].map(n => {
@@ -200,6 +264,7 @@ function frame(now){
   if(finished() && !endedAt) endedAt = now;
   if(autoNext && !paused && endedAt && now - endedAt >= NEXT_DELAY && !reloading){
     reloading = true;
+    reloadLog();
     reloadBrains().then(() => { reloading = false; restart(); });
   }
   draw();
@@ -207,6 +272,7 @@ function frame(now){
   requestAnimationFrame(frame);
 }
 renderAiOptions();
+reloadLog();
 restart();
 renderButtons();
 requestAnimationFrame(frame);
