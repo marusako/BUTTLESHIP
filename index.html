@@ -72,7 +72,7 @@
   button:hover:not(:disabled){ border-color: var(--blue); background: #16345f; }
   button:disabled{ opacity: 0.4; cursor: default; }
   .rules{ text-align: left; color: var(--muted); font-size: 14px; line-height: 1.7; margin: 0 0 18px; padding-left: 20px; }
-  .jobs{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 0 0 18px; text-align: left; }
+  .jobs{ display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin: 0 0 18px; text-align: left; }
   .job{ border: 1px solid var(--line); padding: 10px 12px; cursor: pointer; }
   .job:has(input:checked){ border-color: var(--accent); background: rgba(255, 211, 79, 0.08); }
   .job input{ margin-right: 6px; }
@@ -86,6 +86,7 @@
   .modes label{ border: 1px solid var(--line); padding: 8px 14px; cursor: pointer; text-align: left; width: 50%; }
   .modes label:has(input:checked){ border-color: var(--accent); background: rgba(255, 211, 79, 0.08); }
   .modes input{ margin-right: 6px; }
+  .modes label.soon{ opacity: 0.45; cursor: default; }
   .modes small{ display: block; color: var(--muted); font-size: 12px; margin-top: 2px; }
   .section{ color: var(--muted); font-size: 13px; text-align: left; margin: 14px 0 6px; }
   .hint{ color: var(--muted); font-size: 13px; }
@@ -163,9 +164,8 @@
       <li>あなたは味方の<strong>第 1 艦隊</strong>を指揮する。残りの味方 4 艦隊と敵 5 艦隊は AI</li>
       <li>見えるのは味方の索敵範囲の中だけ。見つけた敵は味方全員に共有される</li>
       <li>ビームは射程内の敵を自動で攻撃する (必中)。ミサイルは射程が長く追尾するが、迎撃されることがある</li>
-      <li>全滅戦: 敵 5 艦隊をすべて全滅させたら勝利</li>
-      <li>大将戦: 敵の旗艦を倒したら勝利。あなたの艦隊が味方の旗艦</li>
-      <li>味方の 4 艦隊は、隊長 (あなた) の周りに付いてきて守る。敵も隊長を中心に隊列を組む</li>
+      <li>モダン: 敵の旗艦 (第 1 艦隊) を倒したら勝利。あなたの艦隊は味方の旗艦で、倒されたら敗北</li>
+      <li>連合艦隊は旗艦・副艦 (タンク)・アタッカー 2・スピーダーの 5 艦隊。味方はそれぞれの役割で旗艦を支える</li>
     </ul>
     <button id="toSetup">出撃準備</button>
   </div>
@@ -176,8 +176,8 @@
     <h2>出撃準備</h2>
     <div class="section">ルール</div>
     <div class="modes">
-      <label><input type="radio" name="mode" value="annihilation" checked>全滅戦<small>敵を全滅させたら勝ち</small></label>
-      <label><input type="radio" name="mode" value="flagship">大将戦<small>敵の旗艦を倒したら勝ち</small></label>
+      <label><input type="radio" name="mode" value="modern" checked>モダン<small>敵の旗艦を倒したら勝ち</small></label>
+      <label class="soon"><input type="radio" name="mode" value="classic" disabled>クラシック<small>今後実装予定</small></label>
     </div>
     <div class="section">ジョブ</div>
     <div class="jobs" id="jobs"></div>
@@ -221,14 +221,13 @@ const DT = 1 / 60;
 const CAMERA_SPEED = 900;  // px/秒 (画面上の速さ)
 const ROTATE_SPEED = 1.5;  // rad/秒
 const CLICK_RADIUS = 36;   // 敵艦隊をクリックしたとみなす半径 (画面 px)
-const MODE_NAMES = {annihilation: '全滅戦', flagship: '大将戦'};
+const MODE_NAMES = {modern: 'モダン'};
 
 let mode = 'title'; // title | setup | battle | pause | result
 let game = null;
-let playerJob = 'attacker';
+let playerJob = 'balancer';
 // 長押しでの移動: 押している間はカーソルの位置 (キャンバス内の座標) を移動先にし続ける
 let dragMove = null;
-let ruleMode = 'annihilation';
 // カメラ: 画面中心に映すワールド座標 (cx, cy)、拡大率、回転角 (0 で北が上)
 const camera = {cx: 0, cy: 0, zoom: 1, angle: 0};
 const keys = new Set();
@@ -291,7 +290,7 @@ $('resultToTitle').onclick = endGame;
 
 // ---------- 出撃準備 ----------
 // ジョブのカード (名前・数値のバー・説明) を作る
-const STAT_LABELS = [['speed', '速度'], ['defense', '防御'], ['attack', '攻撃']];
+const STAT_LABELS = [['speed', '敏捷'], ['defense', '耐久'], ['attack', '火力']];
 $('jobs').replaceChildren(...Object.entries(L.JOBS).map(([key, job]) => {
   const card = document.createElement('label');
   card.className = 'job';
@@ -299,18 +298,15 @@ $('jobs').replaceChildren(...Object.entries(L.JOBS).map(([key, job]) => {
     `<span>${label}</span><span class="bar"><i style="width:${job.params[k]}%"></i></span><b>${job.params[k]}</b>`).join('');
   card.innerHTML = `<input type="radio" name="job" value="${key}"><span class="jobName"></span>
     <div class="jobStats">${stats}</div><small></small>`;
-  card.querySelector('.jobName').textContent = job.name;
+  card.querySelector('.jobName').textContent = job.flagshipOnly ? `${job.name} (旗艦専用)` : job.name;
   card.querySelector('small').textContent = job.description;
   card.querySelector('input').checked = key === playerJob;
   card.querySelector('input').addEventListener('change', () => { playerJob = key; });
   return card;
 }));
-for(const r of document.querySelectorAll('input[name="mode"]')){
-  r.addEventListener('change', () => { ruleMode = r.value; });
-}
 
 function startBattle(){
-  game = L.createGame(Object.assign({}, L.JOBS[playerJob].params), Math.random, ruleMode);
+  game = L.createGame(Object.assign({}, L.JOBS[playerJob].params));
   dragMove = null;
   const me = player();
   camera.zoom = 1;
@@ -324,7 +320,7 @@ function startBattle(){
   cheatProgress = L.newCheatProgress();
   buildAllyRows();
   document.body.classList.remove('no-game');
-  addLog(game.mode === 'flagship' ? '大将戦、開始。敵の旗艦を探し出せ' : '全艦隊、出撃。索敵を開始せよ', COLORS.accent);
+  addLog('全艦隊、出撃。敵の旗艦を探し出せ', COLORS.accent);
   acc = 0;
   setMode('battle');
 }
@@ -514,10 +510,10 @@ function visibleEnemyAt(w, radius){
 function flagshipKnown(f){
   return f.flagship && (f.team === 'blue' || game.intel.blue[f.id] || f.ships <= 0);
 }
-// 味方の隊長は常に表示 (全滅戦)。大将戦の隊長は旗艦として表示する
+// 旗艦は「(旗艦)」、味方の副艦は「(副艦)」を付ける
 function displayName(f){
   if(flagshipKnown(f)) return `${f.name} (旗艦)`;
-  if(f.team === 'blue' && f.leader && f.ships > 0) return `${f.name} (隊長)`;
+  if(f.team === 'blue' && f.role === 'vice') return `${f.name} (副艦)`;
   return f.name;
 }
 
@@ -573,11 +569,9 @@ function finish(){
   const me = player();
   const survivors = game.fleets.filter(f => f.team === 'blue' && f.ships > 0).length;
   const parts = [MODE_NAMES[game.mode], `戦闘時間 ${formatTime(game.time)}`];
-  if(game.mode === 'flagship'){
-    const redFlag = game.fleets.find(f => f.team === 'red' && f.flagship);
-    if(redFlag.ships <= 0) parts.push(`${redFlag.name} (敵旗艦) を撃破`);
-    if(me.ships <= 0) parts.push('旗艦の第 1 艦隊が撃沈された');
-  }
+  const redFlag = game.fleets.find(f => f.team === 'red' && f.flagship);
+  if(redFlag.ships <= 0) parts.push(`${redFlag.name} (敵旗艦) を撃破`);
+  if(me.ships <= 0) parts.push('旗艦の第 1 艦隊が撃沈された');
   parts.push(`味方残存 ${survivors} 艦隊`);
   parts.push(`第 1 艦隊 ${me.ships > 0 ? '残存 ' + Math.ceil(me.ships) + ' 隻' : '全滅'}`);
   $('resultDetail').textContent = parts.join(' / ');
@@ -816,7 +810,7 @@ function buildAllyRows(){
     row.className = 'allyRow';
     row.dataset.id = f.id;
     row.innerHTML = '<span class="name"></span><span class="ships"></span>';
-    row.querySelector('.name').textContent = f.name; // 隊長の引き継ぎに合わせて毎フレーム更新する
+    row.querySelector('.name').textContent = displayName(f);
     return row;
   }));
 }
