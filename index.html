@@ -237,10 +237,13 @@
 
 <script src="logic.js"></script>
 <script src="settings.js"></script>
+<script src="music.js"></script>
+<script src="sound.js"></script>
 <script>
 'use strict';
 const L = window.SagittariusLogic;
 const S = window.SagittariusSettings;
+const Snd = window.SagittariusSound;
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
 const minimap = document.getElementById('minimap');
@@ -307,6 +310,10 @@ function setMode(m){
   mode = m;
   if(m !== 'battle') closeConsole();
   show({title: 'title', setup: 'setup', settings: 'settings', pause: 'pause', result: 'result'}[m] || null);
+  if(m === 'battle' || m === 'pause') Snd.playBgm('battle');
+  else if(m === 'result') Snd.stopBgm();
+  else Snd.playBgm('title');
+  Snd.setBgmDuck(m === 'pause');
 }
 
 // 戦闘を破棄してタイトルへ戻る (右側のパネルとミニマップも空にする)
@@ -365,6 +372,32 @@ function startBattle(){
   setMode('battle');
 }
 
+// ---------- 音 ----------
+Snd.setVolumes(settings.volume);
+Snd.playBgm('title'); // 音が使えるようになった時点で流れ始める
+for(const type of ['pointerdown', 'keydown']){
+  window.addEventListener(type, () => Snd.unlock(), {capture: true});
+}
+const allowSound = Snd.createThrottle(0.06);   // 通常弾の発砲音はチームごとに 0.06 秒に 1 回まで
+const allowPreview = Snd.createThrottle(0.15); // 音量スライダーを動かしている間の確認音
+function sfxPreview(){ if(allowPreview('preview', performance.now() / 1000)) Snd.preview(); }
+
+// そのステップの出来事 (発砲・命中・迎撃・全滅) の音を鳴らす。味方から見えている場所の音だけ
+function playEventSounds(){
+  const allies = game.fleets.filter(f => f.team === 'blue' && f.ships > 0);
+  const now = game.time; // 間隔はゲーム内の時間で測る (早送りや処理落ちでも同じ聞こえ方に)
+  for(const ev of game.events){
+    if(ev.type !== 'destroyed' && !seenByBlue(ev.x, ev.y, allies)) continue;
+    const pan = Snd.panFromScreen(toScreen(ev.x, ev.y).x, canvas.width);
+    if(ev.type === 'fire'){
+      if(ev.kind === 'shell' && !allowSound(ev.team, now)) continue;
+      Snd.fire(ev.kind, ev.team, pan);
+    }else if(ev.type === 'hit') Snd.hit(ev.kind, pan);
+    else if(ev.type === 'intercept') Snd.intercept(pan);
+    else if(ev.type === 'destroyed') Snd.destroyed(pan); // 全滅はいつも鳴らす (敵を倒せるのは見えている敵だけ)
+  }
+}
+
 // ---------- 設定画面 ----------
 function saveSettings(){ S.save(settingsStorage(), settings); }
 
@@ -404,6 +437,8 @@ for(const [id, key] of [['volBgm', 'bgm'], ['volSfx', 'sfx']]){
   $(id).addEventListener('input', e => {
     settings = S.normalize(Object.assign({}, settings, {volume: Object.assign({}, settings.volume, {[key]: Number(e.target.value)})}));
     saveSettings(); renderSettings();
+    Snd.setVolumes(settings.volume);
+    if(key === 'sfx') sfxPreview();
   });
 }
 $('fleetName').addEventListener('input', e => {
@@ -638,6 +673,7 @@ function trackEvents(){
     if(prevVisible.has(id)) continue;
     const f = fleetById(id);
     addLog(f.flagship ? `${f.name}を発見 ── 敵の旗艦だ!` : `${f.name}を発見`, f.flagship ? COLORS.accent : COLORS.red);
+    Snd.ping(f.flagship);
   }
   prevVisible = visible;
   for(const f of game.fleets){
@@ -662,6 +698,7 @@ function update(dt){
 
   applyDragMove();
   L.step(game, dt, Math.random);
+  playEventSounds();
   trackEvents();
   if(game.outcome) finish();
 }
@@ -680,6 +717,7 @@ function finish(){
   parts.push(`${me.name} ${me.ships > 0 ? '残存 ' + Math.ceil(me.ships) + ' 隻' : '全滅'}`);
   $('resultDetail').textContent = parts.join(' / ');
   setMode('result');
+  Snd.jingle(game.outcome === 'win' ? 'win' : 'lose');
 }
 
 // ---------- 描画 ----------

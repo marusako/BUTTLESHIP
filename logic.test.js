@@ -15,7 +15,7 @@ function fleet(over){
 
 // テスト用のゲーム状態を作る
 function game(fleets){
-  return {time: 0, fleets, intel: {blue: {}, red: {}}, locks: [], projectiles: [], nextProjectileId: 1,
+  return {time: 0, fleets, intel: {blue: {}, red: {}}, locks: [], projectiles: [], nextProjectileId: 1, events: [],
     reveal: false, warpArmed: false, outcome: null};
 }
 
@@ -800,4 +800,54 @@ test('ゲーム作成: 自艦隊の名前を指定でき、指定しなければ
   assert.equal(named.fleets.find(f => f.id === 'blue2').name, '味方第2艦隊');
   assert.equal(L.createGame(L.JOBS.balancer.params).fleets.find(f => f.isPlayer).name, '味方第1艦隊');
   assert.equal(L.createGame(L.JOBS.balancer.params, {playerName: ''}).fleets.find(f => f.isPlayer).name, '味方第1艦隊');
+});
+
+// ---------- 第 2.4 段階 (2.4c) ----------
+
+test('出来事: 発砲すると fire (弾の種類・チーム・位置) が記録される', () => {
+  const b = fleet({id: 'b', x: 10, y: 20});
+  const r = fleet({id: 'r', team: 'red', x: 110, y: 20});
+  const g = game([b, r]);
+  L.fireWeapons(g, 0.01);
+  const fires = g.events.filter(e => e.type === 'fire');
+  assert.deepEqual(fires.filter(e => e.from === 'b').map(e => [e.kind, e.team, e.x, e.y]), [['shell', 'blue', 10, 20], ['torpedo', 'blue', 10, 20]]);
+  assert.equal(fires.filter(e => e.team === 'red').length, 2);
+});
+
+test('出来事: 弾が当たると hit (弾の種類・撃ったチーム・当たった位置) が記録される', () => {
+  const r = fleet({id: 'r', team: 'red', x: 30, y: 0});
+  const g = game([fleet({id: 'b'}), r]);
+  g.projectiles.push({id: 1, kind: 'shell', team: 'blue', from: 'b', targetId: 'r', x: 0, y: 0, heading: 0, life: Infinity, power: 1});
+  L.moveProjectiles(g, 0.1, new Map());
+  assert.deepEqual(g.events, [{type: 'hit', kind: 'shell', team: 'blue', targetId: 'r', x: 30, y: 0}]);
+});
+
+test('出来事: 爆発弾を撃ち落とすと intercept (撃ち落としたチーム・位置) が記録される', () => {
+  const r = fleet({id: 'r', team: 'red', x: 0, y: 0});
+  const g = game([r]);
+  g.projectiles.push({id: 1, kind: 'torpedo', team: 'blue', from: 'b', targetId: 'r', x: 50, y: 0, heading: 0, life: 5, power: 1});
+  L.interceptTorpedoes(g, 0.1, seq(0));
+  assert.deepEqual(g.events, [{type: 'intercept', team: 'red', x: 50, y: 0}]);
+});
+
+test('出来事: 艦艇数が 0 になったステップで destroyed (チーム・旗艦か・位置) が 1 回だけ記録される', () => {
+  const b = fleet({id: 'b', isPlayer: true, params: {speed: 10, defense: 10, attack: 80}});
+  const r = fleet({id: 'r', team: 'red', x: 100, y: 0, ships: 1, flagship: true});
+  const g = game([b, r]);
+  L.step(g, 1, seq(0.5));
+  // 位置は倒されたときの艦隊の位置 (AI なのでこの 1 秒のうちに動いている)
+  assert.deepEqual(g.events.filter(e => e.type === 'destroyed'), [{type: 'destroyed', team: 'red', id: 'r', flagship: true, x: r.x, y: r.y}]);
+});
+
+test('出来事: ステップごとに新しく記録し直す (前のステップの出来事は残らない)', () => {
+  const b = fleet({id: 'b', isPlayer: true});
+  const r = fleet({id: 'r', team: 'red', x: 3000, y: 3000});
+  const g = game([b, r]);
+  g.events.push({type: 'fire', kind: 'shell', team: 'blue', from: 'b', x: 0, y: 0});
+  L.step(g, 0.01, seq(0.5));
+  assert.deepEqual(g.events, []);
+});
+
+test('ゲーム作成: 出来事の一覧は空で始まる', () => {
+  assert.deepEqual(L.createGame(L.JOBS.balancer.params).events, []);
 });

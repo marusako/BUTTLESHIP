@@ -9,6 +9,9 @@
 - `logic.js` … 描画や DOM に依存しないロジック。ブラウザでは `<script src>` で `window.SagittariusLogic` に、Node では `require()` で読み込める形にする (ES Modules は `file://` で動かないため使わない)
 - `logic.test.js` … `logic.js` の仕様テスト (`node:test`)
 - `settings.js` / `settings.test.js` … 設定 (キー配置・音量・自艦隊の名前・クレジット) とそのテスト
+- `music.js` / `music.test.js` … BGM の楽譜データと、再生の予定を作る純粋な関数とそのテスト
+- `sound.js` / `sound.test.js` … 効果音と BGM (Web Audio で合成) と、その計算の関数のテスト
+- ゲームに必要なファイルを増やしたら、`scripts/package.js` の `GAME_FILES` にも加える (配布用 zip に入れるため)
 - `classic/` … クラシック (v1.3 からジョブを取り除いたもの)。**開発は中断中なので、ユーザーの指示がない限り変更しない**
 - `DESIGN.md` … 設計書。**作業に入る前に必ず読む**
 - `PLAN.md` … MVP の計画

@@ -378,12 +378,17 @@
     }
     return {
       time: 0, mode: 'modern', profiles, fleets, intel: {blue: {}, red: {}}, locks: [],
-      projectiles: [], nextProjectileId: 1, reveal: false, warpArmed: false, outcome: null
+      projectiles: [], nextProjectileId: 1, events: [], reveal: false, warpArmed: false, outcome: null
     };
   }
 
   // 青チームだけ隠しコマンドの索敵解除が効く
   const revealFor = (g, team) => team === 'blue' && g.reveal;
+
+  // そのステップで起きたこと (発砲・命中・迎撃・全滅) を g.events に記録する。画面側が音を鳴らすのに使う
+  function record(g, event){
+    (g.events || (g.events = [])).push(event);
+  }
 
   const visibleByTeam = g => ({blue: visibleEnemies(g.fleets, 'blue', revealFor(g, 'blue')), red: visibleEnemies(g.fleets, 'red', false)});
 
@@ -405,10 +410,12 @@
       if(f.weapons.shell && f.shellCooldown <= EPS){
         g.projectiles.push(Object.assign({id: g.nextProjectileId++, kind: 'shell', life: Infinity, power: shellPower(f)}, base));
         f.shellCooldown = SHELL_INTERVAL;
+        record(g, {type: 'fire', kind: 'shell', team: f.team, from: f.id, x: f.x, y: f.y});
       }
       if(f.weapons.torpid && f.torpedoCooldown <= EPS){
         g.projectiles.push(Object.assign({id: g.nextProjectileId++, kind: 'torpedo', life: TORPEDO_LIFE, power: torpedoPower(f)}, base));
         f.torpedoCooldown = TORPEDO_RELOAD;
+        record(g, {type: 'fire', kind: 'torpedo', team: f.team, from: f.id, x: f.x, y: f.y});
       }
     }
   }
@@ -425,7 +432,10 @@
       }
       if(!target) continue;
       f.interceptCooldown = INTERCEPT_INTERVAL;
-      if(rng() < INTERCEPT_CHANCE) g.projectiles.splice(g.projectiles.indexOf(target), 1);
+      if(rng() < INTERCEPT_CHANCE){
+        g.projectiles.splice(g.projectiles.indexOf(target), 1);
+        record(g, {type: 'intercept', team: f.team, x: target.x, y: target.y});
+      }
     }
   }
 
@@ -441,7 +451,11 @@
   // 通常弾は目標の現在位置へまっすぐ向かい必ず当たる。爆発弾は曲がる速さに限りがあり、燃え尽きたら消える
   function moveProjectiles(g, dt, damage){
     const byId = new Map(g.fleets.map(f => [f.id, f]));
-    const hit = (p, t) => { damage.set(t, (damage.get(t) || 0) + p.power * mitigation(t.params)); return false; };
+    const hit = (p, t) => {
+      damage.set(t, (damage.get(t) || 0) + p.power * mitigation(t.params));
+      record(g, {type: 'hit', kind: p.kind, team: p.team, targetId: t.id, x: t.x, y: t.y});
+      return false;
+    };
     g.projectiles = g.projectiles.filter(p => {
       const t = byId.get(p.targetId);
       if(!t || !alive(t)) return false;
@@ -512,6 +526,7 @@
   function step(g, dt, rng){
     if(g.outcome) return;
     g.time += dt;
+    g.events = [];
     const living = g.fleets.filter(alive);
     const refreshIntel = () => { for(const team of TEAMS) updateIntel(g.intel[team], g.fleets, team, revealFor(g, team)); };
 
@@ -533,6 +548,9 @@
     const damage = new Map();
     moveProjectiles(g, dt, damage);
     for(const [t, d] of damage) t.ships = Math.max(0, t.ships - d);
+    for(const f of living){
+      if(!alive(f)) record(g, {type: 'destroyed', team: f.team, id: f.id, flagship: !!f.flagship, x: f.x, y: f.y});
+    }
 
     refreshIntel();
     g.outcome = checkOutcome(g.fleets);
