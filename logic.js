@@ -15,6 +15,8 @@
   const AI_THINK_INTERVAL = 1;   // AI が命令を考え直す間隔 (秒)
   const SHOT_SPEED = 600;        // 砲弾の速さ (px/秒)。どの艦より速い
   const SHOT_HIT_RADIUS = 12;    // 追いかけている砲弾がこの距離まで近づいたら命中
+  // 戦艦の弾だけは必中ではなく、当たる瞬間に標的の残り HP (艦艇数 ÷ INITIAL_SHIPS) で抽選する。上から順に、残り HP が maxRatio 以下なら chance
+  const BATTLESHIP_HIT_TABLE = [{maxRatio: 0.2, chance: 0.9}, {maxRatio: 0.5, chance: 0.5}, {maxRatio: 1 - 1e-9, chance: 0.2}, {maxRatio: Infinity, chance: 0.05}];
   const SHOT_LIFE = 3;           // 砲弾が消えるまでの時間 (秒)。射程の外に出てまっすぐ飛ぶ弾が外れたときに消える
   const BOMBER_SPEED = 250;      // 爆撃機の速さ (px/秒)
   const BOMBER_TURN_RATE = 2.5;  // 爆撃機が 1 秒に曲がれる角度 (ラジアン)。よけられることがある
@@ -306,7 +308,7 @@
       if(w.kind === 'bomber'){
         g.aircraft.push(Object.assign({kind: 'bomber', life: BOMBER_LIFE, power: bombPower(f)}, base));
       }else{
-        g.projectiles.push(Object.assign({kind: 'shot', range: w.range, homing: true, life: SHOT_LIFE, power: shotPower(f)}, base));
+        g.projectiles.push(Object.assign({kind: 'shot', role: f.role, range: w.range, homing: true, life: SHOT_LIFE, power: shotPower(f)}, base));
       }
       f.cooldown = w.interval;
       record(g, {type: 'fire', kind: w.kind, size: SHIP_TYPES[f.role].size, team: f.team, from: f.id, x: f.x, y: f.y});
@@ -356,6 +358,20 @@
   }
 
   // 命中: ダメージを damage (Map: 艦隊 → ダメージ) に足す。空母は確率でダメージが増える (弱点)。バフ中の目標は ÷ BUFF_DEFENSE
+  function battleshipHitChance(t){
+    const ratio = t.ships / INITIAL_SHIPS;
+    return BATTLESHIP_HIT_TABLE.find(r => ratio <= r.maxRatio).chance;
+  }
+
+  // 砲弾が当たり判定に触れたとき。戦艦の弾は抽選して、外れたらダメージなしで消える
+  function shotReached(g, damage, p, t, rng){
+    if(p.role === 'battleship' && !(rng() < battleshipHitChance(t))){
+      record(g, {type: 'miss', team: p.team, from: p.from, targetId: t.id, x: t.x, y: t.y});
+      return;
+    }
+    applyHit(g, damage, p, t, 'shot', rng);
+  }
+
   function applyHit(g, damage, p, t, kind, rng){
     const crit = t.role === 'carrier' && rng() < CARRIER_CRIT_CHANCE;
     const amount = p.power * mitigation(t.params) * (crit ? CARRIER_CRIT_MULTIPLIER : 1) / (t.buffed ? BUFF_DEFENSE : 1);
@@ -363,7 +379,7 @@
     record(g, {type: 'hit', kind, team: p.team, from: p.from, targetId: t.id, critical: crit, damage: amount, x: t.x, y: t.y});
   }
 
-  // 砲弾を進める。目標が撃った艦の射程の中にいる間は追いかけて必ず当たる (射程内のみ必中)。
+  // 砲弾を進める。目標が撃った艦の射程の中にいる間は追いかけて必ず当たる (射程内のみ必中。戦艦の弾は触れたあとに抽選)。
   // 一度でも射程の外に出たら (撃った艦が全滅しても) 追いかけるのをやめてまっすぐ飛び、目標の当たり判定に触れれば当たる。SHOT_LIFE 秒で消える
   function moveProjectiles(g, dt, damage, rng){
     const byId = new Map(g.fleets.map(f => [f.id, f]));
@@ -375,7 +391,7 @@
       const step = SHOT_SPEED * dt;
       if(p.homing){
         const d = dist(p, t);
-        if(d <= step + SHOT_HIT_RADIUS){ applyHit(g, damage, p, t, 'shot', rng); return false; }
+        if(d <= step + SHOT_HIT_RADIUS){ shotReached(g, damage, p, t, rng); return false; }
         p.heading = Math.atan2(t.y - p.y, t.x - p.x);
         p.x += (t.x - p.x) / d * step;
         p.y += (t.y - p.y) / d * step;
@@ -383,7 +399,7 @@
         const from = {x: p.x, y: p.y};
         p.x += Math.cos(p.heading) * step;
         p.y += Math.sin(p.heading) * step;
-        if(segmentDistance(from, p, t) <= t.hitRadius){ applyHit(g, damage, p, t, 'shot', rng); return false; }
+        if(segmentDistance(from, p, t) <= t.hitRadius){ shotReached(g, damage, p, t, rng); return false; }
       }
       p.life -= dt;
       return p.life > 0;
@@ -520,7 +536,7 @@
 
   const api = {
     WORLD, DEFAULT_WORLD, setWorld, BEACON_INTERVAL, BEACON_DURATION, beaconActive, INITIAL_SHIPS, SENSOR_RANGE, GHOST_CLEAR_RANGE, FIREPOWER_FLOOR,
-    STEALTH_DURATION, SHOT_LIFE, BOMBER_LIFE, BOMBER_TURN_RATE, RECON_SPEED, RECON_LIFE, RECON_SENSOR, AA_RANGE,
+    STEALTH_DURATION, SHOT_LIFE, BATTLESHIP_HIT_TABLE, battleshipHitChance, BOMBER_LIFE, BOMBER_TURN_RATE, RECON_SPEED, RECON_LIFE, RECON_SENSOR, AA_RANGE,
     BUFF_RANGE, isBuffed, updateBuffs, SHIP_TYPES, FORMATION, AI_THINK_INTERVAL, maxSpeed, mitigation, lockRange, visibleEnemies, updateIntel,
     lockTarget, moveFleet, checkOutcome, createGame, step,
     fireWeapons, launchRecon, antiAir, moveProjectiles, moveAircraft, keyCourse, battleStats,

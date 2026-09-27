@@ -768,7 +768,7 @@ test('出来事: 砲撃・爆撃機・偵察機の射出、命中、撃墜、全
   L.step(g, 1 / 60, seq(0.9));
   const fire = g.events.find(e => e.type === 'fire');
   assert.deepEqual([fire.kind, fire.team, fire.size], ['gun', 'blue', 'large']);
-  for(let i = 0; i < 60 && !g.outcome; i++) L.step(g, 1 / 60, seq(0.9));
+  for(let i = 0; i < 60 && !g.outcome; i++) L.step(g, 1 / 60, seq(0.5)); // 戦艦の弾は抽選 (残り 2 割以下なら 90%) なので当たる値で
   assert.equal(g.outcome, 'win');
 
   const cv = ship('carrier', {id: 'v', x: 5000, y: 10000});
@@ -913,4 +913,50 @@ test('出来事: 命中 (hit) には撃った艦 (from) と与えたダメージ
   const hit = g.events.find(e => e.type === 'hit');
   assert.equal(hit.from, 'b');
   assert.ok(Math.abs(hit.damage - 80 * L.mitigation(t.params)) < 1e-9);
+});
+
+// ---------- 第 2.6 段階 (2.6c): 戦艦の命中率 ----------
+
+test('戦艦の命中率: 標的の残り HP で決まる (10 割 5% / 5 割超 20% / 2 割超 50% / 2 割以下 90%)', () => {
+  const at = ships => L.battleshipHitChance(ship('cruiser', {ships}));
+  assert.deepEqual([15000, 14999, 7501, 7500, 3001, 3000, 1].map(at), [0.05, 0.2, 0.2, 0.5, 0.5, 0.9, 0.9]);
+});
+
+test('戦艦の命中率: 戦艦の弾には撃った艦種が入る', () => {
+  const bb = ship('battleship', {id: 'b', x: 0, y: 0});
+  const cr = ship('cruiser', {id: 'c', x: 100, y: 0});
+  const r = ship('destroyer', {id: 'r', team: 'red', x: 0, y: 300});
+  const g = game([bb, cr, r]);
+  L.fireWeapons(g, 0.1, {blue: [r], red: []});
+  assert.deepEqual(g.projectiles.map(p => [p.from, p.role]), [['b', 'battleship'], ['c', 'cruiser']]);
+});
+
+test('戦艦の命中率: 当たり判定に触れたら抽選し、外れたらダメージなしで弾が消え、miss が記録される', () => {
+  const run = (ships, roll, over) => {
+    const b = ship('battleship', {id: 'b', x: 0, y: 0});
+    const r = ship('cruiser', {id: 'r', team: 'red', x: 300, y: 0, ships});
+    const g = game([b, r]);
+    g.projectiles.push(shot(Object.assign({x: 290, y: 0, role: 'battleship', range: 650}, over)));
+    const damage = new Map();
+    L.moveProjectiles(g, 1 / 60, damage, seq(roll));
+    return {hit: damage.has(r), left: g.projectiles.length, miss: g.events.some(e => e.type === 'miss' && e.from === 'b' && e.targetId === 'r')};
+  };
+  assert.deepEqual(run(15000, 0.04), {hit: true, left: 0, miss: false});
+  assert.deepEqual(run(15000, 0.06), {hit: false, left: 0, miss: true});
+  assert.deepEqual(run(7000, 0.49), {hit: true, left: 0, miss: false});
+  assert.deepEqual(run(7000, 0.51), {hit: false, left: 0, miss: true});
+  assert.deepEqual(run(3000, 0.89), {hit: true, left: 0, miss: false});
+  // まっすぐ飛んでいる弾 (射程の外に出た弾) も同じ
+  assert.deepEqual(run(15000, 0.06, {homing: false, heading: 0, range: 1}), {hit: false, left: 0, miss: true});
+  assert.deepEqual(run(15000, 0.04, {homing: false, heading: 0, range: 1}), {hit: true, left: 0, miss: false});
+});
+
+test('戦艦の命中率: 巡洋艦の弾は乱数に関係なく当たる', () => {
+  const b = ship('cruiser', {id: 'b', x: 0, y: 0});
+  const r = ship('cruiser', {id: 'r', team: 'red', x: 300, y: 0});
+  const g = game([b, r]);
+  g.projectiles.push(shot({x: 290, y: 0, role: 'cruiser'}));
+  const damage = new Map();
+  L.moveProjectiles(g, 1 / 60, damage, seq(0.99));
+  assert.ok(damage.get(r) > 0);
 });
