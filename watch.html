@@ -62,7 +62,7 @@ let trained = window.SAGITTARIUS_TRAINING_BEST || null;
 const canvas = document.getElementById('c'), ctx = canvas.getContext('2d');
 const $ = id => document.getElementById(id);
 const COLORS = {blue: '#4fa3ff', red: '#ff5a5a', accent: '#ffd34f'};
-const ROLE_MARK = {flagship: '旗', vice: '副', attacker: 'A', speeder: 'S'};
+const ROLE_MARK = {battleship: '戦', carrier: '空', cruiser: '巡', destroyer: '駆'};
 const DT = 1 / 60;
 const MAX_TIME = 600;     // 制限時間 (秒)。学習の試合と同じ。過ぎたら時間切れ
 const NEXT_DELAY = 3000;  // 試合が終わってから次の試合を始めるまで (ミリ秒)
@@ -107,7 +107,8 @@ async function reloadLog(){
     if(!res.ok) throw new Error(res.status);
     const lines = (await res.text()).trim().split('\n');
     const head = lines.shift().split(',');
-    logRows = lines.map(l => { const v = l.split(','); const o = {}; head.forEach((h, i) => { const n = Number(v[i]); o[h] = v[i] === '' || v[i] === undefined ? null : isNaN(n) ? v[i] : n; }); // マップの広さ (2500x5000 など) は文字のまま return o; });
+    // 数値の列は数に、マップの広さ (2500x5000 など) は文字のまま
+    logRows = lines.map(l => { const v = l.split(','); const o = {}; head.forEach((h, i) => { const n = Number(v[i]); o[h] = v[i] === '' || v[i] === undefined ? null : isNaN(n) ? v[i] : n; }); return o; });
   }catch(e){
     logRows = null;
   }
@@ -180,7 +181,7 @@ function restart(){
   endedAt = 0;
   seed = Math.floor(Math.random() * 2147483647);
   rng = mulberry32(seed);
-  game = L.createGame(L.JOBS.balancer.params, {controllers: {blue: controllerOf($('blueAi').value, rng), red: controllerOf($('redAi').value, rng)}});
+  game = L.createGame({controllers: {blue: controllerOf($('blueAi').value, rng), red: controllerOf($('redAi').value, rng)}});
   for(const f of game.fleets) f.isPlayer = false;
 }
 
@@ -230,13 +231,25 @@ function draw(){
   }
   for(const pr of game.projectiles){
     const p = toS(pr.x, pr.y);
-    ctx.fillStyle = pr.kind === 'shell' ? (pr.team === 'blue' ? '#a0d2ff' : '#ffa078') : '#fff3c4';
-    const s = pr.kind === 'shell' ? 2 : 3.5; ctx.fillRect(p.x - s / 2, p.y - s / 2, s, s);
+    ctx.fillStyle = pr.team === 'blue' ? '#a0d2ff' : '#ffa078';
+    ctx.globalAlpha = pr.homing ? 1 : 0.45; // 射程の外に出てまっすぐ飛んでいる砲弾は暗く
+    ctx.fillRect(p.x - 1, p.y - 1, 2, 2);
+    ctx.globalAlpha = 1;
+  }
+  // 艦載機 (偵察機は小さな点、爆撃機は大きめの点)
+  for(const a of game.aircraft){
+    const p = toS(a.x, a.y);
+    ctx.fillStyle = a.team === 'blue' ? (a.kind === 'bomber' ? '#9fd0ff' : '#cfe6ff') : (a.kind === 'bomber' ? '#ffb08a' : '#ffd6c4');
+    const s = a.kind === 'bomber' ? 4 : 3; ctx.fillRect(p.x - s / 2, p.y - s / 2, s, s);
+    if(showSensor && a.kind === 'recon'){
+      ctx.strokeStyle = a.team === 'blue' ? 'rgba(79,163,255,0.18)' : 'rgba(255,90,90,0.18)';
+      ctx.beginPath(); ctx.arc(p.x, p.y, L.RECON_SENSOR * cam.scale, 0, Math.PI * 2); ctx.stroke();
+    }
   }
   ctx.textAlign = 'center'; ctx.font = '11px sans-serif';
   for(const f of game.fleets){
     const p = toS(f.x, f.y);
-    const r = Math.max(4, (8 + 8 * f.ships / L.INITIAL_SHIPS) * Math.max(cam.scale * 8, 0.6));
+    const r = Math.max(4, (f.hitRadius * 0.4 + f.hitRadius * 0.2 * f.ships / L.INITIAL_SHIPS) * Math.max(cam.scale * 8, 0.6)); // 艦種の大きさに合わせる
     ctx.fillStyle = f.ships > 0 ? COLORS[f.team] : '#44506a';
     ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2); ctx.fill();
     if(f.flagship){ ctx.strokeStyle = COLORS.accent; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(p.x, p.y, r + 4, 0, Math.PI * 2); ctx.stroke(); ctx.lineWidth = 1; }

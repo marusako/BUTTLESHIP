@@ -6,10 +6,10 @@ const B = require('./brain.js');
 // テスト用の艦隊を作る
 function fleet(over){
   return Object.assign({
-    id: 'f', team: 'blue', name: 'f', role: 'attacker', x: 5000, y: 10000,
+    id: 'f', team: 'blue', name: 'f', role: 'cruiser', x: 5000, y: 10000, hitRadius: 25,
     ships: L.INITIAL_SHIPS, params: {speed: 25, defense: 25, attack: 50},
     order: null, isPlayer: false, ai: {nextThink: 0}, heading: 0, flagship: false,
-    shellCooldown: 0, torpedoCooldown: 0, interceptCooldown: 0, stealth: 0, weapons: {shell: true, torpid: true}
+    cooldown: 0, aaCooldown: 0, stealth: 0, weapons: {fire: true}
   }, over);
 }
 
@@ -35,7 +35,7 @@ test('脳の大きさ: 入力 → 中間層 → 出力の重みとバイアス�
   assert.equal(B.paramCount(), B.HIDDEN * B.INPUTS + B.HIDDEN + B.OUTPUTS * B.HIDDEN + B.OUTPUTS);
   assert.equal(B.INPUTS, 47);
   assert.equal(B.OUTPUTS, 6);
-  assert.deepEqual(B.ROLES, ['flagship', 'vice', 'attacker', 'speeder']);
+  assert.deepEqual(B.ROLES, ['battleship', 'carrier', 'cruiser', 'destroyer']);
 });
 
 test('計算: 重みがすべて 0 なら出力は 0、出力のバイアスだけなら出力はその値', () => {
@@ -57,7 +57,7 @@ test('計算: 中間層は tanh。入力 → 中間層 1 つ → 出力 1 つの
 
 test('入力: 決まった長さで、どの値も有限で大きすぎない', () => {
   const me = fleet({id: 'me'});
-  const flag = fleet({id: 'flag', role: 'flagship', flagship: true, x: 5000, y: 10500});
+  const flag = fleet({id: 'flag', role: 'battleship', flagship: true, x: 5000, y: 10500});
   const e = fleet({id: 'e', team: 'red', x: 5300, y: 9600, flagship: true});
   const intel = {e: {x: e.x, y: e.y, visible: true}, g: {x: 100, y: 50, visible: false}};
   const ghost = fleet({id: 'g', team: 'red', x: 9000, y: 9000});
@@ -79,8 +79,8 @@ test('入力 (霧を守る): 見えていない敵の本当の位置は入力に
 });
 
 test('入力 (鏡写し): 赤から見た入力は、盤面を鏡写しにした青から見た入力と同じ', () => {
-  const me = fleet({id: 'me', x: 3000, y: 12000, torpedoCooldown: 2});
-  const flag = fleet({id: 'flag', role: 'flagship', flagship: true, x: 3500, y: 12600, ships: 9000});
+  const me = fleet({id: 'me', x: 3000, y: 12000, cooldown: 0.4});
+  const flag = fleet({id: 'flag', role: 'battleship', flagship: true, x: 3500, y: 12600, ships: 9000});
   const ally = fleet({id: 'a', x: 2000, y: 13000, ships: 7000});
   const e = fleet({id: 'e', team: 'red', x: 3400, y: 11500, ships: 4000});
   const g = fleet({id: 'g', team: 'red', x: 100, y: 100, flagship: true});
@@ -126,19 +126,19 @@ test('命令: 攻撃の点数がいちばん高い相手を攻撃する。相手
   assert.equal(o.type, 'move');
 });
 
-test('AI (controller): 役割ごとの脳で命令を決める (旗艦以外の役割が分からなければ旗艦の脳)', () => {
+test('AI (controller): 艦種ごとの脳で命令を決める (艦種が分からなければ戦艦の脳)', () => {
   const brains = {
-    flagship: biasOnly({moveY: -5, attackNone: 1}), // 前 (青なら上) へ
-    vice: biasOnly({moveY: 5, attackNone: 1}),      // 後ろへ
-    attacker: biasOnly({moveX: 5, attackNone: 1}),
-    speeder: biasOnly({moveX: -5, attackNone: 1})
+    battleship: biasOnly({moveY: -5, attackNone: 1}), // 前 (青なら上) へ
+    carrier: biasOnly({moveY: 5, attackNone: 1}),     // 後ろへ
+    cruiser: biasOnly({moveX: 5, attackNone: 1}),
+    destroyer: biasOnly({moveX: -5, attackNone: 1})
   };
   const c = B.controller(brains);
   const at = (role) => { const f = fleet({id: 'x', role}); return c(f, [f], {}, seq(0.5)); };
-  assert.ok(at('flagship').y < 10000);
-  assert.ok(at('vice').y > 10000);
-  assert.ok(at('attacker').x > 5000);
-  assert.ok(at('speeder').x < 5000);
+  assert.ok(at('battleship').y < 10000);
+  assert.ok(at('carrier').y > 10000);
+  assert.ok(at('cruiser').x > 5000);
+  assert.ok(at('destroyer').x < 5000);
   assert.ok(at('unknown').y < 10000);
 });
 
@@ -160,7 +160,7 @@ test('保存: 脳の組を JSON にできる形にして、元に戻せる', () 
 
 test('ゲームで使える: 学習前のランダムな脳でも、試合を最後まで進められる', () => {
   const rng = seq(0.13, 0.62, 0.87, 0.35, 0.51);
-  const g = L.createGame(L.JOBS.balancer.params, {controllers: {blue: B.controller(B.randomBrainSet(rng)), red: B.controller(B.randomBrainSet(rng))}});
+  const g = L.createGame({controllers: {blue: B.controller(B.randomBrainSet(rng)), red: B.controller(B.randomBrainSet(rng))}});
   g.fleets.find(f => f.isPlayer).isPlayer = false;
   for(let i = 0; i < 600; i++) L.step(g, 1 / 30, rng);
   for(const f of g.fleets){

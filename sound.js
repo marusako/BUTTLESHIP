@@ -142,25 +142,30 @@
   }
 
   // ---- 効果音 ----
-  // 発砲: 通常弾は味方が高めで乾いた音 (M4 のイメージ)、敵が低めで重い音 (AK のイメージ)。爆発弾は「シュッ」
-  function fire(kind, team, pan){
+  // 艦の大きさ → 音の高さの倍率 (大きい艦ほど低く重い音)
+  const SIZE_PITCH = {large: 0.55, medium: 1, small: 1.4};
+
+  // 発砲: 砲撃 (gun) は味方が高めで乾いた音 (M4 のイメージ)、敵が低めで重い音 (AK のイメージ)。大きさで高さを変える。
+  // 爆撃機・偵察機の発進 (bomber / recon) は「シュッ」
+  function fire(kind, team, pan, size){
     if(!ctx) return;
     const out = output(sfxBus, pan);
-    if(kind === 'shell' && team === 'blue'){
-      noise(out, {dur: 0.06, gain: 0.5, filters: [{type: 'highpass', freq: 1800}, {type: 'bandpass', freq: 3200, Q: 0.8}]});
-      tone(out, {type: 'square', freq: 1600, freqEnd: 500, dur: 0.025, gain: 0.1});
-    }else if(kind === 'shell'){
-      noise(out, {dur: 0.11, gain: 0.6, filters: [{type: 'lowpass', freq: 1400}]});
-      tone(out, {type: 'sine', freq: 160, freqEnd: 55, dur: 0.09, gain: 0.5});
+    const k = SIZE_PITCH[size] || 1;
+    if(kind === 'gun' && team === 'blue'){
+      noise(out, {dur: 0.06 / Math.sqrt(k), gain: 0.5, filters: [{type: 'highpass', freq: 1800 * k}, {type: 'bandpass', freq: 3200 * k, Q: 0.8}]});
+      tone(out, {type: 'square', freq: 1600 * k, freqEnd: 500 * k, dur: 0.025, gain: 0.1});
+    }else if(kind === 'gun'){
+      noise(out, {dur: 0.11 / Math.sqrt(k), gain: 0.6, filters: [{type: 'lowpass', freq: 1400 * k}]});
+      tone(out, {type: 'sine', freq: 160 * k, freqEnd: 55 * k, dur: 0.09, gain: 0.5});
     }else{
       const [from, to] = team === 'blue' ? [700, 2600] : [400, 1500];
       noise(out, {dur: 0.35, gain: 0.35, attack: 0.05, filters: [{type: 'bandpass', freq: from, freqEnd: to, Q: 2}]});
     }
   }
 
-  // 命中: 爆発弾だけ爆発音 (通常弾の命中は数が多いので鳴らさない)
+  // 命中: 爆撃 (bomb) だけ爆発音 (砲弾の命中は数が多いので鳴らさない)
   function hit(kind, pan){
-    if(!ctx || kind !== 'torpedo') return;
+    if(!ctx || kind !== 'bomb') return;
     const out = output(sfxBus, pan);
     noise(out, {dur: 0.6, gain: 0.7, filters: [{type: 'lowpass', freq: 1200, freqEnd: 180}]});
     tone(out, {type: 'sine', freq: 90, freqEnd: 35, dur: 0.5, gain: 0.6});

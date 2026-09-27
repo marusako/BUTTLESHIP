@@ -46,7 +46,7 @@ function playMatch(blue, red, opts){
 
 function runMatch(blue, red, opts){
   const rng = mulberry32(opts.seed);
-  const g = L.createGame(L.JOBS.balancer.params, {controllers: {blue, red}});
+  const g = L.createGame({controllers: {blue, red}});
   for(const f of g.fleets) f.isPlayer = false;
   if(opts.redFirst) g.fleets = [...g.fleets.filter(f => f.team === 'red'), ...g.fleets.filter(f => f.team === 'blue')];
 

@@ -12,16 +12,16 @@
     standard: {
       localRadius: 1200,         // 局地的な戦力比を数える半径
       flagshipRetreatRatio: 1.5, // 旗艦はこの戦力比を超えたら味方の中心へ下がる
-      tankDistance: 250,         // 副艦が旗艦から離れる距離
-      tankDefendRadius: 800,     // 副艦は旗艦からこの距離以内の敵を迎え撃つ
+      carrierDistance: 500,      // 空母が普段つく旗艦の後ろの距離
+      carrierSafeDistance: 800,  // 空母はこれより近い敵から離れる
       attackerDistance: 800,     // アタッカーが普段保つ旗艦との距離 (左右)
       attackerLeash: 1500,       // アタッカーは旗艦からこの距離以内の敵を攻撃する
       attackerRetreatRatio: 1.3, // アタッカーはこの戦力比を超えたら旗艦のもとへ下がる
-      speederMarkDistance: 700,  // スピーダーが敵旗艦を見張る距離 (索敵半径 750 より内側)
-      speederSafeDistance: 600   // スピーダーはこれより近い敵から離れる (撃てる範囲 500 より外)
+      speederMarkDistance: 730,  // 駆逐艦が敵旗艦を見張る距離 (索敵半径 750 より内側)
+      speederSafeDistance: 700   // 駆逐艦はこれより近い敵から離れる (どの艦種の砲の射程 (最大 650) よりも外)
     }
   };
-  // アタッカーの隊列位置の方向 (旗艦から見て [前方, 右方向] の単位ベクトル)。左・右 (副艦の前と合わせて旗艦を囲む)。
+  // 巡洋艦の隊列位置の方向 (旗艦から見て [前方, 右方向] の単位ベクトル)。1 隻目は左、2 隻目は右。
   // 旗艦からの距離は AI プロファイルの attackerDistance
   const ATTACKER_SLOTS = [[0, -1], [0, 1]];
 
@@ -107,28 +107,27 @@
     return explore(f, rng);
   }
 
-  // 副艦: 旗艦のすぐそばにつき、旗艦に近づいた敵を迎え撃つ。敵が見えていれば旗艦と最も近い敵の間に入る
-  function viceDecide(f, flag, fleets, intel, p){
-    const threat = bestVisibleTarget(f, fleets, intel, info => dist(flag, info) <= p.tankDefendRadius);
-    if(threat) return {type: 'attack', targetId: threat};
-    let nearest = null;
+  // 空母: 旗艦 (戦艦) の後ろにつく。近すぎる敵からは離れる (攻撃は爆撃機が自動で行う)
+  function carrierDecide(f, flag, fleets, intel, p){
+    let threat = null;
     for(const info of Object.values(intel)){
-      if(info.visible && (!nearest || dist(flag, info) < dist(flag, nearest))) nearest = info;
+      if(info.visible && dist(f, info) < p.carrierSafeDistance && (!threat || dist(f, info) < dist(f, threat))) threat = info;
     }
-    return moveTo(nearest ? pointToward(flag, nearest, p.tankDistance) : offsetFrom(flag, p.tankDistance, 0));
+    if(threat) return moveTo(pointToward(threat, f, p.carrierSafeDistance + 150));
+    return moveTo(offsetFrom(flag, -p.carrierDistance, 0));
   }
 
-  // アタッカー: 旗艦から attackerLeash 以内の敵を攻撃する。周りが不利なら旗艦のもとへ下がる
+  // 巡洋艦: 旗艦から attackerLeash 以内の敵を攻撃する。周りが不利なら旗艦のもとへ下がる
   function attackerDecide(f, flag, fleets, intel, p){
     if(localForceRatio(f, f.team, fleets, intel, p.localRadius) > p.attackerRetreatRatio) return moveTo(flag);
     const target = bestVisibleTarget(f, fleets, intel, info => dist(flag, info) <= p.attackerLeash);
     if(target) return {type: 'attack', targetId: target};
-    const attackers = fleets.filter(a => a.team === f.team && a.role === 'attacker' && alive(a));
+    const attackers = fleets.filter(a => a.team === f.team && a.role === 'cruiser' && alive(a));
     const [fwd, right] = ATTACKER_SLOTS[Math.max(0, attackers.indexOf(f)) % ATTACKER_SLOTS.length];
     return moveTo(offsetFrom(flag, fwd * p.attackerDistance, right * p.attackerDistance));
   }
 
-  // スピーダー: 戦わない > 見張る。近すぎる敵からは離れ、敵旗艦の位置が分かれば距離を保って見張り、分からなければ索敵する
+  // 駆逐艦: 戦わない > 見張る。近すぎる敵からは離れ、敵旗艦の位置が分かれば距離を保って見張り、分からなければ索敵する
   function speederDecide(f, fleets, intel, rng, p){
     let threat = null;
     for(const info of Object.values(intel)){
@@ -141,13 +140,14 @@
     return explore(f, rng);
   }
 
-  // AI の命令を決める (役割ごと)。profile は AI プロファイル (省略時は標準)
+  // AI の命令を決める (艦種ごと)。profile は AI プロファイル (省略時は標準)。
+  // 戦艦 = 旗艦の動き、空母 = 旗艦の後ろ、巡洋艦 = 旗艦の左右で戦う、駆逐艦 = 偵察と見張り (交戦を避ける)。旗艦がいなければ旗艦の動き
   function aiDecide(f, fleets, intel, rng, profile){
     const p = profile || AI_PROFILES.standard;
     const flag = fleets.find(a => a.team === f.team && a.flagship && alive(a));
-    if(f.role === 'speeder') return speederDecide(f, fleets, intel, rng, p);
-    if(!flag || flag === f || f.role === 'flagship') return flagshipDecide(f, fleets, intel, rng, p);
-    if(f.role === 'vice') return viceDecide(f, flag, fleets, intel, p);
+    if(f.role === 'destroyer') return speederDecide(f, fleets, intel, rng, p);
+    if(!flag || flag === f || f.role === 'battleship') return flagshipDecide(f, fleets, intel, rng, p);
+    if(f.role === 'carrier') return carrierDecide(f, flag, fleets, intel, p);
     return attackerDecide(f, flag, fleets, intel, p);
   }
 

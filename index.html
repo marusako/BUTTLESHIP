@@ -77,11 +77,8 @@
   .slot input{ display: none; }
   .slot b{ display: block; }
   .slot small{ color: var(--muted); font-size: 12px; }
-  .jobs.locked .job{ cursor: default; opacity: 0.45; }
-  .jobs.locked .job:has(input:checked){ opacity: 1; }
-  .job{ border: 1px solid var(--line); padding: 10px 12px; cursor: pointer; }
-  .job:has(input:checked){ border-color: var(--accent); background: rgba(255, 211, 79, 0.08); }
-  .job input{ margin-right: 6px; }
+  .job{ border: 1px solid var(--line); padding: 10px 12px; opacity: 0.45; }
+  .job.selected{ opacity: 1; border-color: var(--accent); background: rgba(255, 211, 79, 0.08); }
   .job .jobName{ font-weight: bold; }
   .job .jobStats{ display: grid; grid-template-columns: 34px 1fr 24px; align-items: center; gap: 2px 6px; margin: 8px 0 6px; font-size: 12px; color: var(--muted); }
   .job .bar{ height: 6px; background: #13233f; }
@@ -131,7 +128,7 @@
       <div class="paneTitle">STATUS</div>
       <div class="body">
         <div class="statusHead"><span id="stName"></span><span class="rule" id="stRule"></span></div>
-        <div class="kv"><span>JOB</span><span id="stJob"></span></div>
+        <div class="kv"><span>CLASS</span><span id="stJob"></span></div>
         <div class="kv"><span>SHIPS LEFT</span><span id="stShips"></span></div>
         <div class="kv2">
           <div class="kv"><span>SPEED</span><span id="stSpeed"></span></div>
@@ -151,8 +148,7 @@
       <div class="body">
         <div class="cmdGroup">
           <div class="cmdHead">ATTACK</div>
-          <button class="cmdBtn" data-weapon="shell">SHELL</button>
-          <button class="cmdBtn" data-weapon="torpid">TORPID</button>
+          <button class="cmdBtn" data-weapon="fire">FIRE</button>
         </div>
         <div class="cmdGroup">
           <div class="cmdHead">VIEW</div>
@@ -181,10 +177,11 @@
     <ul class="rules">
       <li>あなたは味方の<strong>第 1〜5 艦隊のどれか 1 つ</strong>を選んで指揮する。残りの味方 4 艦隊と敵 5 艦隊は AI</li>
       <li>見えるのは味方の索敵範囲の中だけ。見つけた敵は味方全員に共有される</li>
-      <li>索敵範囲の中の敵に自動で狙いを定め、撃てる範囲 (索敵範囲の約 3 分の 2) まで近づくと撃つ。通常弾 (SHELL) は必中、爆発弾 (TORPID) は威力が大きいが、よけられたり迎撃されたりする</li>
+      <li>索敵範囲の中の敵に自動で狙いを定め、射程に入ると撃つ。戦艦・巡洋艦・駆逐艦の砲弾は、目標が射程の中にいる間は必ず当たる (射程の外に逃げられると外れることがある)</li>
+      <li>空母は偵察機で敵を探し、遠くの敵に爆撃機を送る。艦載機は敵の駆逐艦と空母に撃ち落とされる</li>
       <li>モダン: 敵の旗艦 (第 1 艦隊) を倒したら勝利。味方の旗艦が倒されたら敗北。旗艦以外を選んで先に全滅したら、決着まで観戦できる</li>
       <li>60 秒ごとに 5 秒間、両軍の旗艦の位置が相手に知られる (索敵範囲の外でも)。隠れ続けることはできない</li>
-      <li>連合艦隊は旗艦・副艦 (タンク)・アタッカー 2・スピーダーの 5 艦隊。味方はそれぞれの役割で旗艦を支える</li>
+      <li>連合艦隊は戦艦 (旗艦)・空母・巡洋艦・駆逐艦 2 の 5 艦隊。味方はそれぞれの役割で旗艦を支える</li>
     </ul>
     <div class="titleMenu">
       <button id="toModern">モダン</button>
@@ -272,7 +269,6 @@ const MODE_NAMES = {modern: 'モダン'};
 
 let mode = 'title'; // title | setup | battle | pause | result
 let game = null;
-let playerJob = 'balancer';
 let playerSlot = 1; // 指揮する艦隊の番号 (1 は旗艦)
 // 設定 (キー配置・音量・自艦隊の名前)。ブラウザ内に保存する
 function settingsStorage(){
@@ -352,49 +348,45 @@ $('retry').onclick = () => setMode('setup');
 $('resultToTitle').onclick = endGame;
 
 // ---------- 出撃準備 ----------
-// ジョブのカード (名前・数値のバー・説明) を作る
+// 艦種のカード (名前・数値のバー・射程などの説明)。選んだ艦隊の艦種だけ明るく表示する
 const STAT_LABELS = [['speed', '敏捷'], ['defense', '耐久'], ['attack', '火力']];
-$('jobs').replaceChildren(...Object.entries(L.JOBS).map(([key, job]) => {
-  const card = document.createElement('label');
+const SIZE_NAMES = {large: '大', medium: '中', small: '小'};
+$('jobs').replaceChildren(...Object.entries(L.SHIP_TYPES).map(([key, ship]) => {
+  const card = document.createElement('div');
   card.className = 'job';
+  card.dataset.type = key;
   const stats = STAT_LABELS.map(([k, label]) =>
-    `<span>${label}</span><span class="bar"><i style="width:${job.params[k]}%"></i></span><b>${job.params[k]}</b>`).join('');
-  card.innerHTML = `<input type="radio" name="job" value="${key}"><span class="jobName"></span>
-    <div class="jobStats">${stats}</div><small></small>`;
-  card.querySelector('.jobName').textContent = job.flagshipOnly ? `${job.name} (旗艦専用)` : job.name;
-  card.querySelector('small').textContent = job.description;
-  card.querySelector('input').addEventListener('change', () => { playerJob = key; });
+    `<span>${label}</span><span class="bar"><i style="width:${ship.params[k] * 2}%"></i></span><b>${ship.params[k]}</b>`).join('');
+  card.innerHTML = `<span class="jobName"></span><div class="jobStats">${stats}</div><small class="spec"></small><small class="desc"></small>`;
+  card.querySelector('.jobName').textContent = ship.name;
+  const w = ship.weapon;
+  card.querySelector('.spec').textContent = `${w.kind === 'bomber' ? '爆撃機' : '砲撃'} 射程 ${w.range}・${w.interval} 秒ごと / 大きさ ${SIZE_NAMES[ship.size]}${ship.antiAir ? ' / 対空射撃' : ''}`;
+  card.querySelector('.desc').textContent = ship.description;
   return card;
 }));
 
-// 指揮する艦隊のボタン (番号・役割・ジョブ)
-const ROLE_NAMES = {flagship: '旗艦', vice: '副艦', attacker: 'アタッカー', speeder: 'スピーダー'};
-$('slots').replaceChildren(...L.FORMATION.map((slot, i) => {
+// 指揮する艦隊のボタン (番号・艦種)
+$('slots').replaceChildren(...L.FORMATION.map((type, i) => {
   const no = i + 1;
   const el = document.createElement('label');
   el.className = 'slot';
   el.innerHTML = `<input type="radio" name="slot" value="${no}"><b>第 ${no} 艦隊</b><small></small>`;
-  const role = ROLE_NAMES[slot.role], job = L.JOBS[slot.job].name;
-  el.querySelector('small').textContent = no === 1 ? '旗艦 (ジョブを選ぶ)' : role === job ? job : `${role} (${job})`;
+  el.querySelector('small').textContent = no === 1 ? `${L.SHIP_TYPES[type].name} (旗艦)` : L.SHIP_TYPES[type].name;
   el.querySelector('input').addEventListener('change', () => { playerSlot = no; renderSetup(); });
   return el;
 }));
 
-// 旗艦ならジョブを選べる。それ以外はその番号のジョブに固定 (カードは選べず、固定のジョブだけ明るく表示)
+// 番号で艦種が決まる (第 1 艦隊は戦艦で旗艦)
 function renderSetup(){
-  const fixed = playerSlot === 1 ? null : L.FORMATION[playerSlot - 1].job;
+  const type = L.FORMATION[playerSlot - 1];
   for(const input of document.querySelectorAll('#slots input')) input.checked = Number(input.value) === playerSlot;
-  for(const input of document.querySelectorAll('#jobs input')){
-    input.checked = input.value === (fixed || playerJob);
-    input.disabled = !!fixed;
-  }
-  $('jobs').classList.toggle('locked', !!fixed);
-  $('jobSection').textContent = fixed ? `ジョブ (第 ${playerSlot} 艦隊は${L.JOBS[fixed].name}に固定。味方の旗艦は AI のバランサー)` : '旗艦のジョブ';
+  for(const card of document.querySelectorAll('#jobs .job')) card.classList.toggle('selected', card.dataset.type === type);
+  $('jobSection').textContent = playerSlot === 1 ? '艦種 (第 1 艦隊は戦艦で、旗艦。倒されたら負け)' : `艦種 (第 ${playerSlot} 艦隊は${L.SHIP_TYPES[type].name}。味方の旗艦 (戦艦) は AI)`;
 }
 renderSetup();
 
 function startBattle(){
-  game = L.createGame(Object.assign({}, L.JOBS[playerJob].params), {
+  game = L.createGame({
     playerName: settings.name, playerSlot,
     controllers: {blue: RuleAI.controller(), red: RuleAI.controller()}
   });
@@ -434,9 +426,10 @@ function playEventSounds(){
     if(ev.type !== 'destroyed' && !seenByBlue(ev.x, ev.y, allies)) continue;
     const pan = Snd.panFromScreen(toScreen(ev.x, ev.y).x, canvas.width);
     if(ev.type === 'fire'){
-      if(ev.kind === 'shell' && !allowSound(ev.team, now)) continue;
-      Snd.fire(ev.kind, ev.team, pan);
-    }else if(ev.type === 'hit') Snd.hit(ev.kind, pan);
+      if(ev.kind === 'gun' && !allowSound(ev.team, now)) continue;
+      Snd.fire(ev.kind, ev.team, pan, ev.size);
+    }else if(ev.type === 'launch') Snd.fire('recon', ev.team, pan);
+    else if(ev.type === 'hit') Snd.hit(ev.kind, pan);
     else if(ev.type === 'intercept') Snd.intercept(pan);
     else if(ev.type === 'destroyed') Snd.destroyed(pan); // 全滅はいつも鳴らす (敵を倒せるのは見えている敵だけ)
   }
@@ -555,8 +548,7 @@ window.addEventListener('keydown', e => {
   }
   if(mode === 'battle'){
     if(isAction(e.code, 'center')) centerOnPlayer();
-    if(!e.repeat && isAction(e.code, 'shell')) toggleWeapon('shell');
-    if(!e.repeat && isAction(e.code, 'torpid')) toggleWeapon('torpid');
+    if(!e.repeat && isAction(e.code, 'fire')) toggleWeapon('fire');
   }
   keys.add(e.code);
   if(e.code.startsWith('Arrow') || e.code === 'Space' || isAction(e.code, 'pause')) e.preventDefault();
@@ -699,10 +691,9 @@ function visibleEnemyAt(w, radius){
 function flagshipKnown(f){
   return f.flagship && (f.team === 'blue' || game.intel.blue[f.id] || f.ships <= 0);
 }
-// 旗艦は「(旗艦)」、味方の副艦は「(副艦)」を付ける
+// 旗艦は「(旗艦)」を付ける
 function displayName(f){
   if(flagshipKnown(f)) return `${f.name} (旗艦)`;
-  if(f.team === 'blue' && f.role === 'vice') return `${f.name} (副艦)`;
   return f.name;
 }
 
@@ -802,12 +793,13 @@ function draw(){
   if(me && me.ships > 0){
     const p = toScreen(me.x, me.y);
     ctx.strokeStyle = 'rgba(255, 211, 79, 0.3)';
-    ctx.beginPath(); ctx.arc(p.x, p.y, L.FIRE_RANGE * camera.zoom, 0, Math.PI * 2); ctx.stroke();
+    ctx.beginPath(); ctx.arc(p.x, p.y, L.SHIP_TYPES[me.role].weapon.range * camera.zoom, 0, Math.PI * 2); ctx.stroke();
   }
 
   drawOrderLine(me);
   drawLocks();
   drawProjectiles(allies);
+  drawAircraft(allies);
 
   // 最終確認位置 (見失った敵)
   for(const [id, info] of Object.entries(game.intel.blue)){
@@ -896,24 +888,32 @@ function drawLocks(){
   }
 }
 
-// 弾: 通常弾は小さな光の粒、爆発弾は尾を引く大きめの弾 (見えていない場所の弾は描かない)
+// 砲弾: 小さな光の粒 (射程の外に出てまっすぐ飛んでいる弾は暗く)。見えていない場所の弾は描かない
 function drawProjectiles(allies){
   for(const p of game.projectiles){
     if(!seenByBlue(p.x, p.y, allies)) continue;
     const s = toScreen(p.x, p.y);
     const color = p.team === 'blue' ? '160, 210, 255' : '255, 160, 120';
-    if(p.kind === 'shell'){
-      ctx.fillStyle = `rgb(${color})`;
-      ctx.fillRect(s.x - 1.5, s.y - 1.5, 3, 3);
-      continue;
-    }
-    const tail = toScreen(p.x - Math.cos(p.heading) * 22, p.y - Math.sin(p.heading) * 22);
-    ctx.strokeStyle = `rgba(${color}, 0.5)`;
-    ctx.lineWidth = 3;
-    line(tail, s);
-    ctx.lineWidth = 1;
-    ctx.fillStyle = '#fff3c4';
-    ctx.beginPath(); ctx.arc(s.x, s.y, 3.5, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = `rgba(${color}, ${p.homing ? 1 : 0.45})`;
+    ctx.fillRect(s.x - 1.5, s.y - 1.5, 3, 3);
+  }
+}
+
+// 艦載機: 進む向きの小さな機影。偵察機は細く、爆撃機は太く。敵の艦載機は味方から見えているときだけ描く
+function drawAircraft(allies){
+  for(const a of game.aircraft){
+    if(a.team !== 'blue' && !seenByBlue(a.x, a.y, allies)) continue;
+    const s = toScreen(a.x, a.y);
+    const hx = Math.cos(a.heading), hy = Math.sin(a.heading);
+    const len = a.kind === 'bomber' ? 9 : 7, wing = a.kind === 'bomber' ? 7 : 5;
+    ctx.fillStyle = a.team === 'blue' ? (a.kind === 'bomber' ? '#9fd0ff' : '#cfe6ff') : (a.kind === 'bomber' ? '#ffb08a' : '#ffd6c4');
+    ctx.beginPath();
+    ctx.moveTo(s.x + hx * len, s.y + hy * len);
+    ctx.lineTo(s.x - hx * len * 0.6 - hy * wing, s.y - hy * len * 0.6 + hx * wing);
+    ctx.lineTo(s.x - hx * len * 0.2, s.y - hy * len * 0.2);
+    ctx.lineTo(s.x - hx * len * 0.6 + hy * wing, s.y - hy * len * 0.6 - hx * wing);
+    ctx.closePath();
+    ctx.fill();
   }
 }
 
@@ -921,7 +921,8 @@ function drawFleet(f){
   if(f.stealth > 0) ctx.globalAlpha = 0.35; // 透明化中 (隠しコマンド stealth) は半透明
   const p = toScreen(f.x, f.y);
   const color = COLORS[f.team];
-  const size = (10 + 10 * f.ships / L.INITIAL_SHIPS) * camera.zoom + 4;
+  // 大きさは艦種の当たり判定 (大 40 / 中 25 / 小 15) に合わせ、艦艇数が減ると少し小さくなる
+  const size = (f.hitRadius * 0.5 + f.hitRadius * 0.25 * f.ships / L.INITIAL_SHIPS) * camera.zoom + 4;
   const hx = Math.cos(f.heading), hy = Math.sin(f.heading);
   if(f.isPlayer){
     ctx.strokeStyle = COLORS.accent;
@@ -1019,7 +1020,7 @@ function drawMapOverlay(){
   ctx.fillStyle = COLORS.muted;
   ctx.font = '12px sans-serif';
   const k = a => S.keyLabel(settings.keys[a]);
-  ctx.fillText(`矢印・${k('moveUp')}${k('moveLeft')}${k('moveDown')}${k('moveRight')}: 移動   左クリック: 移動 / 敵をクリック: 攻撃   ${k('shell')}: SHELL   ${k('torpid')}: TORPID   ${k('pause')}・Esc: 一時停止`, 14, canvas.height - 30);
+  ctx.fillText(`矢印・${k('moveUp')}${k('moveLeft')}${k('moveDown')}${k('moveRight')}: 移動   左クリック: 移動 / 敵をクリック: 攻撃   ${k('fire')}: FIRE   ${k('pause')}・Esc: 一時停止`, 14, canvas.height - 30);
   ctx.fillText(`${k('camUp')}${k('camLeft')}${k('camDown')}${k('camRight')}・WAY: 視点移動   ホイール: 拡大縮小   ${k('center')}: 自艦隊へ`, 14, canvas.height - 12);
 }
 

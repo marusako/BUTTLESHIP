@@ -3,9 +3,9 @@
 (function(root){
   'use strict';
   const L = typeof module !== 'undefined' && module.exports ? require('./logic.js') : root.SagittariusLogic;
-  const {WORLD, INITIAL_SHIPS, TORPEDO_RELOAD} = L;
+  const {WORLD, INITIAL_SHIPS, SHIP_TYPES} = L;
 
-  const ROLES = ['flagship', 'vice', 'attacker', 'speeder']; // 役割ごとに 1 つずつ脳を持つ
+  const ROLES = ['battleship', 'carrier', 'cruiser', 'destroyer']; // 艦種ごとに 1 つずつ脳を持つ (駆逐艦 2 隻は同じ脳)
   const ALLY_SLOTS = 2;   // 入力に入れる近い味方の数 (自分と旗艦を除く)
   const ENEMY_SLOTS = 3;  // 入力に入れる近い見えている敵の数 (= 攻撃の相手の候補)
   const GHOST_SLOTS = 2;  // 入力に入れる近いゴースト (見失った敵の最終確認位置) の数
@@ -69,9 +69,9 @@
     const s = flip(f.team);
     const byId = new Map(fleets.map(e => [e.id, e]));
 
-    // 自分: 位置 (チームから見て 0〜1)、艦艇数の割合、爆発弾の待ち時間
+    // 自分: 位置 (チームから見て 0〜1)、艦艇数の割合、武器の待ち時間 (発射間隔に対する割合)
     push(s > 0 ? f.x / WORLD.w : 1 - f.x / WORLD.w, s > 0 ? f.y / WORLD.h : 1 - f.y / WORLD.h,
-      f.ships / INITIAL_SHIPS, clamp(f.torpedoCooldown / TORPEDO_RELOAD, 0, 1));
+      f.ships / INITIAL_SHIPS, clamp((f.cooldown || 0) / SHIP_TYPES[ROLES.includes(f.role) ? f.role : 'battleship'].weapon.interval, 0, 1));
 
     // 味方の旗艦 (自分が旗艦なら「いない」)
     const flag = fleets.find(a => a.team === f.team && a.flagship && alive(a) && a !== f);
@@ -122,9 +122,9 @@
     return {type: 'move', x: clamp(f.x + vx * MOVE_REACH, 0, WORLD.w), y: clamp(f.y + vy * MOVE_REACH, 0, WORLD.h)};
   }
 
-  // createGame の options.controllers に渡す形の AI。brains: 役割 → 重み
+  // createGame の options.controllers に渡す形の AI。brains: 艦種 → 重み
   function controller(brains){
-    return (f, fleets, intel) => decide(brains[ROLES.includes(f.role) ? f.role : 'flagship'], f, fleets, intel);
+    return (f, fleets, intel) => decide(brains[ROLES.includes(f.role) ? f.role : 'battleship'], f, fleets, intel);
   }
 
   // 学習前のランダムな脳の組 (重みは -scale〜scale)

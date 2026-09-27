@@ -8,7 +8,7 @@
 - `index.html` … 描画・入力・ゲームループ
 - `logic.js` … 描画や DOM に依存しないロジック。ブラウザでは `<script src>` で `window.SagittariusLogic` に、Node では `require()` で読み込める形にする (ES Modules は `file://` で動かないため使わない)
 - `logic.test.js` … `logic.js` の仕様テスト (`node:test`)
-- `rule-ai.js` / `rule-ai.test.js` … 旧ルール AI (第 2.7 段階で学習した AI に置き換え、その後は学習の「ものさし」)
+- `rule-ai.js` / `rule-ai.test.js` … 旧ルール AI (今のゲームの AI。学習した AI が勝ち越してユーザーが OK したら置き換え、その後は学習の「ものさし」)
 - `brain.js` / `brain.test.js` … 学習で育てる AI の脳と、盤面 → 入力・出力 → 命令 の変換
 - `watch.html` … 開発用の観戦画面 (配布しない)
 - `settings.js` / `settings.test.js` … 設定 (キー配置・音量・自艦隊の名前・クレジット) とそのテスト
@@ -39,6 +39,6 @@
 ## コマンド
 - `npm test` … テストを実行
 - `npm run serve` … http://localhost:8080/ で配信
-- `npm run train -- --minutes 60` … AI の脳を学習する (途中経過は `training/`。続きから再開できる)。**学習時間は毎回ユーザーと相談して決める**
+- `npm run train -- --minutes 60` … AI の脳を学習する (途中経過は `training/`。続きから再開できる)。**学習時間は毎回ユーザーと相談して決める**。**各段階の終わりに「学習するか」「何分回すか」を確かめる**
 - `npm run evaluate` … 育った AI 対 旧ルール AI の勝率を測る
 - `npm run package -- vX.Y` … そのタグの配布用 zip を `dist/` に作る (引数なしなら全タグ分)。GitHub Releases に添付する手順は DESIGN.md の「配布」
