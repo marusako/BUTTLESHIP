@@ -7,8 +7,15 @@ function fleet(over){
   return Object.assign({
     id: 'f', team: 'blue', name: 'f', x: 0, y: 0,
     ships: L.INITIAL_SHIPS, params: {speed: 34, defense: 33, attack: 33},
-    order: null, isPlayer: false, ai: {nextThink: 0, waypoint: null}
+    order: null, isPlayer: false, ai: {nextThink: 0},
+    heading: 0, flagship: false, missileCooldown: 0, interceptCooldown: 0
   }, over);
+}
+
+// テスト用のゲーム状態を作る
+function game(fleets){
+  return {time: 0, fleets, intel: {blue: {}, red: {}}, beams: [], missiles: [], nextMissileId: 1,
+    reveal: false, warpArmed: false, outcome: null};
 }
 
 // 決まった値を順に返す乱数
@@ -218,7 +225,7 @@ test('ゲーム作成: 5 vs 5、プレイヤーは青の 1 艦隊で、指定パ
 test('ゲーム進行: 射程内の敵同士は撃ち合って艦艇数が減る (同時に計算)', () => {
   const b = fleet({id: 'b', isPlayer: true});
   const r = fleet({id: 'r', team: 'red', x: 100, y: 0});
-  const g = {time: 0, fleets: [b, r], intel: {blue: {}, red: {}}, beams: [], outcome: null};
+  const g = game([b, r]);
   L.step(g, 1, seq(0.5));
   assert.ok(b.ships < L.INITIAL_SHIPS && r.ships < L.INITIAL_SHIPS);
   assert.equal(b.ships, r.ships); // 同じ条件なら同じ損害
@@ -228,7 +235,7 @@ test('ゲーム進行: 射程内の敵同士は撃ち合って艦艇数が減る
 test('ゲーム進行: プレイヤー艦隊は AI に命令を上書きされない', () => {
   const b = fleet({id: 'b', isPlayer: true, x: 300, y: 1500});
   const r = fleet({id: 'r', team: 'red', x: 3700, y: 1500});
-  const g = {time: 0, fleets: [b, r], intel: {blue: {}, red: {}}, beams: [], outcome: null};
+  const g = game([b, r]);
   L.step(g, 0.1, seq(0.5));
   assert.equal(b.order, null);
   assert.notEqual(r.order, null);
@@ -237,8 +244,204 @@ test('ゲーム進行: プレイヤー艦隊は AI に命令を上書きされ�
 test('ゲーム進行: 艦艇数が 0 以下になると全滅し、勝敗が決まる', () => {
   const b = fleet({id: 'b', isPlayer: true, params: {speed: 10, defense: 10, attack: 80}});
   const r = fleet({id: 'r', team: 'red', x: 100, y: 0, ships: 1, params: {speed: 10, defense: 10, attack: 80}});
-  const g = {time: 0, fleets: [b, r], intel: {blue: {}, red: {}}, beams: [], outcome: null};
+  const g = game([b, r]);
   L.step(g, 1, seq(0.5));
   assert.equal(r.ships, 0);
   assert.equal(g.outcome, 'win');
+});
+
+// ---------- 第 2 段階 ----------
+
+test('向き: 移動した方向を向き、止まっている間は向きを保つ', () => {
+  const f = fleet({order: {type: 'move', x: 1000, y: 0}});
+  L.moveFleet(f, 1, {});
+  assert.equal(f.heading, 0);
+  f.order = {type: 'move', x: f.x, y: -1000};
+  L.moveFleet(f, 1, {});
+  assert.equal(f.heading, -Math.PI / 2);
+  f.order = null;
+  L.moveFleet(f, 1, {});
+  assert.equal(f.heading, -Math.PI / 2);
+});
+
+test('ゲーム作成: 初期の向きは青が東・赤が西', () => {
+  const g = L.createGame({speed: 34, defense: 33, attack: 33}, seq(0.5));
+  assert.ok(g.fleets.filter(f => f.team === 'blue').every(f => f.heading === 0));
+  assert.ok(g.fleets.filter(f => f.team === 'red').every(f => f.heading === Math.PI));
+});
+
+test('大将戦: 旗艦は各チーム 1 つで、味方の旗艦はプレイヤー艦隊', () => {
+  const g = L.createGame({speed: 34, defense: 33, attack: 33}, seq(0.1, 0.5, 0.9), 'flagship');
+  const flags = g.fleets.filter(f => f.flagship);
+  assert.equal(flags.length, 2);
+  assert.ok(flags.find(f => f.team === 'blue').isPlayer);
+  assert.ok(flags.find(f => f.team === 'red'));
+});
+
+test('全滅戦: 旗艦はいない', () => {
+  const g = L.createGame({speed: 34, defense: 33, attack: 33}, seq(0.5));
+  assert.equal(g.fleets.filter(f => f.flagship).length, 0);
+});
+
+test('大将戦の勝敗: 敵旗艦を倒せば勝ち、味方旗艦が倒されたら負け、同時なら引き分け', () => {
+  const bf = fleet({id: 'bf', flagship: true});
+  const b2 = fleet({id: 'b2'});
+  const rf = fleet({id: 'rf', team: 'red', flagship: true});
+  const r2 = fleet({id: 'r2', team: 'red'});
+  const fleets = [bf, b2, rf, r2];
+  assert.equal(L.checkOutcome(fleets), null);
+  rf.ships = 0;
+  assert.equal(L.checkOutcome(fleets), 'win');
+  rf.ships = 10; bf.ships = 0;
+  assert.equal(L.checkOutcome(fleets), 'lose');
+  rf.ships = 0;
+  assert.equal(L.checkOutcome(fleets), 'draw');
+});
+
+test('AI (大将戦): 見えている敵旗艦を、近くて弱い敵より優先して狙う', () => {
+  const me = fleet({id: 'me', x: 0, y: 0});
+  const weakNear = fleet({id: 'weak', team: 'red', x: 300, y: 0, ships: 500});
+  const flag = fleet({id: 'flag', team: 'red', x: 900, y: 0, flagship: true});
+  const intel = {weak: {x: 300, y: 0, visible: true}, flag: {x: 900, y: 0, visible: true}};
+  assert.deepEqual(L.aiDecide(me, [me, weakNear, flag], intel, seq(0.5)), {type: 'attack', targetId: 'flag'});
+});
+
+test('AI (大将戦): AI の旗艦は自陣側の半分だけを索敵し、最終確認位置も追わない', () => {
+  const flag = fleet({id: 'rf', team: 'red', x: 3700, y: 1500, flagship: true});
+  const intel = {b: {x: 1000, y: 1500, visible: false}};
+  for(const r of [0, 0.5, 0.99]){
+    const o = L.aiDecide(flag, [flag], intel, seq(r));
+    assert.equal(o.type, 'move');
+    assert.ok(o.x >= L.WORLD.w / 2, 'x=' + o.x);
+  }
+});
+
+test('隠しコマンド: Y U K I を 2 秒以内に順に押すとポップアップが開く', () => {
+  const press = (codes, times) => {
+    let p = L.newCheatProgress(), hit = false;
+    codes.forEach((c, i) => { const r = L.cheatSequenceStep(p, c, times[i]); p = r.progress; hit = hit || r.triggered; });
+    return hit;
+  };
+  assert.equal(press(['KeyY', 'KeyU', 'KeyK', 'KeyI'], [0, 0.3, 0.6, 0.9]), true);
+  assert.equal(press(['KeyY', 'KeyU', 'KeyK', 'KeyI'], [0, 0.8, 1.6, 2.4]), false); // 遅すぎる
+  assert.equal(press(['KeyY', 'KeyU', 'KeyW', 'KeyK', 'KeyI'], [0, 0.1, 0.2, 0.3, 0.4]), false); // 途中で別のキー
+  assert.equal(press(['KeyY', 'KeyY', 'KeyU', 'KeyK', 'KeyI'], [0, 0.1, 0.2, 0.3, 0.4]), true); // Y からやり直し
+  assert.equal(press(['KeyY', 'KeyU', 'KeyK', 'KeyI', 'KeyY', 'KeyU', 'KeyK', 'KeyI'], [0, 0.1, 0.2, 0.3, 5, 5.1, 5.2, 5.3]), true);
+});
+
+test('隠しコマンド: 入力の判定は大文字小文字と前後の空白を区別しない', () => {
+  assert.equal(L.parseCommand(' SCAN '), 'scan');
+  assert.equal(L.parseCommand('Warp'), 'warp');
+  assert.equal(L.parseCommand('scanx'), null);
+  assert.equal(L.parseCommand('sc an'), null);
+  assert.equal(L.parseCommand(''), null);
+});
+
+test('隠しコマンド scan: 索敵解除中は青チームから全ての敵が見え、もう一度で元に戻る', () => {
+  const b = fleet({id: 'b', isPlayer: true, x: 0, y: 0});
+  const r = fleet({id: 'r', team: 'red', x: 3000, y: 0});
+  const g = game([b, r]);
+  L.applyCommand(g, 'scan');
+  assert.equal(g.reveal, true);
+  assert.deepEqual(L.visibleEnemies(g.fleets, 'blue', g.reveal).map(f => f.id), ['r']);
+  L.step(g, 0.01, seq(0.5));
+  assert.equal(g.intel.blue.r.visible, true);
+  assert.equal(g.intel.red.b, undefined); // 敵には効かない
+  L.applyCommand(g, 'scan');
+  assert.equal(g.reveal, false);
+  L.step(g, 0.01, seq(0.5));
+  assert.equal(g.intel.blue.r.visible, false);
+});
+
+test('隠しコマンド warp: 次のクリック地点へ瞬間移動し、マップの外には出ない', () => {
+  const b = fleet({id: 'b', isPlayer: true, x: 100, y: 100, order: {type: 'move', x: 500, y: 500}});
+  const g = game([b]);
+  L.applyCommand(g, 'warp');
+  assert.equal(g.warpArmed, true);
+  L.warpFleet(g, b, 2000, 1500);
+  assert.deepEqual([b.x, b.y, b.order, g.warpArmed], [2000, 1500, null, false]);
+  L.applyCommand(g, 'warp');
+  L.warpFleet(g, b, -50, L.WORLD.h + 99);
+  assert.deepEqual([b.x, b.y], [0, L.WORLD.h]);
+});
+
+test('ミサイル発射: 射程内の見えている敵へ撃ち、間隔が空くまで次を撃たない', () => {
+  const b = fleet({id: 'b', x: 0, y: 0});
+  const eye = fleet({id: 'eye', x: 400, y: 0});
+  const r = fleet({id: 'r', team: 'red', x: L.MISSILE_RANGE - 1, y: 0});
+  const g = game([b, eye, r]);
+  const fromB = () => g.missiles.filter(m => m.from === 'b');
+  L.launchMissiles(g, 0.1);
+  assert.equal(fromB().length, 1);
+  assert.equal(fromB()[0].targetId, 'r');
+  L.launchMissiles(g, L.MISSILE_INTERVAL - 0.5);
+  assert.equal(fromB().length, 1);
+  L.launchMissiles(g, 0.5);
+  assert.equal(fromB().length, 2);
+});
+
+test('ミサイル発射: 射程外や見えていない敵には撃たない', () => {
+  const b = fleet({id: 'b', x: 0, y: 0});
+  const far = fleet({id: 'far', team: 'red', x: L.MISSILE_RANGE + 1, y: 0});
+  const g = game([b, far]);
+  g.reveal = true; // 見えていても射程外なら撃たない
+  L.launchMissiles(g, 0.1);
+  assert.equal(g.missiles.filter(m => m.from === 'b').length, 0);
+  const hidden = fleet({id: 'hidden', team: 'red', x: L.SENSOR_RANGE + 50, y: 0});
+  const g2 = game([fleet({id: 'b2'}), hidden]);
+  L.launchMissiles(g2, 0.1);
+  assert.equal(g2.missiles.filter(m => m.from === 'b2').length, 0);
+});
+
+test('ミサイル: 目標の現在位置へ追尾し、命中するとダメージを与えて消える', () => {
+  const b = fleet({id: 'b', x: 0, y: 0});
+  const r = fleet({id: 'r', team: 'red', x: 400, y: 0});
+  const g = game([b, r]);
+  L.launchMissiles(g, 0.1);
+  const m = g.missiles.find(x => x.from === 'b');
+  r.y = 300; // 目標が動く
+  const dmg = new Map();
+  L.moveMissiles(g, 0.5, dmg);
+  assert.ok(m.y > 0, '目標の方へ曲がる');
+  for(let i = 0; i < 20 && g.missiles.includes(m); i++) L.moveMissiles(g, 0.2, dmg);
+  assert.ok(!g.missiles.includes(m));
+  assert.ok(Math.abs(dmg.get(r) - L.missileDamage(b, r)) < 1e-9);
+});
+
+test('ミサイル: 燃え尽きる時間を過ぎたら消え、目標が全滅したら消える', () => {
+  const b = fleet({id: 'b', x: 0, y: 0});
+  const r = fleet({id: 'r', team: 'red', x: 500, y: 0});
+  const g = game([b, r]);
+  g.missiles.push({id: 1, team: 'blue', from: 'b', targetId: 'r', x: 0, y: 0, life: 0.1, power: 1});
+  L.moveMissiles(g, 0.2, new Map());
+  assert.equal(g.missiles.length, 0);
+  g.missiles.push({id: 2, team: 'blue', from: 'b', targetId: 'r', x: 0, y: 0, life: 5, power: 1});
+  r.ships = 0;
+  L.moveMissiles(g, 0.1, new Map());
+  assert.equal(g.missiles.length, 0);
+});
+
+test('迎撃: 迎撃範囲内の最も近い敵ミサイルを確率で撃ち落とし、試したら一定時間は次を撃てない', () => {
+  const r = fleet({id: 'r', team: 'red', x: 0, y: 0});
+  const g = game([r]);
+  const incoming = (id, x) => ({id, team: 'blue', from: 'b', targetId: 'r', x, y: 0, life: 5, power: 1});
+  g.missiles.push(incoming(1, L.INTERCEPT_RANGE - 1), incoming(2, L.INTERCEPT_RANGE - 2));
+  g.missiles.push({id: 3, team: 'red', from: 'r', targetId: 'b', x: 10, y: 0, life: 5, power: 1}); // 味方のミサイルは撃たない
+  const ids = () => g.missiles.map(m => m.id).sort();
+  L.interceptMissiles(g, 0.1, seq(0)); // 成功
+  assert.deepEqual(ids(), [1, 3]);
+  L.interceptMissiles(g, 0.1, seq(0)); // 待ち時間中
+  assert.deepEqual(ids(), [1, 3]);
+  L.interceptMissiles(g, L.INTERCEPT_INTERVAL, seq(0.99)); // 失敗
+  assert.deepEqual(ids(), [1, 3]);
+  L.interceptMissiles(g, 0.01, seq(0)); // 失敗後も待ち時間がある
+  assert.deepEqual(ids(), [1, 3]);
+});
+
+test('迎撃: 迎撃範囲の外のミサイルは撃たない', () => {
+  const r = fleet({id: 'r', team: 'red', x: 0, y: 0});
+  const g = game([r]);
+  g.missiles.push({id: 1, team: 'blue', from: 'b', targetId: 'r', x: L.INTERCEPT_RANGE + 1, y: 0, life: 5, power: 1});
+  L.interceptMissiles(g, 0.1, seq(0));
+  assert.equal(g.missiles.length, 1);
 });

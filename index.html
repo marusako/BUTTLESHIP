@@ -39,7 +39,19 @@
   .remain.bad{ color: var(--red); }
   .presets{ margin-bottom: 8px; }
   .presets button{ padding: 4px 12px; font-size: 13px; }
+  .modes{ display: flex; gap: 8px; justify-content: center; margin: 0 0 18px; }
+  .modes label{ border: 1px solid var(--line); padding: 8px 14px; cursor: pointer; text-align: left; width: 50%; }
+  .modes label:has(input:checked){ border-color: var(--accent); background: rgba(255, 211, 79, 0.08); }
+  .modes input{ margin-right: 6px; }
+  .modes small{ display: block; color: var(--muted); font-size: 12px; margin-top: 2px; }
+  .section{ color: var(--muted); font-size: 13px; text-align: left; margin: 14px 0 6px; }
   .hint{ color: var(--muted); font-size: 13px; }
+  #console{ position: fixed; left: 50%; bottom: 64px; transform: translateX(-50%); display: none;
+    align-items: center; gap: 8px; padding: 8px 12px; background: rgba(0, 0, 0, 0.85);
+    border: 1px solid #3a3a3a; font-family: Consolas, "MS Gothic", monospace; color: #c8c8c8; }
+  #console.open{ display: flex; }
+  #console input{ width: 260px; background: transparent; border: none; outline: none; color: #e8e8e8;
+    font: inherit; caret-color: #e8e8e8; }
 </style>
 </head>
 <body>
@@ -52,8 +64,9 @@
     <ul class="rules">
       <li>あなたは味方の<strong>第 1 艦隊</strong>を指揮する。残りの味方 4 艦隊と敵 5 艦隊は AI</li>
       <li>見えるのは味方の索敵範囲の中だけ。見つけた敵は味方全員に共有される</li>
-      <li>ビームは射程内の敵を自動で攻撃する (必中)</li>
-      <li>敵 5 艦隊をすべて全滅させたら勝利</li>
+      <li>ビームは射程内の敵を自動で攻撃する (必中)。ミサイルは射程が長く追尾するが、迎撃されることがある</li>
+      <li>全滅戦: 敵 5 艦隊をすべて全滅させたら勝利</li>
+      <li>大将戦: 敵の旗艦を倒したら勝利。あなたの艦隊が味方の旗艦</li>
     </ul>
     <button id="toSetup">出撃準備</button>
   </div>
@@ -61,7 +74,13 @@
 
 <div id="setup" class="screen">
   <div class="box">
-    <h2>艦隊パラメータ配分</h2>
+    <h2>出撃準備</h2>
+    <div class="section">ルール</div>
+    <div class="modes">
+      <label><input type="radio" name="mode" value="annihilation" checked>全滅戦<small>敵を全滅させたら勝ち</small></label>
+      <label><input type="radio" name="mode" value="flagship">大将戦<small>敵の旗艦を倒したら勝ち</small></label>
+    </div>
+    <div class="section">艦隊パラメータ配分</div>
     <div class="presets">
       <button data-preset="34,33,33">均等</button>
       <button data-preset="50,20,30">高速</button>
@@ -95,6 +114,8 @@
   </div>
 </div>
 
+<div id="console"><span>&gt;</span><input id="consoleInput" autocomplete="off" spellcheck="false"></div>
+
 <script src="logic.js"></script>
 <script>
 'use strict';
@@ -106,17 +127,23 @@ const $ = id => document.getElementById(id);
 const COLORS = {blue: '#4fa3ff', red: '#ff5a5a', accent: '#ffd34f', muted: '#7f93bb', text: '#d8e4ff'};
 const DT = 1 / 60;
 const MINIMAP = {w: 240, h: 180, margin: 16};
-const CAMERA_SPEED = 900; // px/秒 (ワールド座標)
-const CLICK_RADIUS = 36;  // 敵艦隊をクリックしたとみなす半径 (画面 px)
+const CAMERA_SPEED = 900;  // px/秒 (画面上の速さ)
+const ROTATE_SPEED = 1.5;  // rad/秒
+const CLICK_RADIUS = 36;   // 敵艦隊をクリックしたとみなす半径 (画面 px)
+const MODE_NAMES = {annihilation: '全滅戦', flagship: '大将戦'};
 
 let mode = 'title'; // title | setup | battle | pause | result
 let game = null;
 let playerParams = {speed: 34, defense: 33, attack: 33};
-const camera = {x: 0, y: 0, zoom: 1};
+let ruleMode = 'annihilation';
+// カメラ: 画面中心に映すワールド座標 (cx, cy)、拡大率、回転角 (0 で北が上)
+const camera = {cx: 0, cy: 0, zoom: 1, angle: 0};
 const keys = new Set();
 let logs = [];
 let prevVisible = new Set();
 let prevAlive = new Set();
+let cheatProgress = L.newCheatProgress();
+let consoleOpen = false;
 let lastFrame = 0, acc = 0;
 
 // 背景の星 (ワールド全体に固定配置)
@@ -142,6 +169,7 @@ function show(id){
 }
 function setMode(m){
   mode = m;
+  if(m !== 'battle') closeConsole();
   show({title: 'title', setup: 'setup', pause: 'pause', result: 'result'}[m] || null);
 }
 
@@ -153,7 +181,7 @@ $('pauseToTitle').onclick = () => { game = null; setMode('title'); };
 $('retry').onclick = () => { setMode('setup'); syncParamInputs(); };
 $('resultToTitle').onclick = () => { game = null; setMode('title'); };
 
-// ---------- パラメータ配分 ----------
+// ---------- 出撃準備 ----------
 const PARAM_KEYS = ['speed', 'defense', 'attack'];
 function syncParamInputs(){
   for(const k of PARAM_KEYS){
@@ -181,29 +209,77 @@ for(const b of document.querySelectorAll('[data-preset]')){
     syncParamInputs();
   };
 }
+for(const r of document.querySelectorAll('input[name="mode"]')){
+  r.addEventListener('change', () => { ruleMode = r.value; });
+}
 
 function startBattle(){
-  game = L.createGame(Object.assign({}, playerParams), Math.random);
+  game = L.createGame(Object.assign({}, playerParams), Math.random, ruleMode);
   const me = player();
   camera.zoom = 1;
-  camera.x = me.x - canvas.width / 2 + 200;
-  camera.y = me.y - canvas.height / 2;
+  camera.angle = 0;
+  camera.cx = me.x + 200;
+  camera.cy = me.y;
   clampCamera();
   logs = [];
   prevVisible = new Set();
   prevAlive = new Set(game.fleets.map(f => f.id));
-  addLog('全艦隊、出撃。索敵を開始せよ', COLORS.accent);
+  cheatProgress = L.newCheatProgress();
+  addLog(game.mode === 'flagship' ? '大将戦、開始。敵の旗艦を探し出せ' : '全艦隊、出撃。索敵を開始せよ', COLORS.accent);
   acc = 0;
   setMode('battle');
 }
 
+// ---------- 隠しコマンドの入力欄 (画面には手がかりを出さない) ----------
+function openConsole(){
+  consoleOpen = true;
+  keys.clear();
+  $('consoleInput').value = '';
+  $('console').classList.add('open');
+  $('consoleInput').focus();
+}
+function closeConsole(){
+  if(!consoleOpen) return;
+  consoleOpen = false;
+  $('console').classList.remove('open');
+  $('consoleInput').blur();
+}
+$('consoleInput').addEventListener('keydown', e => {
+  e.stopPropagation(); // 閉じた直後の Esc などがゲーム側 (一時停止) に届かないように
+  if(e.code === 'Enter'){
+    const command = L.parseCommand(e.target.value);
+    if(command && game){
+      L.applyCommand(game, command);
+      closeConsole();
+    }else{
+      e.target.value = '';
+    }
+  }else if(e.code === 'Escape'){
+    closeConsole();
+  }
+});
+$('consoleInput').addEventListener('blur', closeConsole);
+
 // ---------- 入力 ----------
 window.addEventListener('keydown', e => {
+  if(consoleOpen) return; // 入力欄を開いている間は、キー入力は入力欄にだけ届ける
+  if(mode === 'battle' && !e.repeat){
+    const r = L.cheatSequenceStep(cheatProgress, e.code, performance.now() / 1000);
+    cheatProgress = r.progress;
+    if(r.triggered){
+      e.preventDefault(); // 最後のキーの文字が入力欄に入らないように
+      openConsole();
+      return;
+    }
+  }
   if(e.code === 'Space' || e.code === 'Escape'){
     if(mode === 'battle'){ setMode('pause'); e.preventDefault(); return; }
     if(mode === 'pause'){ setMode('battle'); e.preventDefault(); return; }
   }
-  if(e.code === 'KeyC' && mode === 'battle') centerOnPlayer();
+  if(mode === 'battle'){
+    if(e.code === 'KeyC') centerOnPlayer();
+    if(e.code === 'KeyR') camera.angle = 0;
+  }
   keys.add(e.code);
   if(e.code.startsWith('Arrow') || e.code === 'Space') e.preventDefault();
 });
@@ -214,16 +290,18 @@ canvas.addEventListener('mousedown', e => {
   if(mode !== 'battle' || e.button !== 0) return;
   const mm = minimapRect();
   if(inRect(e.clientX, e.clientY, mm)){
-    const wx = (e.clientX - mm.x) / mm.w * L.WORLD.w;
-    const wy = (e.clientY - mm.y) / mm.h * L.WORLD.h;
-    camera.x = wx - canvas.width / camera.zoom / 2;
-    camera.y = wy - canvas.height / camera.zoom / 2;
+    camera.cx = (e.clientX - mm.x) / mm.w * L.WORLD.w;
+    camera.cy = (e.clientY - mm.y) / mm.h * L.WORLD.h;
     clampCamera();
     return;
   }
   const me = player();
   if(!me || me.ships <= 0) return;
   const w = toWorld(e.clientX, e.clientY);
+  if(game.warpArmed){
+    L.warpFleet(game, me, w.x, w.y);
+    return;
+  }
   const target = visibleEnemyAt(w, CLICK_RADIUS / camera.zoom);
   me.order = target ? {type: 'attack', targetId: target.id} : {type: 'move', x: w.x, y: w.y};
 });
@@ -233,31 +311,41 @@ canvas.addEventListener('wheel', e => {
   e.preventDefault();
   const before = toWorld(e.clientX, e.clientY);
   camera.zoom = Math.min(1.6, Math.max(0.35, camera.zoom * (e.deltaY < 0 ? 1.1 : 1 / 1.1)));
-  camera.x = before.x - e.clientX / camera.zoom;
-  camera.y = before.y - e.clientY / camera.zoom;
+  const after = toWorld(e.clientX, e.clientY);
+  camera.cx += before.x - after.x;
+  camera.cy += before.y - after.y;
   clampCamera();
 }, {passive: false});
 
 canvas.addEventListener('contextmenu', e => e.preventDefault());
 
-function toWorld(sx, sy){ return {x: camera.x + sx / camera.zoom, y: camera.y + sy / camera.zoom}; }
-function toScreen(wx, wy){ return {x: (wx - camera.x) * camera.zoom, y: (wy - camera.y) * camera.zoom}; }
+// ワールド座標 ⇔ 画面座標 (カメラの回転と拡大に対応)
+function toScreen(wx, wy){
+  const dx = wx - camera.cx, dy = wy - camera.cy;
+  const c = Math.cos(camera.angle), s = Math.sin(camera.angle);
+  return {
+    x: canvas.width / 2 + (dx * c + dy * s) * camera.zoom,
+    y: canvas.height / 2 + (-dx * s + dy * c) * camera.zoom
+  };
+}
+function toWorld(sx, sy){
+  const rx = (sx - canvas.width / 2) / camera.zoom, ry = (sy - canvas.height / 2) / camera.zoom;
+  const c = Math.cos(camera.angle), s = Math.sin(camera.angle);
+  return {x: camera.cx + rx * c - ry * s, y: camera.cy + rx * s + ry * c};
+}
 function inRect(x, y, r){ return x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h; }
 function minimapRect(){
   return {x: canvas.width - MINIMAP.w - MINIMAP.margin, y: canvas.height - MINIMAP.h - MINIMAP.margin, w: MINIMAP.w, h: MINIMAP.h};
 }
 function clampCamera(){
-  const vw = canvas.width / camera.zoom, vh = canvas.height / camera.zoom;
-  const pad = 200;
-  camera.x = Math.min(L.WORLD.w - vw + pad, Math.max(-pad, camera.x));
-  camera.y = Math.min(L.WORLD.h - vh + pad, Math.max(-pad, camera.y));
+  camera.cx = Math.min(L.WORLD.w, Math.max(0, camera.cx));
+  camera.cy = Math.min(L.WORLD.h, Math.max(0, camera.cy));
 }
 function centerOnPlayer(){
   const me = player();
   if(!me) return;
-  camera.x = me.x - canvas.width / camera.zoom / 2;
-  camera.y = me.y - canvas.height / camera.zoom / 2;
-  clampCamera();
+  camera.cx = me.x;
+  camera.cy = me.y;
 }
 
 function player(){ return game && game.fleets.find(f => f.isPlayer); }
@@ -271,6 +359,11 @@ function visibleEnemyAt(w, radius){
   }
   return best;
 }
+// 旗艦であることを表示してよいか (味方は常に、敵は一度でも見つけていれば)
+function flagshipKnown(f){
+  return f.flagship && (f.team === 'blue' || game.intel.blue[f.id] || f.ships <= 0);
+}
+function displayName(f){ return flagshipKnown(f) ? `${f.name} (旗艦)` : f.name; }
 
 // ---------- ログ ----------
 function addLog(text, color){
@@ -285,13 +378,17 @@ function formatTime(sec){
 // 前のフレームとの差から「発見」「全滅」を記録する
 function trackEvents(){
   const visible = new Set(Object.entries(game.intel.blue).filter(([, i]) => i.visible).map(([id]) => id));
-  for(const id of visible) if(!prevVisible.has(id)) addLog(`${fleetById(id).name}を発見`, COLORS.red);
+  for(const id of visible){
+    if(prevVisible.has(id)) continue;
+    const f = fleetById(id);
+    addLog(f.flagship ? `${f.name}を発見 ── 敵の旗艦だ!` : `${f.name}を発見`, f.flagship ? COLORS.accent : COLORS.red);
+  }
   prevVisible = visible;
   for(const f of game.fleets){
     if(f.ships <= 0 && prevAlive.has(f.id)){
       prevAlive.delete(f.id);
       if(f.isPlayer) addLog('我が艦隊は全滅した… 味方の戦いを見届けよう', COLORS.accent);
-      else addLog(`${f.name} 全滅`, f.team === 'blue' ? COLORS.blue : COLORS.red);
+      else addLog(`${displayName(f)} 全滅`, f.team === 'blue' ? COLORS.blue : COLORS.red);
     }
   }
 }
@@ -300,9 +397,12 @@ function trackEvents(){
 function update(dt){
   const vx = (keys.has('KeyD') || keys.has('ArrowRight')) - (keys.has('KeyA') || keys.has('ArrowLeft'));
   const vy = (keys.has('KeyS') || keys.has('ArrowDown')) - (keys.has('KeyW') || keys.has('ArrowUp'));
-  camera.x += vx * CAMERA_SPEED * dt / camera.zoom;
-  camera.y += vy * CAMERA_SPEED * dt / camera.zoom;
+  const c = Math.cos(camera.angle), s = Math.sin(camera.angle);
+  const k = CAMERA_SPEED * dt / camera.zoom;
+  camera.cx += (vx * c - vy * s) * k;
+  camera.cy += (vx * s + vy * c) * k;
   clampCamera();
+  camera.angle += (keys.has('KeyE') - keys.has('KeyQ')) * ROTATE_SPEED * dt;
 
   L.step(game, dt, Math.random);
   trackEvents();
@@ -315,8 +415,15 @@ function finish(){
   $('resultTitle').style.color = game.outcome === 'win' ? COLORS.blue : game.outcome === 'lose' ? COLORS.red : COLORS.text;
   const me = player();
   const survivors = game.fleets.filter(f => f.team === 'blue' && f.ships > 0).length;
-  $('resultDetail').textContent =
-    `戦闘時間 ${formatTime(game.time)} / 味方残存 ${survivors} 艦隊 / 第 1 艦隊 ${me.ships > 0 ? '残存 ' + Math.ceil(me.ships) + ' 隻' : '全滅'}`;
+  const parts = [MODE_NAMES[game.mode], `戦闘時間 ${formatTime(game.time)}`];
+  if(game.mode === 'flagship'){
+    const redFlag = game.fleets.find(f => f.team === 'red' && f.flagship);
+    if(redFlag.ships <= 0) parts.push(`${redFlag.name} (敵旗艦) を撃破`);
+    if(me.ships <= 0) parts.push('旗艦の第 1 艦隊が撃沈された');
+  }
+  parts.push(`味方残存 ${survivors} 艦隊`);
+  parts.push(`第 1 艦隊 ${me.ships > 0 ? '残存 ' + Math.ceil(me.ships) + ' 隻' : '全滅'}`);
+  $('resultDetail').textContent = parts.join(' / ');
   setMode('result');
 }
 
@@ -324,9 +431,9 @@ function finish(){
 function draw(){
   ctx.fillStyle = '#03060f';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
-  if(!game){ drawStars(); return; }
-
   drawStars();
+  if(!game) return;
+
   drawGrid();
   const me = player();
   const allies = game.fleets.filter(f => f.team === 'blue' && f.ships > 0);
@@ -343,10 +450,15 @@ function draw(){
     const p = toScreen(me.x, me.y);
     ctx.strokeStyle = 'rgba(255, 211, 79, 0.25)';
     ctx.beginPath(); ctx.arc(p.x, p.y, L.BEAM_RANGE * camera.zoom, 0, Math.PI * 2); ctx.stroke();
+    ctx.strokeStyle = 'rgba(255, 211, 79, 0.12)';
+    ctx.setLineDash([2, 8]);
+    ctx.beginPath(); ctx.arc(p.x, p.y, L.MISSILE_RANGE * camera.zoom, 0, Math.PI * 2); ctx.stroke();
+    ctx.setLineDash([]);
   }
 
   drawOrderLine(me);
   drawBeams();
+  drawMissiles(allies);
 
   // 最終確認位置 (見失った敵)
   for(const [id, info] of Object.entries(game.intel.blue)){
@@ -359,7 +471,7 @@ function draw(){
     ctx.fillStyle = 'rgba(255, 90, 90, 0.7)';
     ctx.font = '12px sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText(`? ${fleetById(id).name}`, p.x, p.y - 16 * camera.zoom - 10);
+    ctx.fillText(`? ${displayName(fleetById(id))}`, p.x, p.y - 16 * camera.zoom - 10);
   }
 
   for(const f of allies) drawFleet(f);
@@ -367,35 +479,35 @@ function draw(){
 
   drawFog(allies);
   drawHud(me);
+  drawCompass();
   drawMinimap();
 }
 
 function drawStars(){
-  const z = game ? camera.zoom : 1;
-  const cx = game ? camera.x : 0, cy = game ? camera.y : 0;
   for(const s of stars){
-    const x = (s.x - cx) * z, y = (s.y - cy) * z;
-    if(x < -2 || y < -2 || x > canvas.width + 2 || y > canvas.height + 2) continue;
+    const p = game ? toScreen(s.x, s.y) : {x: s.x, y: s.y};
+    if(p.x < -2 || p.y < -2 || p.x > canvas.width + 2 || p.y > canvas.height + 2) continue;
     ctx.fillStyle = `rgba(200, 215, 255, ${s.a})`;
-    ctx.fillRect(x, y, s.r, s.r);
+    ctx.fillRect(p.x, p.y, s.r, s.r);
   }
+}
+
+function line(a, b){
+  ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
 }
 
 function drawGrid(){
   ctx.strokeStyle = 'rgba(42, 74, 122, 0.25)';
   ctx.lineWidth = 1;
   const step = 500;
-  for(let x = 0; x <= L.WORLD.w; x += step){
-    const a = toScreen(x, 0), b = toScreen(x, L.WORLD.h);
-    ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
-  }
-  for(let y = 0; y <= L.WORLD.h; y += step){
-    const a = toScreen(0, y), b = toScreen(L.WORLD.w, y);
-    ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
-  }
+  for(let x = 0; x <= L.WORLD.w; x += step) line(toScreen(x, 0), toScreen(x, L.WORLD.h));
+  for(let y = 0; y <= L.WORLD.h; y += step) line(toScreen(0, y), toScreen(L.WORLD.w, y));
   ctx.strokeStyle = 'rgba(79, 163, 255, 0.5)';
-  const o = toScreen(0, 0);
-  ctx.strokeRect(o.x, o.y, L.WORLD.w * camera.zoom, L.WORLD.h * camera.zoom);
+  const corners = [[0, 0], [L.WORLD.w, 0], [L.WORLD.w, L.WORLD.h], [0, L.WORLD.h]].map(([x, y]) => toScreen(x, y));
+  ctx.beginPath();
+  corners.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y));
+  ctx.closePath();
+  ctx.stroke();
 }
 
 function drawOrderLine(me){
@@ -408,11 +520,15 @@ function drawOrderLine(me){
   const a = toScreen(me.x, me.y), b = toScreen(dest.x, dest.y);
   ctx.strokeStyle = me.order.type === 'attack' ? 'rgba(255, 90, 90, 0.6)' : 'rgba(255, 211, 79, 0.6)';
   ctx.setLineDash([8, 6]);
-  ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+  line(a, b);
   ctx.setLineDash([]);
   if(me.order.type === 'move'){
     ctx.beginPath(); ctx.arc(b.x, b.y, 6, 0, Math.PI * 2); ctx.stroke();
   }
+}
+
+function seenByBlue(x, y, allies){
+  return game.reveal || allies.some(f => Math.hypot(f.x - x, f.y - y) <= L.SENSOR_RANGE);
 }
 
 function drawBeams(){
@@ -425,8 +541,25 @@ function drawBeams(){
     ctx.strokeStyle = beam.team === 'blue' ? `rgba(120, 190, 255, ${flicker})` : `rgba(255, 120, 120, ${flicker})`;
     ctx.lineWidth = 2;
     const jx = (Math.random() - 0.5) * 12 * camera.zoom, jy = (Math.random() - 0.5) * 12 * camera.zoom;
-    ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x + jx, b.y + jy); ctx.stroke();
+    line(a, {x: b.x + jx, y: b.y + jy});
     ctx.lineWidth = 1;
+  }
+}
+
+function drawMissiles(allies){
+  for(const m of game.missiles){
+    if(!seenByBlue(m.x, m.y, allies)) continue;
+    const t = fleetById(m.targetId);
+    const p = toScreen(m.x, m.y);
+    const d = Math.hypot(t.x - m.x, t.y - m.y) || 1;
+    const tail = toScreen(m.x - (t.x - m.x) / d * 18, m.y - (t.y - m.y) / d * 18);
+    const color = m.team === 'blue' ? '160, 210, 255' : '255, 160, 120';
+    ctx.strokeStyle = `rgba(${color}, 0.5)`;
+    ctx.lineWidth = 2;
+    line(tail, p);
+    ctx.lineWidth = 1;
+    ctx.fillStyle = `rgb(${color})`;
+    ctx.beginPath(); ctx.arc(p.x, p.y, 2.5, 0, Math.PI * 2); ctx.fill();
   }
 }
 
@@ -434,14 +567,21 @@ function drawFleet(f){
   const p = toScreen(f.x, f.y);
   const color = COLORS[f.team];
   const size = (10 + 10 * f.ships / L.INITIAL_SHIPS) * camera.zoom + 4;
-  const dir = f.team === 'blue' ? 1 : -1;
+  const h = f.heading - camera.angle; // 画面上の向き
+  const hx = Math.cos(h), hy = Math.sin(h);
   if(f.isPlayer){
     ctx.strokeStyle = COLORS.accent;
     ctx.lineWidth = 2;
     ctx.beginPath(); ctx.arc(p.x, p.y, size + 8, 0, Math.PI * 2); ctx.stroke();
     ctx.lineWidth = 1;
   }
-  // 艦隊を小さな三角形の集まりで表す (艦艇数が減ると数も減る)
+  if(flagshipKnown(f)){
+    ctx.strokeStyle = COLORS.accent;
+    ctx.setLineDash([2, 3]);
+    ctx.beginPath(); ctx.arc(p.x, p.y, size + 13, 0, Math.PI * 2); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+  // 艦隊を、向きに沿った小さな三角形の集まりで表す (艦艇数が減ると数も減る)
   const n = Math.max(1, Math.ceil(7 * f.ships / L.INITIAL_SHIPS));
   ctx.fillStyle = color;
   for(let i = 0; i < n; i++){
@@ -450,18 +590,18 @@ function drawFleet(f){
     const x = p.x + Math.cos(ang) * r, y = p.y + Math.sin(ang) * r;
     const s = size * 0.35;
     ctx.beginPath();
-    ctx.moveTo(x + s * dir, y);
-    ctx.lineTo(x - s * 0.7 * dir, y - s * 0.6);
-    ctx.lineTo(x - s * 0.7 * dir, y + s * 0.6);
+    ctx.moveTo(x + hx * s, y + hy * s);
+    ctx.lineTo(x - hx * s * 0.7 - hy * s * 0.6, y - hy * s * 0.7 + hx * s * 0.6);
+    ctx.lineTo(x - hx * s * 0.7 + hy * s * 0.6, y - hy * s * 0.7 - hx * s * 0.6);
     ctx.closePath();
     ctx.fill();
   }
   ctx.font = '12px sans-serif';
   ctx.textAlign = 'center';
-  ctx.fillStyle = color;
-  ctx.fillText(f.name, p.x, p.y - size - 12);
+  ctx.fillStyle = flagshipKnown(f) ? COLORS.accent : color;
+  ctx.fillText(displayName(f), p.x, p.y - size - 16);
   ctx.fillStyle = COLORS.text;
-  ctx.fillText(`${Math.ceil(f.ships)} 隻`, p.x, p.y + size + 18);
+  ctx.fillText(`${Math.ceil(f.ships)} 隻`, p.x, p.y + size + 20);
 }
 
 function drawFog(allies){
@@ -497,7 +637,7 @@ function drawHud(me){
   ctx.textAlign = 'left';
   ctx.font = 'bold 16px sans-serif';
   ctx.fillStyle = COLORS.text;
-  ctx.fillText(`戦闘時間 ${formatTime(game.time)}`, 30, 42);
+  ctx.fillText(`${MODE_NAMES[game.mode]}  ${formatTime(game.time)}`, 30, 42);
   ctx.font = '14px sans-serif';
   ctx.fillStyle = COLORS.blue;
   ctx.fillText(`味方 ${blueAlive} / 5 艦隊`, 30, 66);
@@ -505,7 +645,7 @@ function drawHud(me){
   ctx.fillText(`敵 ${redAlive} / 5 艦隊`, 170, 66);
   ctx.fillStyle = COLORS.accent;
   if(me.ships > 0){
-    ctx.fillText(`第 1 艦隊: ${Math.ceil(me.ships)} 隻`, 30, 92);
+    ctx.fillText(`第 1 艦隊${me.flagship ? ' (旗艦)' : ''}: ${Math.ceil(me.ships)} 隻`, 30, 92);
     ctx.fillStyle = COLORS.muted;
     ctx.fillText(`速度 ${me.params.speed} / 防御 ${me.params.defense} / 攻撃 ${me.params.attack}`, 30, 114);
     const orderText = !me.order ? '待機中' : me.order.type === 'attack' ? `${fleetById(me.order.targetId).name}を攻撃` : '移動中';
@@ -515,7 +655,7 @@ function drawHud(me){
   }
 
   // 右上: 艦隊一覧
-  const listW = 250, rowH = 22;
+  const listW = 270, rowH = 22;
   const lx = canvas.width - listW - 16;
   drawPanel(lx, 16, listW, rowH * 10 + 40);
   ctx.font = '13px sans-serif';
@@ -526,9 +666,9 @@ function drawHud(me){
     if(f.ships <= 0) status = '全滅';
     else if(f.team === 'blue' || (info && info.visible)) status = `${Math.ceil(f.ships)} 隻`;
     else status = info ? '見失った' : '未発見';
-    ctx.fillStyle = f.ships <= 0 ? COLORS.muted : COLORS[f.team];
+    ctx.fillStyle = f.ships <= 0 ? COLORS.muted : flagshipKnown(f) ? COLORS.accent : COLORS[f.team];
     ctx.textAlign = 'left';
-    ctx.fillText(`${f.name}${f.isPlayer ? ' ★' : ''}`, lx + 14, y);
+    ctx.fillText(`${displayName(f)}${f.isPlayer ? ' ★' : ''}`, lx + 14, y);
     ctx.textAlign = 'right';
     ctx.fillText(status, lx + listW - 14, y);
   });
@@ -546,13 +686,37 @@ function drawHud(me){
   // 下: 操作説明
   ctx.fillStyle = COLORS.muted;
   ctx.font = '12px sans-serif';
-  ctx.fillText('左クリック: 移動 / 敵をクリック: 攻撃   WASD・矢印: 視点移動   ホイール: 拡大縮小   C: 自艦隊へ   Space・Esc: 一時停止', 20, canvas.height - 18);
+  ctx.fillText('左クリック: 移動 / 敵をクリック: 攻撃   WASD・矢印: 視点移動   Q・E: 回転   R: 北を上に   ホイール: 拡大縮小   C: 自艦隊へ   Space・Esc: 一時停止', 20, canvas.height - 18);
+}
+
+// 画面上部のコンパス: 北 (N) と敵陣 (東) の方向
+function drawCompass(){
+  const x = canvas.width / 2, y = 46, r = 28;
+  ctx.fillStyle = 'rgba(8, 16, 34, 0.85)';
+  ctx.strokeStyle = '#2a4a7a';
+  ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  const arrow = (worldAngle, color, len, label) => {
+    const a = worldAngle - camera.angle;
+    const tx = x + Math.cos(a) * len, ty = y + Math.sin(a) * len;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    line({x, y}, {x: tx, y: ty});
+    ctx.lineWidth = 1;
+    ctx.fillStyle = color;
+    ctx.font = 'bold 11px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(label, x + Math.cos(a) * (r + 10), y + Math.sin(a) * (r + 10) + 4);
+  };
+  arrow(-Math.PI / 2, COLORS.text, r - 6, 'N');
+  arrow(0, COLORS.red, r - 10, '敵');
 }
 
 function drawMinimap(){
   const r = minimapRect();
   drawPanel(r.x, r.y, r.w, r.h);
   const sx = r.w / L.WORLD.w, sy = r.h / L.WORLD.h;
+  ctx.save();
+  ctx.beginPath(); ctx.rect(r.x, r.y, r.w, r.h); ctx.clip();
   // 索敵範囲
   ctx.fillStyle = 'rgba(79, 163, 255, 0.12)';
   for(const f of game.fleets){
@@ -564,13 +728,19 @@ function drawMinimap(){
     ctx.fillStyle = f.isPlayer ? COLORS.accent : COLORS.blue;
     ctx.fillRect(r.x + f.x * sx - 2.5, r.y + f.y * sy - 2.5, 5, 5);
   }
-  for(const info of Object.values(game.intel.blue)){
-    ctx.fillStyle = info.visible ? COLORS.red : 'rgba(255, 90, 90, 0.4)';
+  for(const [id, info] of Object.entries(game.intel.blue)){
+    const f = fleetById(id);
+    ctx.fillStyle = flagshipKnown(f) ? COLORS.accent : info.visible ? COLORS.red : 'rgba(255, 90, 90, 0.4)';
     ctx.fillRect(r.x + info.x * sx - 2.5, r.y + info.y * sy - 2.5, 5, 5);
   }
-  // 表示中の範囲
+  // 表示中の範囲 (回転しているときは傾いた四角形になる)
+  const corners = [[0, 0], [canvas.width, 0], [canvas.width, canvas.height], [0, canvas.height]].map(([x, y]) => toWorld(x, y));
   ctx.strokeStyle = 'rgba(216, 228, 255, 0.6)';
-  ctx.strokeRect(r.x + camera.x * sx, r.y + camera.y * sy, canvas.width / camera.zoom * sx, canvas.height / camera.zoom * sy);
+  ctx.beginPath();
+  corners.forEach((p, i) => i ? ctx.lineTo(r.x + p.x * sx, r.y + p.y * sy) : ctx.moveTo(r.x + p.x * sx, r.y + p.y * sy));
+  ctx.closePath();
+  ctx.stroke();
+  ctx.restore();
 }
 
 // ---------- ループ ----------
