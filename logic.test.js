@@ -507,7 +507,7 @@ test('艦種: 戦艦・空母・巡洋艦・駆逐艦の数値 (敏捷 / 耐久 
   const T = L.SHIP_TYPES;
   assert.deepEqual(Object.keys(T), ['battleship', 'carrier', 'cruiser', 'destroyer']);
   assert.deepEqual([T.battleship.params, T.carrier.params, T.cruiser.params, T.destroyer.params], [
-    {speed: 15, defense: 50, attack: 35}, {speed: 30, defense: 30, attack: 20}, {speed: 45, defense: 30, attack: 25}, {speed: 60, defense: 15, attack: 15}
+    {speed: 15, defense: 50, attack: 100}, {speed: 30, defense: 30, attack: 20}, {speed: 45, defense: 30, attack: 25}, {speed: 60, defense: 15, attack: 15}
   ]);
   assert.deepEqual(Object.values(T).map(t => [t.weapon.kind, t.weapon.range, t.weapon.interval]), [
     ['gun', 650, 3], ['bomber', 1100, 9], ['gun', 450, 1], ['gun', 300, 0.7]

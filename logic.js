@@ -49,7 +49,7 @@
   // 艦種 (敏捷 = speed / 耐久 = defense / 火力 = attack)。武器は艦種ごとに 1 種類。大きさは当たり判定の半径と見た目に効く
   //   weapon.kind: 'gun' (砲撃。射程内のみ必中の弾) / 'bomber' (爆撃機を出す)。antiAir: 対空射撃ができる
   const SHIP_TYPES = {
-    battleship: {name: '戦艦', params: {speed: 15, defense: 50, attack: 35}, size: 'large', hitRadius: 40,
+    battleship: {name: '戦艦', params: {speed: 15, defense: 50, attack: 100}, size: 'large', hitRadius: 40,
       weapon: {kind: 'gun', range: 650, interval: 3}, description: '旗艦。高火力・高耐久だが遅い。長い射程から重い一撃を撃つ'},
     carrier: {name: '空母', params: {speed: 30, defense: 30, attack: 20}, size: 'large', hitRadius: 40, antiAir: true,
       weapon: {kind: 'bomber', range: 1100, interval: 9}, description: '偵察機で敵を探し、遠くの敵に爆撃機を送る。攻撃を受けると大きな被害が出ることがある'},
