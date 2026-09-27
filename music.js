@@ -64,40 +64,43 @@
   // 1 小節 8 分音符 8 つのリズム ('x' で鳴らす) をドラムの音符に
   const drumBar = (name, pattern) => [...pattern].map(c => ({n: c === 'x' ? name : 'rest', dur: 0.5}));
 
-  // ---- 曲 (すべてオリジナル) ----
-  // タイトル: A マイナーの静かな曲。弦楽器風の和音・低いベース・鐘のような旋律
-  const titleChords = [['A3', 'C4', 'E4'], ['F3', 'A3', 'C4'], ['G3', 'C4', 'E4'], ['G3', 'B3', 'D4'],
-                       ['A3', 'C4', 'E4'], ['F3', 'A3', 'C4'], ['F3', 'A3', 'D4'], ['E3', 'G#3', 'B3']];
+  // ---- 曲 (すべてオリジナル。第 2.8 段階から海の舞台) ----
+  // タイトル: D マイナーの 3 拍子の舟歌風。波のような分散和音 (鐘の音色)・柔らかな和音・低いベース・弦の旋律
+  const seaChords = [['D4', 'F4', 'A4'], ['C4', 'E4', 'G4'], ['Bb3', 'D4', 'F4'], ['A3', 'C#4', 'E4'],
+                     ['D4', 'F4', 'A4'], ['G3', 'Bb3', 'D4'], ['C4', 'E4', 'G4'], ['A3', 'C#4', 'E4']];
+  const seaWaves = [['D3', 'A3', 'D4', 'F4', 'D4', 'A3'], ['C3', 'G3', 'C4', 'E4', 'C4', 'G3'], ['Bb2', 'F3', 'Bb3', 'D4', 'Bb3', 'F3'], ['A2', 'E3', 'A3', 'C#4', 'A3', 'E3'],
+                    ['D3', 'A3', 'D4', 'F4', 'D4', 'A3'], ['G2', 'D3', 'G3', 'Bb3', 'G3', 'D3'], ['C3', 'G3', 'C4', 'E4', 'C4', 'G3'], ['A2', 'E3', 'A3', 'C#4', 'A3', 'E3']];
   const TITLE = {
-    tempo: 72, beatsPerBar: 4, bars: 8,
+    tempo: 72, beatsPerBar: 3, bars: 8,
     parts: {
-      pad: {voice: 'pad', notes: titleChords.map(n => ({n, dur: 4}))},
-      bass: {voice: 'bass', notes: seq([['A2', 4], ['F2', 4], ['C3', 4], ['G2', 4], ['A2', 4], ['F2', 4], ['D2', 4], ['E2', 4]])},
-      melody: {voice: 'bell', notes: seq([
-        ['E5', 2], ['D5', 1], ['C5', 1], ['A4', 4], ['G4', 2], ['E4', 2], ['D4', 4],
-        ['E5', 2], ['C5', 2], ['F5', 2], ['E5', 2], ['D5', 2], ['C5', 1], ['B4', 1], ['B4', 4]
+      pad: {voice: 'pad', notes: seaChords.map(n => ({n, dur: 3}))},
+      bass: {voice: 'bass', notes: seq([['D2', 3], ['C2', 3], ['Bb1', 3], ['A1', 3], ['D2', 3], ['G1', 3], ['C2', 3], ['A1', 3]])},
+      waves: {voice: 'bell', notes: seaWaves.flat().map(n => ({n, dur: 0.5}))},
+      melody: {voice: 'strings', notes: seq([
+        ['A4', 2], ['F4', 1], ['E4', 2], ['G4', 1], ['F4', 1.5], ['E4', 0.5], ['D4', 1], ['E4', 3],
+        ['A4', 2], ['D5', 1], ['D5', 1], ['C5', 1], ['Bb4', 1], ['G4', 1.5], ['A4', 0.5], ['Bb4', 1], ['A4', 3]
       ])}
     }
   };
 
-  // 戦闘: D マイナーの緊迫した曲。8 分音符で刻むベース・弦の刻み・金管風の旋律・太鼓風のリズム
-  const battleRoots = [['D2', 'D3'], ['D2', 'D3'], ['Bb1', 'Bb2'], ['C2', 'C3'], ['D2', 'D3'], ['D2', 'D3'], ['G1', 'G2'], ['A1', 'A2']];
-  const battleChords = [['D4', 'F4', 'A4'], ['D4', 'F4', 'A4'], ['D4', 'F4', 'Bb4'], ['C4', 'E4', 'G4'],
-                        ['D4', 'F4', 'A4'], ['D4', 'F4', 'A4'], ['D4', 'G4', 'Bb4'], ['C#4', 'E4', 'A4']];
+  // 戦闘: E マイナーの行進曲風 (海軍の行進のイメージ)。8 分音符で刻むベース・弦の刻み・金管風の旋律・小太鼓の刻み
+  const battleRoots = [['E2', 'E3'], ['E2', 'E3'], ['C2', 'C3'], ['D2', 'D3'], ['E2', 'E3'], ['E2', 'E3'], ['A1', 'A2'], ['B1', 'B2']];
+  const battleChords = [['E4', 'G4', 'B4'], ['E4', 'G4', 'B4'], ['C4', 'E4', 'G4'], ['D4', 'F#4', 'A4'],
+                        ['E4', 'G4', 'B4'], ['E4', 'G4', 'B4'], ['C4', 'E4', 'A4'], ['B3', 'D#4', 'F#4']];
   const BATTLE = {
-    tempo: 132, beatsPerBar: 4, bars: 8,
+    tempo: 126, beatsPerBar: 4, bars: 8,
     parts: {
       bass: {voice: 'bass', notes: battleRoots.flatMap(([lo, hi]) => seq([[lo, 0.5], [lo, 0.5], [hi, 0.5], [lo, 0.5], [lo, 0.5], [hi, 0.5], [lo, 0.5], [hi, 0.5]]))},
       strings: {voice: 'strings', notes: battleChords.flatMap(n => [{n, dur: 1.5}, {n: 'R', dur: 0.5}, {n, dur: 2}])},
       lead: {voice: 'brass', notes: seq([
-        ['D4', 1.5], ['F4', 0.5], ['A4', 2], ['G4', 1], ['F4', 1], ['E4', 2],
-        ['F4', 1.5], ['D4', 0.5], ['Bb3', 2], ['C4', 2], ['E4', 2],
-        ['D5', 1.5], ['C5', 0.5], ['A4', 2], ['Bb4', 1], ['A4', 1], ['G4', 2],
-        ['G4', 1], ['Bb4', 1], ['D5', 2], ['C#5', 2], ['E5', 2]
+        ['E4', 1.5], ['B3', 0.5], ['E4', 1], ['G4', 1], ['B4', 2], ['A4', 1], ['G4', 1],
+        ['E4', 1.5], ['G4', 0.5], ['C5', 2], ['B4', 1], ['A4', 1], ['F#4', 2],
+        ['E5', 1.5], ['D5', 0.5], ['B4', 2], ['G4', 1], ['A4', 1], ['B4', 2],
+        ['C5', 1.5], ['B4', 0.5], ['A4', 1], ['E4', 1], ['F#4', 2], ['D#4', 2]
       ])},
-      kick: {drum: true, notes: repeat(drumBar('kick', 'x..xx...'), 8)},
-      snare: {drum: true, notes: repeat(drumBar('snare', '..x...x.'), 8)},
-      hat: {drum: true, notes: repeat(drumBar('hat', 'xxxxxxxx'), 8)}
+      kick: {drum: true, notes: repeat(drumBar('kick', 'x...x...'), 8)},
+      snare: {drum: true, notes: repeat(drumBar('snare', '..x.xx.x'), 8)},
+      hat: {drum: true, notes: repeat(drumBar('hat', 'x.x.x.x.'), 8)}
     }
   };
 
