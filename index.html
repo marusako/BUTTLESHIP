@@ -129,7 +129,7 @@
       <div class="body">
         <div class="cmdGroup">
           <div class="cmdHead">ATTACK</div>
-          <button class="cmdBtn" data-weapon="laser">LASER</button>
+          <button class="cmdBtn" data-weapon="shell">SHELL</button>
           <button class="cmdBtn" data-weapon="torpid">TORPID</button>
         </div>
         <div class="cmdGroup">
@@ -163,7 +163,7 @@
     <ul class="rules">
       <li>あなたは味方の<strong>第 1 艦隊</strong>を指揮する。残りの味方 4 艦隊と敵 5 艦隊は AI</li>
       <li>見えるのは味方の索敵範囲の中だけ。見つけた敵は味方全員に共有される</li>
-      <li>ビームは射程内の敵を自動で攻撃する (必中)。ミサイルは射程が長く追尾するが、迎撃されることがある</li>
+      <li>索敵範囲の中の敵に自動で狙いを定め、その半分の距離まで近づくと撃つ。通常弾 (SHELL) は必中、爆発弾 (TORPID) は威力が大きいが、よけられたり迎撃されたりする</li>
       <li>モダン: 敵の旗艦 (第 1 艦隊) を倒したら勝利。あなたの艦隊は味方の旗艦で、倒されたら敗北</li>
       <li>連合艦隊は旗艦・副艦 (タンク)・アタッカー 2・スピーダーの 5 艦隊。味方はそれぞれの役割で旗艦を支える</li>
     </ul>
@@ -599,17 +599,13 @@ function draw(){
   }
   if(me && me.ships > 0){
     const p = toScreen(me.x, me.y);
-    ctx.strokeStyle = 'rgba(255, 211, 79, 0.25)';
-    ctx.beginPath(); ctx.arc(p.x, p.y, L.BEAM_RANGE * camera.zoom, 0, Math.PI * 2); ctx.stroke();
-    ctx.strokeStyle = 'rgba(255, 211, 79, 0.12)';
-    ctx.setLineDash([2, 8]);
-    ctx.beginPath(); ctx.arc(p.x, p.y, L.MISSILE_RANGE * camera.zoom, 0, Math.PI * 2); ctx.stroke();
-    ctx.setLineDash([]);
+    ctx.strokeStyle = 'rgba(255, 211, 79, 0.3)';
+    ctx.beginPath(); ctx.arc(p.x, p.y, L.FIRE_RANGE * camera.zoom, 0, Math.PI * 2); ctx.stroke();
   }
 
   drawOrderLine(me);
-  drawBeams();
-  drawMissiles(allies);
+  drawLocks();
+  drawProjectiles(allies);
 
   // 最終確認位置 (見失った敵)
   for(const [id, info] of Object.entries(game.intel.blue)){
@@ -685,35 +681,38 @@ function seenByBlue(x, y, allies){
   return game.reveal || allies.some(f => Math.hypot(f.x - x, f.y - y) <= L.SENSOR_RANGE);
 }
 
-function drawBeams(){
-  for(const beam of game.beams){
-    const from = fleetById(beam.from), to = fleetById(beam.to);
-    // 見えていない敵が撃つビームは描かない
+// 狙いの線: 撃てる範囲の外は細い点線、撃っているときは実線 (見えていない敵の狙いは描かない)
+function drawLocks(){
+  for(const lock of game.locks){
+    const from = fleetById(lock.from), to = fleetById(lock.to);
     if(from.team === 'red' && !(game.intel.blue[from.id] && game.intel.blue[from.id].visible)) continue;
     const a = toScreen(from.x, from.y), b = toScreen(to.x, to.y);
-    const flicker = 0.4 + Math.random() * 0.5;
-    ctx.strokeStyle = beam.team === 'blue' ? `rgba(120, 190, 255, ${flicker})` : `rgba(255, 120, 120, ${flicker})`;
-    ctx.lineWidth = 2;
-    const jx = (Math.random() - 0.5) * 12 * camera.zoom, jy = (Math.random() - 0.5) * 12 * camera.zoom;
-    line(a, {x: b.x + jx, y: b.y + jy});
-    ctx.lineWidth = 1;
+    const color = lock.team === 'blue' ? '120, 190, 255' : '255, 120, 120';
+    ctx.strokeStyle = `rgba(${color}, ${lock.firing ? 0.45 : 0.2})`;
+    ctx.setLineDash(lock.firing ? [] : [3, 6]);
+    line(a, b);
+    ctx.setLineDash([]);
   }
 }
 
-function drawMissiles(allies){
-  for(const m of game.missiles){
-    if(!seenByBlue(m.x, m.y, allies)) continue;
-    const t = fleetById(m.targetId);
-    const p = toScreen(m.x, m.y);
-    const d = Math.hypot(t.x - m.x, t.y - m.y) || 1;
-    const tail = toScreen(m.x - (t.x - m.x) / d * 18, m.y - (t.y - m.y) / d * 18);
-    const color = m.team === 'blue' ? '160, 210, 255' : '255, 160, 120';
+// 弾: 通常弾は小さな光の粒、爆発弾は尾を引く大きめの弾 (見えていない場所の弾は描かない)
+function drawProjectiles(allies){
+  for(const p of game.projectiles){
+    if(!seenByBlue(p.x, p.y, allies)) continue;
+    const s = toScreen(p.x, p.y);
+    const color = p.team === 'blue' ? '160, 210, 255' : '255, 160, 120';
+    if(p.kind === 'shell'){
+      ctx.fillStyle = `rgb(${color})`;
+      ctx.fillRect(s.x - 1.5, s.y - 1.5, 3, 3);
+      continue;
+    }
+    const tail = toScreen(p.x - Math.cos(p.heading) * 22, p.y - Math.sin(p.heading) * 22);
     ctx.strokeStyle = `rgba(${color}, 0.5)`;
-    ctx.lineWidth = 2;
-    line(tail, p);
+    ctx.lineWidth = 3;
+    line(tail, s);
     ctx.lineWidth = 1;
-    ctx.fillStyle = `rgb(${color})`;
-    ctx.beginPath(); ctx.arc(p.x, p.y, 2.5, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#fff3c4';
+    ctx.beginPath(); ctx.arc(s.x, s.y, 3.5, 0, Math.PI * 2); ctx.fill();
   }
 }
 

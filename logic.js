@@ -9,23 +9,28 @@
   const PARAM_TOTAL = 100;
   const PARAM_MIN = 10;
   const SENSOR_RANGE = 450;      // 索敵半径
-  const BEAM_RANGE = 260;        // ビーム射程 (索敵半径より短い)
+  const LOCK_RANGE = SENSOR_RANGE;   // 狙いを定める範囲 (射程) = 索敵半径
+  const FIRE_RANGE = LOCK_RANGE / 2; // 実際に撃てる範囲 = 射程の半分
   const GHOST_CLEAR_RANGE = 150; // 最終確認位置にこの距離まで近づいて敵がいなければ記録を消す
-  const ATTACK_STOP_RATIO = 0.8; // 攻撃命令では射程のこの割合まで近づいて止まる
-  const ATTACK_COEF = 0.002;     // 1 隻・攻撃 1 あたりの毎秒ダメージ (艦艇数)
+  const ATTACK_STOP_RATIO = 0.8; // 攻撃命令では撃てる範囲のこの割合まで近づいて止まる
+  const ATTACK_COEF = 0.002;     // 通常弾の、1 隻・火力 1 あたりの毎秒ダメージ (艦艇数)
   const DEFENSE_HALF = 50;       // 防御がこの値のとき受けるダメージが半分になる
   const FIREPOWER_FLOOR = 0.3;   // 火力計算に使う艦艇数の下限 (初期艦艇数に対する割合)
   const AI_THINK_INTERVAL = 1;   // AI が命令を考え直す間隔 (秒)
   const FLAGSHIP_PRIORITY = 20;  // AI が敵旗艦を狙うときにスコアから引く値
-  const MISSILE_RANGE = 600;     // ミサイル射程
-  const MISSILE_INTERVAL = 4;    // ミサイルの発射間隔 (秒)
-  const MISSILE_SPEED = 220;     // ミサイルの速さ (px/秒)
-  const MISSILE_LIFE = 6;        // ミサイルが燃え尽きるまでの時間 (秒)
-  const MISSILE_HIT_RADIUS = 20; // この距離まで近づいたら命中
-  const MISSILE_COEF = 0.002;    // ミサイル 1 発の火力係数
+  const SHELL_INTERVAL = 0.5;    // 通常弾 (必中の追尾弾) の発射間隔 (秒)
+  const SHELL_SPEED = 600;       // 通常弾の速さ (px/秒)。どの艦隊より速いので必ず追いつく
+  const SHELL_HIT_RADIUS = 12;   // 通常弾がこの距離まで近づいたら命中
+  const TORPEDO_RELOAD = 6;      // 爆発弾 (回避できる追尾弾) の再装填時間 (秒)
+  const TORPEDO_SPEED = 170;     // 爆発弾の速さ (px/秒)。スピーダー (184) より遅い
+  const TORPEDO_TURN_RATE = 2;   // 爆発弾が 1 秒に曲がれる角度 (ラジアン)
+  const TORPEDO_LIFE = 4;        // 爆発弾が燃え尽きるまでの時間 (秒)
+  const TORPEDO_HIT_RADIUS = 25; // 爆発弾がこの距離まで近づいたら命中
+  const TORPEDO_COEF = 0.006;    // 爆発弾 1 発の火力係数 (通常弾 1 発の 6 倍)
   const INTERCEPT_RANGE = 150;   // 迎撃範囲
   const INTERCEPT_INTERVAL = 0.5; // 迎撃を試みる間隔 (秒)
-  const INTERCEPT_CHANCE = 0.35; // 迎撃の成功率
+  const INTERCEPT_CHANCE = 0.35; // 迎撃の成功率 (爆発弾だけが対象)
+  const EPS = 1e-9;              // 小数の誤差を吸収する (待ち時間の判定など)
   const CHEAT_SEQUENCE = ['KeyY', 'KeyU', 'KeyK', 'KeyI']; // 隠しコマンド入力欄を開くキー列
   const CHEAT_WINDOW = 2;        // キー列を押し切るまでの制限時間 (秒)
   const COMMANDS = ['scan', 'warp'];
@@ -51,27 +56,23 @@
   const SPAWN_XS = [400, 800, 1200, 1600, 2000];
   const SPAWN_ORDER = [3, 2, 1, 4, 5]; // 横一列に (各チームから見て) 左から第 3・第 2・第 1 (旗艦)・第 4・第 5 艦隊
 
-  // AI プロファイル: 役割別 AI の判断に使うつまみ。第 2.8 段階の学習でこの値を調整する
+  // AI プロファイル: 役割別 AI の判断に使うつまみ。第 2.5 段階の学習でこの値を調整する
   const AI_PROFILES = {
     standard: {
       localRadius: 700,          // 局地的な戦力比を数える半径
       flagshipRetreatRatio: 1.5, // 旗艦はこの戦力比を超えたら味方の中心へ下がる
       tankDistance: 150,         // 副艦が旗艦から離れる距離
       tankDefendRadius: 500,     // 副艦は旗艦からこの距離以内の敵を迎え撃つ
-      attackerDistance: 500,     // アタッカーが普段保つ旗艦との距離 (左前・右前)
+      attackerDistance: 500,     // アタッカーが普段保つ旗艦との距離 (左右)
       attackerLeash: 900,        // アタッカーは旗艦からこの距離以内の敵を攻撃する
       attackerRetreatRatio: 1.3, // アタッカーはこの戦力比を超えたら旗艦のもとへ下がる
       speederMarkDistance: 420,  // スピーダーが敵旗艦を見張る距離 (索敵半径 450 より内側)
-      speederSafeDistance: 350   // スピーダーはこれより近い敵から離れる (ビーム射程 260 より外)
+      speederSafeDistance: 350   // スピーダーはこれより近い敵から離れる (撃てる範囲 225 より外)
     }
   };
-  // アタッカーの隊列位置の方向 (旗艦から見て [前方, 右方向] の単位ベクトル)。左前・右前。
+  // アタッカーの隊列位置の方向 (旗艦から見て [前方, 右方向] の単位ベクトル)。左・右 (副艦の前と合わせて旗艦を囲む)。
   // 旗艦からの距離は AI プロファイルの attackerDistance
-  const ATTACKER_SLOT_ANGLE = Math.atan2(260, 120); // 前方から約 65 度
-  const ATTACKER_SLOTS = [
-    [Math.cos(ATTACKER_SLOT_ANGLE), -Math.sin(ATTACKER_SLOT_ANGLE)],
-    [Math.cos(ATTACKER_SLOT_ANGLE), Math.sin(ATTACKER_SLOT_ANGLE)]
-  ];
+  const ATTACKER_SLOTS = [[0, -1], [0, 1]];
 
   const alive = f => f.ships > 0;
   const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
@@ -97,19 +98,27 @@
     return Math.max(f.ships, INITIAL_SHIPS * FIREPOWER_FLOOR);
   }
 
-  // attacker が target に与える毎秒ダメージ (艦艇数)
-  function beamDps(attacker, target){
+  // attacker の通常弾が target に与える毎秒ダメージ (艦艇数)
+  function shellDps(attacker, target){
     return firepower(attacker) * ATTACK_COEF * attacker.params.attack * mitigation(target.params);
   }
 
-  // ミサイル 1 発の威力 (防御による軽減前)
-  function missilePower(attacker){
-    return firepower(attacker) * MISSILE_COEF * attacker.params.attack;
+  // 通常弾 1 発の威力 (耐久による軽減前)。毎秒ダメージ × 発射間隔
+  function shellPower(attacker){
+    return firepower(attacker) * ATTACK_COEF * attacker.params.attack * SHELL_INTERVAL;
   }
 
-  // attacker のミサイル 1 発が target に与えるダメージ
-  function missileDamage(attacker, target){
-    return missilePower(attacker) * mitigation(target.params);
+  function shellDamage(attacker, target){
+    return shellPower(attacker) * mitigation(target.params);
+  }
+
+  // 爆発弾 1 発の威力 (耐久による軽減前)
+  function torpedoPower(attacker){
+    return firepower(attacker) * TORPEDO_COEF * attacker.params.attack;
+  }
+
+  function torpedoDamage(attacker, target){
+    return torpedoPower(attacker) * mitigation(target.params);
   }
 
   // team から見えている (味方のどれかの索敵範囲内の) 生存中の敵。reveal なら全部見える
@@ -134,10 +143,9 @@
     }
   }
 
-  // 射程内の敵 (visible: 見えている敵の一覧) から攻撃対象を選ぶ。攻撃命令の相手を優先する。LASER オフなら撃たない
-  function chooseTarget(f, visible){
-    if(!f.weapons.laser) return null;
-    const inRange = visible.filter(e => alive(e) && dist(f, e) <= BEAM_RANGE);
+  // 狙いを定める範囲 (LOCK_RANGE) 内の敵 (visible: 見えている敵の一覧) から狙いを選ぶ。攻撃命令の相手を優先する
+  function lockTarget(f, visible){
+    const inRange = visible.filter(e => alive(e) && dist(f, e) <= LOCK_RANGE);
     if(f.order && f.order.type === 'attack'){
       const ordered = inRange.find(e => e.id === f.order.targetId);
       if(ordered) return ordered;
@@ -175,7 +183,7 @@
       const info = intel[o.targetId];
       if(!info){ f.order = null; return; }
       dest = info;
-      stopAt = info.visible ? BEAM_RANGE * ATTACK_STOP_RATIO : 0;
+      stopAt = info.visible ? FIRE_RANGE * ATTACK_STOP_RATIO : 0;
     }
     // 行き先はマップの内側に収める (外なら最も近い端へ向かう)
     dest = {x: clamp(dest.x, 0, WORLD.w), y: clamp(dest.y, 0, WORLD.h)};
@@ -358,76 +366,105 @@
           order: null,
           isPlayer,
           flagship: slot.role === 'flagship',
-          missileCooldown: 0,
+          shellCooldown: 0,
+          torpedoCooldown: 0,
           throttle: MAX_THROTTLE,
-          weapons: {laser: true, torpid: true},
+          weapons: {shell: true, torpid: true},
           interceptCooldown: 0,
           ai: {nextThink: 0}
         });
       });
     }
     return {
-      time: 0, mode: 'modern', profiles, fleets, intel: {blue: {}, red: {}}, beams: [],
-      missiles: [], nextMissileId: 1, reveal: false, warpArmed: false, outcome: null
+      time: 0, mode: 'modern', profiles, fleets, intel: {blue: {}, red: {}}, locks: [],
+      projectiles: [], nextProjectileId: 1, reveal: false, warpArmed: false, outcome: null
     };
   }
 
   // 青チームだけ隠しコマンドの索敵解除が効く
   const revealFor = (g, team) => team === 'blue' && g.reveal;
 
-  // 発射間隔が空いた艦隊が、ミサイル射程内の見えている最も近い敵へ撃つ
-  function launchMissiles(g, dt){
-    const visible = {blue: visibleEnemies(g.fleets, 'blue', revealFor(g, 'blue')), red: visibleEnemies(g.fleets, 'red', false)};
+  const visibleByTeam = g => ({blue: visibleEnemies(g.fleets, 'blue', revealFor(g, 'blue')), red: visibleEnemies(g.fleets, 'red', false)});
+
+  // 各艦隊が狙いを定め (g.locks)、撃てる範囲にいれば、待ち時間の空いた弾を撃つ。
+  // visible: チームごとの見えている敵 (省略時はその場で計算)
+  function fireWeapons(g, dt, visible){
+    const vis = visible || visibleByTeam(g);
+    g.locks = [];
     for(const f of g.fleets){
       if(!alive(f)) continue;
-      f.missileCooldown = Math.max(0, f.missileCooldown - dt);
-      if(f.missileCooldown > 0 || !f.weapons.torpid) continue;
-      let target = null;
-      for(const e of visible[f.team]){
-        if(dist(f, e) <= MISSILE_RANGE && (!target || dist(f, e) < dist(f, target))) target = e;
+      f.shellCooldown = Math.max(0, f.shellCooldown - dt);
+      f.torpedoCooldown = Math.max(0, f.torpedoCooldown - dt);
+      const t = lockTarget(f, vis[f.team]);
+      if(!t) continue;
+      const firing = dist(f, t) <= FIRE_RANGE;
+      g.locks.push({from: f.id, to: t.id, team: f.team, firing});
+      if(!firing) continue;
+      const base = {team: f.team, from: f.id, targetId: t.id, x: f.x, y: f.y, heading: Math.atan2(t.y - f.y, t.x - f.x)};
+      if(f.weapons.shell && f.shellCooldown <= EPS){
+        g.projectiles.push(Object.assign({id: g.nextProjectileId++, kind: 'shell', life: Infinity, power: shellPower(f)}, base));
+        f.shellCooldown = SHELL_INTERVAL;
       }
-      if(!target) continue;
-      g.missiles.push({
-        id: g.nextMissileId++, team: f.team, from: f.id, targetId: target.id,
-        x: f.x, y: f.y, life: MISSILE_LIFE, power: missilePower(f)
-      });
-      f.missileCooldown = MISSILE_INTERVAL;
+      if(f.weapons.torpid && f.torpedoCooldown <= EPS){
+        g.projectiles.push(Object.assign({id: g.nextProjectileId++, kind: 'torpedo', life: TORPEDO_LIFE, power: torpedoPower(f)}, base));
+        f.torpedoCooldown = TORPEDO_RELOAD;
+      }
     }
   }
 
-  // 迎撃範囲内の最も近い敵ミサイルを撃ち落とそうとする。試したら成否にかかわらず待ち時間に入る
-  function interceptMissiles(g, dt, rng){
+  // 迎撃範囲内の最も近い敵の爆発弾を撃ち落とそうとする (通常弾は撃ち落とせない)。試したら成否にかかわらず待ち時間に入る
+  function interceptTorpedoes(g, dt, rng){
     for(const f of g.fleets){
       if(!alive(f)) continue;
       f.interceptCooldown = Math.max(0, f.interceptCooldown - dt);
-      if(f.interceptCooldown > 0) continue;
+      if(f.interceptCooldown > EPS) continue;
       let target = null;
-      for(const m of g.missiles){
-        if(m.team !== f.team && dist(f, m) <= INTERCEPT_RANGE && (!target || dist(f, m) < dist(f, target))) target = m;
+      for(const p of g.projectiles){
+        if(p.kind === 'torpedo' && p.team !== f.team && dist(f, p) <= INTERCEPT_RANGE && (!target || dist(f, p) < dist(f, target))) target = p;
       }
       if(!target) continue;
       f.interceptCooldown = INTERCEPT_INTERVAL;
-      if(rng() < INTERCEPT_CHANCE) g.missiles.splice(g.missiles.indexOf(target), 1);
+      if(rng() < INTERCEPT_CHANCE) g.projectiles.splice(g.projectiles.indexOf(target), 1);
     }
   }
 
-  // ミサイルを目標の現在位置へ進める。命中したダメージは damage (Map: 艦隊 → ダメージ) に足す
-  function moveMissiles(g, dt, damage){
+  // 点 c と線分 a→b の最短距離 (弾が 1 ステップで進む間に目標をかすめたかの判定に使う)
+  function segmentDistance(a, b, c){
+    const vx = b.x - a.x, vy = b.y - a.y;
+    const len2 = vx * vx + vy * vy;
+    const k = len2 > 0 ? clamp(((c.x - a.x) * vx + (c.y - a.y) * vy) / len2, 0, 1) : 0;
+    return Math.hypot(a.x + vx * k - c.x, a.y + vy * k - c.y);
+  }
+
+  // 弾を進める。命中したダメージは damage (Map: 艦隊 → ダメージ) に足す。
+  // 通常弾は目標の現在位置へまっすぐ向かい必ず当たる。爆発弾は曲がる速さに限りがあり、燃え尽きたら消える
+  function moveProjectiles(g, dt, damage){
     const byId = new Map(g.fleets.map(f => [f.id, f]));
-    g.missiles = g.missiles.filter(m => {
-      const t = byId.get(m.targetId);
+    const hit = (p, t) => { damage.set(t, (damage.get(t) || 0) + p.power * mitigation(t.params)); return false; };
+    g.projectiles = g.projectiles.filter(p => {
+      const t = byId.get(p.targetId);
       if(!t || !alive(t)) return false;
-      m.life -= dt;
-      const d = dist(m, t);
-      const step = MISSILE_SPEED * dt;
-      if(d <= step + MISSILE_HIT_RADIUS){
-        damage.set(t, (damage.get(t) || 0) + m.power * mitigation(t.params));
-        return false;
+      if(p.kind === 'shell'){
+        const d = dist(p, t);
+        const step = SHELL_SPEED * dt;
+        if(d <= step + SHELL_HIT_RADIUS) return hit(p, t);
+        p.x += (t.x - p.x) / d * step;
+        p.y += (t.y - p.y) / d * step;
+        p.heading = Math.atan2(t.y - p.y, t.x - p.x);
+        return true;
       }
-      if(m.life <= 0) return false;
-      m.x += (t.x - m.x) / d * step;
-      m.y += (t.y - m.y) / d * step;
-      return true;
+      // 爆発弾: 目標の方向へ、1 ステップで TORPEDO_TURN_RATE × dt まで向きを変えて進む
+      const want = Math.atan2(t.y - p.y, t.x - p.x);
+      let diff = want - p.heading;
+      diff = Math.atan2(Math.sin(diff), Math.cos(diff)); // -π〜π にそろえる
+      const maxTurn = TORPEDO_TURN_RATE * dt;
+      p.heading += clamp(diff, -maxTurn, maxTurn);
+      const from = {x: p.x, y: p.y};
+      p.x += Math.cos(p.heading) * TORPEDO_SPEED * dt;
+      p.y += Math.sin(p.heading) * TORPEDO_SPEED * dt;
+      if(segmentDistance(from, p, t) <= TORPEDO_HIT_RADIUS) return hit(p, t);
+      p.life -= dt;
+      return p.life > 0;
     });
   }
 
@@ -488,20 +525,12 @@
     for(const f of living) moveFleet(f, dt, g.intel[f.team]);
     refreshIntel();
 
-    launchMissiles(g, dt);
-    interceptMissiles(g, dt, rng);
+    fireWeapons(g, dt);
+    interceptTorpedoes(g, dt, rng);
 
-    // ビームとミサイルのダメージは全艦隊ぶんを先に計算してから同時に反映する
-    const visible = {blue: visibleEnemies(g.fleets, 'blue', revealFor(g, 'blue')), red: visibleEnemies(g.fleets, 'red', false)};
+    // 弾のダメージは全艦隊ぶんを先に計算してから同時に反映する
     const damage = new Map();
-    g.beams = [];
-    for(const f of living){
-      const t = chooseTarget(f, visible[f.team]);
-      if(!t) continue;
-      damage.set(t, (damage.get(t) || 0) + beamDps(f, t) * dt);
-      g.beams.push({from: f.id, to: t.id, team: f.team});
-    }
-    moveMissiles(g, dt, damage);
+    moveProjectiles(g, dt, damage);
     for(const [t, d] of damage) t.ships = Math.max(0, t.ships - d);
 
     refreshIntel();
@@ -509,11 +538,12 @@
   }
 
   const api = {
-    WORLD, INITIAL_SHIPS, MAX_THROTTLE, PARAM_TOTAL, PARAM_MIN, SENSOR_RANGE, BEAM_RANGE, GHOST_CLEAR_RANGE, FIREPOWER_FLOOR,
-    MISSILE_RANGE, MISSILE_INTERVAL, INTERCEPT_RANGE, INTERCEPT_INTERVAL,
-    JOBS, FORMATION, AI_PROFILES, validateParams, localForceRatio, maxSpeed, mitigation, beamDps, missileDamage, visibleEnemies, updateIntel,
-    chooseTarget, moveFleet, checkOutcome, aiDecide, createGame, step,
-    launchMissiles, interceptMissiles, moveMissiles,
+    WORLD, INITIAL_SHIPS, MAX_THROTTLE, PARAM_TOTAL, PARAM_MIN, SENSOR_RANGE, LOCK_RANGE, FIRE_RANGE, GHOST_CLEAR_RANGE, FIREPOWER_FLOOR,
+    SHELL_INTERVAL, TORPEDO_RELOAD, TORPEDO_SPEED, TORPEDO_TURN_RATE, TORPEDO_LIFE, INTERCEPT_RANGE, INTERCEPT_INTERVAL,
+    JOBS, FORMATION, AI_PROFILES, validateParams, localForceRatio, maxSpeed, mitigation,
+    shellDps, shellDamage, torpedoDamage, visibleEnemies, updateIntel,
+    lockTarget, moveFleet, checkOutcome, aiDecide, createGame, step,
+    fireWeapons, interceptTorpedoes, moveProjectiles,
     newCheatProgress, cheatSequenceStep, parseCommand, applyCommand, warpFleet
   };
   if(typeof module !== 'undefined' && module.exports) module.exports = api;
