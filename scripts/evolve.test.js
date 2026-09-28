@@ -28,16 +28,16 @@ test('乱数 mulberry32: 同じ種なら同じ列、0 以上 1 未満、近い�
 
 test('成績: 勝ち 1、負け 0、時間切れは負けより悪い。残存戦力の差、与えたダメージ、敵旗艦の発見を少しだけ足す', () => {
   const near = (a, b) => assert.ok(Math.abs(a - b) < 1e-12, `${a} と ${b}`);
-  // チームの最大 HP の合計は 280 (戦艦 100 + 空母 70 + 巡洋艦 50 + 駆逐艦 30 × 2)
-  const ships = {blue: 180, red: 90};
-  // 与えたダメージ = 合計 280 − 相手の残り (青は 280 − 90 = 190、赤は 280 − 180 = 100)
-  // 青: 勝ち 1 + 差 0.1 × 90/280 + 与えたダメージ 0.2 × 190/280
-  near(E.matchScore({outcome: 'win', ships, spotted: {blue: false, red: false}}, 'blue'), 1 + 0.1 * 90 / 280 + 0.2 * 190 / 280);
-  // 赤: 負け 0 - 差 + 与えたダメージ 0.2 × 100/280 + 敵旗艦の発見 0.1
-  near(E.matchScore({outcome: 'win', ships, spotted: {blue: false, red: true}}, 'red'), 0 - 0.1 * 90 / 280 + 0.2 * 100 / 280 + 0.1);
-  const timeout = E.matchScore({outcome: 'timeout', ships: {blue: 280, red: 280}, spotted: {blue: true, red: true}}, 'blue');
-  assert.ok(timeout < E.matchScore({outcome: 'lose', ships: {blue: 0, red: 280}, spotted: {blue: false, red: false}}, 'blue'), '逃げ回って時間切れにするより負けたほうがまし');
-  near(E.matchScore({outcome: 'draw', ships: {blue: 280, red: 280}}, 'red'), E.TIMEOUT_SCORE);
+  // チームの最大 HP の合計は 2800 (戦艦 1000 + 空母 700 + 巡洋艦 500 + 駆逐艦 300 × 2。第 4.0 段階で耐久の 10 倍)
+  const ships = {blue: 1800, red: 900};
+  // 与えたダメージ = 合計 2800 − 相手の残り (青は 2800 − 900 = 1900、赤は 2800 − 1800 = 1000)
+  // 青: 勝ち 1 + 差 0.1 × 900/2800 + 与えたダメージ 0.2 × 1900/2800
+  near(E.matchScore({outcome: 'win', ships, spotted: {blue: false, red: false}}, 'blue'), 1 + 0.1 * 900 / 2800 + 0.2 * 1900 / 2800);
+  // 赤: 負け 0 - 差 + 与えたダメージ 0.2 × 1000/2800 + 敵旗艦の発見 0.1
+  near(E.matchScore({outcome: 'win', ships, spotted: {blue: false, red: true}}, 'red'), 0 - 0.1 * 900 / 2800 + 0.2 * 1000 / 2800 + 0.1);
+  const timeout = E.matchScore({outcome: 'timeout', ships: {blue: 2800, red: 2800}, spotted: {blue: true, red: true}}, 'blue');
+  assert.ok(timeout < E.matchScore({outcome: 'lose', ships: {blue: 0, red: 2800}, spotted: {blue: false, red: false}}, 'blue'), '逃げ回って時間切れにするより負けたほうがまし');
+  near(E.matchScore({outcome: 'draw', ships: {blue: 2800, red: 2800}}, 'red'), E.TIMEOUT_SCORE);
 });
 
 test('1 試合: 敵旗艦を見つけたかを記録する (旗艦の位置がばれる時間にも見つかる)', () => {
@@ -127,7 +127,7 @@ test('1 試合: 決まった種なら同じ結果。動かないチーム同士�
   assert.deepEqual(a, b);
   assert.equal(a.outcome, 'timeout');
   assert.equal(a.time >= 20, true);
-  assert.deepEqual(a.ships, {blue: 280, red: 280});
+  assert.deepEqual(a.ships, {blue: 2800, red: 2800});
   assert.ok(a.metrics.edgeRatio >= 0 && a.metrics.edgeRatio <= 1);
 });
 
