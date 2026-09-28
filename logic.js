@@ -609,6 +609,13 @@
   }
 
   // ---------- 表示のための計算 (描画はしない) ----------
+  // 中立の観戦: 両軍の生きている艦がすべて見える位置情報 (intel と同じ形。透明化中の艦も見える)
+  function fullIntel(fleets){
+    const intel = {};
+    for(const f of fleets) if(alive(f)) intel[f.id] = {x: f.x, y: f.y, visible: true};
+    return intel;
+  }
+
   // TARGET パネル: f がロックオンしている敵の情報 (狙いがない・沈んでいれば null)。
   // 命中率は f の通常攻撃の値 (爆撃機は回避できないので 1、強化中は回避を引く)、expected は 1 発の期待ダメージ
   function targetInfo(f){
@@ -766,7 +773,7 @@
     BUFF_RANGE, isBuffed, updateBuffs, SHIP_TYPES, FORMATION, AI_THINK_INTERVAL, maxSpeed, lockRange, visibleEnemies, updateIntel,
     lockTarget, moveFleet, checkOutcome, createGame, step,
     fireWeapons, launchRecon, antiAir, moveProjectiles, moveAircraft, keyCourse, battleStats,
-    targetInfo, clampView, SHIP_SHAPES, WRECK_DURATION, createWreck, wreckState,
+    fullIntel, targetInfo, clampView, SHIP_SHAPES, WRECK_DURATION, createWreck, wreckState,
     newCheatProgress, cheatSequenceStep, parseCommand, applyCommand, warpFleet
   };
   if(typeof module !== 'undefined' && module.exports) module.exports = api;

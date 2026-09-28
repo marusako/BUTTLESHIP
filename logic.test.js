@@ -460,6 +460,13 @@ test('撃沈エフェクト (wreckState): 始めは船体の形のまま、時�
   assert.deepEqual([end.alpha, end.done], [0, true]);
 });
 
+// ---------- 第 3.7 段階 (②) ----------
+
+test('中立の観戦 (fullIntel): 両軍の生きている艦がすべて見える位置情報 (透明化中も)。沈んだ艦は入れない', () => {
+  const fleets = [fleet({id: 'b', x: 10, y: 20}), fleet({id: 'r', team: 'red', x: 30, y: 40, stealth: 5}), fleet({id: 'd', team: 'red', ships: 0})];
+  assert.deepEqual(L.fullIntel(fleets), {b: {x: 10, y: 20, visible: true}, r: {x: 30, y: 40, visible: true}});
+});
+
 // ---------- 第 3.4 段階 (3.4b) ----------
 
 test('TARGET パネル (targetInfo): ロックオンしている敵の HP・損傷・距離・命中率・1 発の期待ダメージ・射程の中か。狙いがなければ null', () => {
