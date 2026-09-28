@@ -146,7 +146,7 @@
   const SIZE_PITCH = {large: 0.55, medium: 1, small: 1.4};
 
   // 発砲: 砲撃 (gun) は味方が高めで乾いた音 (M4 のイメージ)、敵が低めで重い音 (AK のイメージ)。大きさで高さを変える。
-  // 爆撃機・偵察機の発進 (bomber / recon) は「シュッ」
+  // 爆撃機の発進 (bomber) は「シュッ」
   function fire(kind, team, pan, size){
     if(!ctx) return;
     const out = output(sfxBus, pan);

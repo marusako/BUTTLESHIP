@@ -262,15 +262,11 @@ function draw(){
     ctx.fillStyle = pr.team === 'blue' ? '#a0d2ff' : '#ffa078';
     ctx.fillRect(p.x - 1, p.y - 1, 2, 2);
   }
-  // 艦載機 (偵察機は小さな点、爆撃機は大きめの点)
+  // 艦載機 (爆撃機群は小さな点、通常攻撃の爆撃機は大きめの点)
   for(const a of game.aircraft){
     const p = toS(a.x, a.y);
-    ctx.fillStyle = a.team === 'blue' ? (a.kind === 'bomber' ? '#9fd0ff' : '#cfe6ff') : (a.kind === 'bomber' ? '#ffb08a' : '#ffd6c4');
-    const s = a.kind === 'bomber' ? 4 : 3; ctx.fillRect(p.x - s / 2, p.y - s / 2, s, s);
-    if(showSensor && a.kind === 'recon'){
-      ctx.strokeStyle = a.team === 'blue' ? 'rgba(79,163,255,0.18)' : 'rgba(255,90,90,0.18)';
-      ctx.beginPath(); ctx.arc(p.x, p.y, a.sensor * cam.scale, 0, Math.PI * 2); ctx.stroke();
-    }
+    ctx.fillStyle = a.team === 'blue' ? '#9fd0ff' : '#ffb08a';
+    const s = a.group ? 3 : 4; ctx.fillRect(p.x - s / 2, p.y - s / 2, s, s);
   }
   ctx.textAlign = 'center'; ctx.font = '11px sans-serif';
   for(const f of game.fleets){

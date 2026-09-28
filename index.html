@@ -202,10 +202,11 @@
       <li>あなたは味方の<strong>5 隻のどれか 1 隻</strong>を選んで指揮する (観戦もできる)。残りの味方 4 隻と敵 5 隻は AI</li>
       <li>見えるのは味方の索敵範囲の中だけ。見つけた敵は味方全員に共有される</li>
       <li>索敵範囲の中の敵に自動で狙いを定め、射程に入ると通常攻撃を撃つ。当たるかは相手の回避で決まり、ダメージは「火力 + 5 − 相手の装甲 × 0.7」(硬い相手にはかすり傷しか与えられない)。狙った敵が射程の外に出ると攻撃は消える</li>
-      <li>NP がたまると特殊攻撃・特殊行動 (戦艦: 全艦一斉射撃 / 巡洋艦: 強化 / 駆逐艦Ⅰ型: 精密射撃 / 駆逐艦Ⅱ型: 魚雷) が使える</li>
-      <li>空母は偵察機で敵を探し、遠くの敵に爆撃機を送る。艦載機は敵の対空射撃で撃ち落とされる</li>
+      <li>NP がたまると特殊攻撃・特殊行動 (戦艦: 全艦一斉射撃 / 空母: 爆撃機群 / 巡洋艦: 強化 / 駆逐艦Ⅰ型: 精密射撃 / 駆逐艦Ⅱ型: 魚雷) が使える。空母・巡洋艦・駆逐艦は、両軍の旗艦どうしが 3000 以内に近づく「最終戦」まで NP がたまらず使えない</li>
+      <li>空母は遠くの敵に爆撃機を送り、敵の爆撃機群は戦闘機で迎え撃つ。艦載機は敵の対空射撃で撃ち落とされる。空母が健在なうちは、旗艦の特殊装甲で旗艦の受けるダメージが減る</li>
+      <li>島は通れず、島越しには撃てない (見ることはできる)。地図は固定とランダムから選べる</li>
       <li>モダン: 敵の旗艦 (戦艦) を倒したら勝利。味方の旗艦が倒されたら敗北。旗艦以外を選んで先に沈んだら、決着まで観戦できる</li>
-      <li>60 秒ごとに 5 秒間、両軍の旗艦の位置が相手に知られる (索敵範囲の外でも)。隠れ続けることはできない</li>
+      <li>60 秒ごとに 5 秒間、衛星スキャンで両軍の全艦の位置が相手に知られる (索敵範囲の外でも)。隠れ続けることはできない</li>
       <li>艦隊は戦艦 (旗艦)・空母・巡洋艦・駆逐艦Ⅰ型・駆逐艦Ⅱ型の 5 隻。味方はそれぞれの役割で旗艦を支える</li>
     </ul>
     <h3>クレジット</h3>
@@ -279,6 +280,7 @@ const camera = {cx: 0, cy: 0, zoom: 1};
 const keys = new Set();
 let logs = [];
 let wrecks = [];
+let fighterLines = []; // 戦闘機の迎撃 (第 4.2 段階): {x1, y1, x2, y2, team, t0: 始まった時刻 (実時間の秒)}
 let watchSelected = null;        // 中立の観戦: クリックで選んだ艦 (TARGET にその艦の狙いを出す) // 撃沈エフェクト {w: createWreck の結果, t0: 始まった時刻 (実時間の秒)}
 let prevVisible = new Set();
 let prevAlive = new Set();
@@ -361,7 +363,6 @@ function attackTexts(no){
   const cls = classOf(no);
   const w = L.SHIP_TYPES[cls.role].weapon;
   const normal = w.kind === 'bomber' ? `爆撃機 (再装填 ${w.interval} 秒。回避できない)` : `主砲の二段攻撃 (再装填 ${w.interval} 秒)`;
-  if(!cls.special) return {normal, special: '特殊行動: 偵察機 (自動で出す。攻撃しない)'};
   const sp = L.SPECIALS[cls.special];
   return {normal, special: `${sp.category === 'action' ? '特殊行動' : '特殊攻撃'}: ${sp.name} (${sp.description})`};
 }
@@ -474,6 +475,7 @@ function startBattle(){
   clampCamera();
   logs = [];
   wrecks = [];
+  fighterLines = [];
   prevVisible = new Set();
   watchSelected = null;
   prevAlive = new Set(game.fleets.map(f => f.id));
@@ -505,8 +507,7 @@ function playEventSounds(){
     if(ev.type === 'fire'){
       if(ev.kind !== 'bomber' && !allowSound(ev.team, now)) continue;
       Snd.fire(ev.kind === 'torpedo' ? 'gun' : ev.kind, ev.team, pan, ev.size);
-    }else if(ev.type === 'launch') Snd.fire('recon', ev.team, pan);
-    else if(ev.type === 'hit') Snd.hit(ev.kind, pan);
+    }else if(ev.type === 'hit') Snd.hit(ev.kind, pan);
     else if(ev.type === 'intercept') Snd.intercept(pan);
     else if(ev.type === 'destroyed') Snd.destroyed(pan); // 全滅はいつも鳴らす (敵を倒せるのは見えている敵だけ)
   }
@@ -666,7 +667,6 @@ function toggleAutoSpecial(){
 function triggerSpecial(){
   const me = commandable();
   if(!me) return;
-  if(!me.special){ addLog('空母は特殊攻撃のかわりに偵察機を自動で出す'); return; }
   if(L.specialLocked(game, me)){ addLog(`${L.SPECIALS[me.special].name}: 最終戦 (旗艦どうしが ${L.FINAL_BATTLE_DISTANCE} 以内) まで使えない`); return; }
   if(me.charge < L.CHARGE_MAX){ addLog(`${L.SPECIALS[me.special].name}: NP がまだたまっていない (${Math.floor(me.charge)}%)`); return; }
   if(!L.useSpecial(game, me)) addLog(`${L.SPECIALS[me.special].name}: 射程の中に狙える敵がいない`);
@@ -943,6 +943,7 @@ function draw(){
   }
 
   drawWrecks();
+  drawFighterLines();
   if(watching){
     for(const id of Object.keys(L.fullIntel(game.fleets))) drawFleet(fleetById(id)); // 中立の観戦: 霧なしで全艦
   }else{
@@ -1064,14 +1065,14 @@ function drawProjectiles(allies){
   }
 }
 
-// 艦載機: 進む向きの小さな機影。偵察機は細く、爆撃機は太く。敵の艦載機は味方から見えているときだけ描く
+// 艦載機 (爆撃機): 進む向きの小さな機影。爆撃機群は少し小さく。敵の艦載機は味方から見えているときだけ描く
 function drawAircraft(allies){
   for(const a of game.aircraft){
     if(a.team !== 'blue' && !seenByBlue(a.x, a.y, allies)) continue;
     const s = toScreen(a.x, a.y);
     const hx = Math.cos(a.heading), hy = Math.sin(a.heading);
-    const len = a.kind === 'bomber' ? 9 : 7, wing = a.kind === 'bomber' ? 7 : 5;
-    ctx.fillStyle = a.team === 'blue' ? (a.kind === 'bomber' ? '#9fd0ff' : '#cfe6ff') : (a.kind === 'bomber' ? '#ffb08a' : '#ffd6c4');
+    const len = a.group ? 7 : 9, wing = a.group ? 5 : 7;
+    ctx.fillStyle = a.team === 'blue' ? '#9fd0ff' : '#ffb08a';
     ctx.beginPath();
     ctx.moveTo(s.x + hx * len, s.y + hy * len);
     ctx.lineTo(s.x - hx * len * 0.6 - hy * wing, s.y - hy * len * 0.6 + hx * wing);
@@ -1143,6 +1144,22 @@ function drawShipShape(role, x, y, heading, scale, color, clip){
 }
 
 // 撃沈エフェクト: 船体が割れた破片が回りながら散って沈み、水しぶきの輪が広がる
+// 戦闘機の迎撃: 空母から爆撃機への短い線 (0.6 秒で消える)
+const FIGHTER_LINE_TIME = 0.6;
+function drawFighterLines(){
+  const now = performance.now() / 1000;
+  for(const ev of game.events) if(ev.type === 'intercept' && ev.kind === 'fighter') fighterLines.push({x1: ev.fromX, y1: ev.fromY, x2: ev.x, y2: ev.y, team: ev.team, t0: now});
+  fighterLines = fighterLines.filter(l => now - l.t0 < FIGHTER_LINE_TIME);
+  for(const l of fighterLines){
+    ctx.globalAlpha = 1 - (now - l.t0) / FIGHTER_LINE_TIME;
+    ctx.strokeStyle = l.team === 'blue' ? '#cfe6ff' : '#ffd6c4';
+    ctx.setLineDash([4, 4]);
+    line(toScreen(l.x1, l.y1), toScreen(l.x2, l.y2));
+    ctx.setLineDash([]);
+  }
+  ctx.globalAlpha = 1;
+}
+
 function drawWrecks(){
   const now = performance.now() / 1000;
   wrecks = wrecks.filter(({w, t0}) => {
@@ -1331,7 +1348,6 @@ function renderStatTable(me){
 }
 // STATUS の NP: 特殊攻撃 (特殊行動) の名前とゲージ (満タンなら READY、巡洋艦の強化中は残り秒数)
 function specialText(me){
-  if(!me.special) return '偵察機 (自動)';
   const name = L.SPECIALS[me.special].name;
   if(me.boost > 0) return `${name} 中 (あと ${Math.ceil(me.boost)} 秒)`;
   if(L.specialLocked(game, me)) return `${name} ロック中 (最終戦で解禁)`;

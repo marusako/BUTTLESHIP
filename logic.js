@@ -35,10 +35,11 @@
   const BOMBER_SPEED = 250;      // 爆撃機の速さ (px/秒)
   const BOMBER_TURN_RATE = 2.5;  // 爆撃機が 1 秒に曲がれる角度 (ラジアン)。よけられることがある
   const BOMBER_LIFE = 8;         // 爆撃機が目標に届かずに消えるまでの時間 (秒)
-  const RECON_SPEED = 300;       // 偵察機の速さ (px/秒)。どの艦より速い
-  const RECON_LIFE = 40;         // 偵察機が消えるまでの時間 (秒)
-  const RECON_EVERY = 20;        // 空母が偵察機を 1 機ずつ出す間隔 (秒。最初は試合の始まり)
-  const RECON_CONE = Math.PI / 12; // 偵察機を射出する向きの幅 (進行方向の左右 15°)
+  const AIRSTRIKE_BOMBERS = 6;   // 空母の特殊攻撃 (爆撃機群) の機数 (第 4.2 段階)
+  const AIRSTRIKE_SPREAD = Math.PI / 3; // 爆撃機群を出す扇の幅 (60°。敵旗艦の方向が真ん中)
+  const AIRSTRIKE_CONE = Math.PI / 6;   // 爆撃機群の各機が狙う敵の向きの幅 (自分の向きから左右 30°)
+  const AIRSTRIKE_LIFE = 12;     // 爆撃機群の各機が消えるまでの時間 (秒。空母の射程では消えない)
+  const FIGHTER_COOLDOWN = 10;   // 空母の特殊対空 (戦闘機) を一度出したら、次に出せるまでの秒数
   const AA_RANGE = 400;          // 対空射撃の範囲
   const AA_INTERVAL = 0.5;       // 対空射撃の間隔 (秒)
   const CARRIER_CRIT_CHANCE = 0.15; // 空母が攻撃を受けたとき、ダメージが増える確率 (空母の弱点)
@@ -48,7 +49,7 @@
   const BUFF_DEFENSE = 1.2;      // バフ中の受けるダメージの割る数
   const FLAG_ARMOR_MAX = 0.5;    // 戦艦の特殊装甲が受けるダメージを減らす最大の割合 (味方の空母・巡洋艦が満タンのとき)
   const FINAL_BATTLE_DISTANCE = 3000; // 両チームの旗艦どうしがこれより近づくと最終戦が始まる (巡洋艦・駆逐艦の特殊攻撃の解禁。第 3.9 段階)
-  const FINAL_LOCKED_SPECIALS = ['boost', 'precision', 'torpedo']; // 最終戦まで使えず、NP もたまらない特殊攻撃・特殊行動
+  const FINAL_LOCKED_SPECIALS = ['boost', 'precision', 'torpedo', 'airstrike']; // 最終戦まで使えず、NP もたまらない特殊攻撃・特殊行動 (空母の爆撃機群は第 4.2 段階)
   const DESTROYER_SPECIAL_RANGE = 450; // 駆逐艦の特殊攻撃 (精密射撃・魚雷) の射程 (通常攻撃は短 300)
   const EPS = 1e-9;              // 小数の誤差を吸収する (待ち時間の判定など)
   const CHEAT_SEQUENCE = ['KeyY', 'KeyU', 'KeyK', 'KeyI']; // 隠しコマンド入力欄を開くキー列
@@ -74,13 +75,13 @@
   // npPerSecond / npPerDamage: 特殊攻撃のゲージ (NP) が時間でたまる速さ (毎秒) と、与えたダメージでたまる速さ (ダメージ 1 あたり)。通常攻撃は艦種ごとに 1 種類 (weapon.kind: 'gun' = 主砲の二段攻撃 / 'bomber' = 爆撃機)。interval は再装填 (秒)。大きさは当たり判定の半径と見た目に効く
   const SHIP_TYPES = {
     battleship: {name: '戦艦', stats: {hp: 100, firepower: 120, armor: 85, evasion: 15, antiAir: 40, sensor: 500, range: 'long', speed: 'slow'},
-      size: 'large', hitRadius: 28, weapon: {kind: 'gun', interval: 4}, npPerSecond: 0.23, npPerDamage: 0.02, description: '旗艦。重装甲・高火力だが遅く、よけられない。味方の空母・巡洋艦が健在なうちは特殊装甲で被ダメージが最大 50% 減る'},
+      size: 'large', hitRadius: 28, weapon: {kind: 'gun', interval: 4}, npPerSecond: 0.21, npPerDamage: 0.02, description: '旗艦。重装甲・高火力だが遅く、よけられない。味方の空母・巡洋艦が健在なうちは特殊装甲で被ダメージが最大 50% 減る'},
     carrier: {name: '空母', stats: {hp: 70, firepower: 50, armor: 40, evasion: 40, antiAir: 60, sensor: 800, range: 'veryLong', speed: 'fast'},
-      size: 'large', hitRadius: 28, weapon: {kind: 'bomber', interval: 5}, npPerSecond: 0, npPerDamage: 0, description: '制空タイプ。遠くの敵に爆撃機を送り、偵察機で敵を探す。攻撃を受けると大きな被害が出ることがある'},
+      size: 'large', hitRadius: 28, weapon: {kind: 'bomber', interval: 5}, npPerSecond: 1.3, npPerDamage: 0.1, description: '副艦。遠くの敵に爆撃機を送る。健在なうちは旗艦の特殊装甲が効き、敵の爆撃機群は戦闘機で迎え撃つ。攻撃を受けると大きな被害が出ることがある'},
     cruiser: {name: '巡洋艦', stats: {hp: 50, firepower: 55, armor: 50, evasion: 60, antiAir: 40, sensor: 600, range: 'medium', speed: 'fast'},
-      size: 'medium', hitRadius: 18, weapon: {kind: 'gun', interval: 2}, npPerSecond: 2.6, npPerDamage: 0.1, description: '主砲タイプの主力。攻守のバランスがよい'},
+      size: 'medium', hitRadius: 18, weapon: {kind: 'gun', interval: 2}, npPerSecond: 2.4, npPerDamage: 0.1, description: '主砲タイプの主力。攻守のバランスがよい'},
     destroyer: {name: '駆逐艦', stats: {hp: 30, firepower: 20, armor: 20, evasion: 85, antiAir: 50, sensor: 900, range: 'short', speed: 'fastPlus'},
-      size: 'small', hitRadius: 10, weapon: {kind: 'gun', interval: 1.5}, npPerSecond: 3.7, npPerDamage: 0.2, description: '最速。当たりにくいが打たれ弱い。索敵が広い偵察役'}
+      size: 'small', hitRadius: 10, weapon: {kind: 'gun', interval: 1.5}, npPerSecond: 2.3, npPerDamage: 0.2, description: '最速。当たりにくいが打たれ弱い。索敵が広い偵察役'}
   };
 
   // 特殊攻撃 (category: 'attack') と特殊行動 ('action')。NP (ゲージ) が満タンのときに使え、使うと 0 に戻る
@@ -88,14 +89,15 @@
     salvo: {name: '全艦一斉射撃', category: 'attack', description: '射程の中の敵を狙っている味方の全艦が、火力 100 の攻撃を 5 回ずつ (空母は爆撃機)'},
     boost: {name: '強化', category: 'action', description: '15 秒間、火力・装甲・速力・射程が 1.5 倍、会心率 20%、命中率 +40%'},
     precision: {name: '精密射撃', category: 'attack', description: '火力 100 の単発弾 (射程 450)。回避を無視して必ず当たる'},
+    airstrike: {name: '爆撃機群', category: 'attack', description: '敵旗艦の方向の幅 60° に爆撃機 6 機。各機は左右 30° 以内の最も近い敵へ向かう (回避できない)'},
     torpedo: {name: '魚雷', category: 'attack', description: '火力 100 の二連攻撃 (射程 450)。回避を無視し、命中率 70%'}
   };
 
   // 連合艦隊の編成 (第 1〜第 5 艦隊)。第 1 艦隊 (戦艦) が旗艦。敵味方とも同じ。艦隊の名前は艦種の名前
-  // 空母は特殊攻撃のかわりに偵察機 (特殊行動) を自動で出す
+  // 空母の特殊攻撃は爆撃機群 (第 4.2 段階。偵察機はなくした)
   const FLEET_CLASSES = [
     {role: 'battleship', name: '戦艦', special: 'salvo'},
-    {role: 'carrier', name: '空母', special: null},
+    {role: 'carrier', name: '空母', special: 'airstrike'},
     {role: 'cruiser', name: '巡洋艦', special: 'boost'},
     {role: 'destroyer', name: '駆逐艦Ⅰ型', special: 'precision'},
     {role: 'destroyer', name: '駆逐艦Ⅱ型', special: 'torpedo'}
@@ -208,9 +210,9 @@
     return !!partners && alive(f) && fleets.some(a => a !== f && a.team === f.team && alive(a) && partners.includes(a.role) && dist(a, f) <= BUFF_RANGE);
   }
 
-  // 戦艦の特殊装甲 (第 3.8 段階): 受けるダメージを減らす割合 = FLAG_ARMOR_MAX × 味方の空母・巡洋艦 (護衛) の残り HP の合計 ÷ 最大 HP の合計。
-  // 護衛が傷つくと弱まり、全部沈むと 0。戦艦以外は 0
-  const FLAG_ARMOR_ESCORTS = ['carrier', 'cruiser'];
+  // 戦艦の特殊装甲 (第 3.8 段階): 受けるダメージを減らす割合 = FLAG_ARMOR_MAX × 味方の空母 (副艦。第 4.2 段階で巡洋艦を外した) の残り HP ÷ 最大 HP。
+  // 空母が傷つくと弱まり、沈むと 0。戦艦以外は 0
+  const FLAG_ARMOR_ESCORTS = ['carrier']; // 第 4.2 段階: 空母 (副艦) だけ
   function flagArmorOf(f, fleets){
     if(f.role !== 'battleship') return 0;
     let left = 0, max = 0;
@@ -338,20 +340,18 @@
     return WORLD.w / 2 + (team === 'blue' ? offset : -offset);
   }
 
-  // team から見えている生存中の敵。味方の艦の索敵範囲 (sensorRange) か、味方の偵察機の索敵範囲 (sensor) の中。reveal なら全部見える
+  // team から見えている生存中の敵。味方の艦の索敵範囲 (sensorRange) の中。reveal なら全部見える
   // 透明化中 (stealth) の艦隊は敵から見えない。scan: 衛星スキャンの時間なら、敵の全艦が索敵範囲の外でも見える
-  function visibleEnemies(fleets, team, reveal, scan, aircraft){
+  function visibleEnemies(fleets, team, reveal, scan){
     const eyes = fleets.filter(f => f.team === team && alive(f));
-    const planes = (aircraft || []).filter(a => a.team === team && a.kind === 'recon');
-    return fleets.filter(f => f.team !== team && alive(f) && !(f.stealth > 0) && (reveal || scan ||
-      eyes.some(e => dist(e, f) <= sensorRange(e)) || planes.some(p => dist(p, f) <= p.sensor)));
+    return fleets.filter(f => f.team !== team && alive(f) && !(f.stealth > 0) && (reveal || scan || eyes.some(e => dist(e, f) <= sensorRange(e))));
   }
 
   // 敵の位置情報 (intel: 敵 id → {x, y, visible}) を更新する。
   // 見失った敵は最終確認位置を残し、味方がその近くまで行って確かめたら消す
-  function updateIntel(intel, fleets, team, reveal, scan, aircraft){
+  function updateIntel(intel, fleets, team, reveal, scan){
     const eyes = fleets.filter(f => f.team === team && alive(f));
-    const seen = new Set(visibleEnemies(fleets, team, reveal, scan, aircraft).map(f => f.id));
+    const seen = new Set(visibleEnemies(fleets, team, reveal, scan).map(f => f.id));
     for(const f of fleets){
       if(f.team === team) continue;
       if(!alive(f)){ delete intel[f.id]; continue; }
@@ -488,7 +488,6 @@
           flagArmor: 0, // 戦艦の特殊装甲の割合 (1 ステップごとに付け直す)
           ai: {nextThink: 0}
         });
-        if(cls.role === 'carrier') fleets[fleets.length - 1].recon = {next: 0}; // 偵察機: 次に射出する時刻
       });
     }
     return {
@@ -507,7 +506,7 @@
 
   const visibleByTeam = g => {
     const scan = scanActive(g.time);
-    return {blue: visibleEnemies(g.fleets, 'blue', revealFor(g, 'blue'), scan, g.aircraft), red: visibleEnemies(g.fleets, 'red', false, scan, g.aircraft)};
+    return {blue: visibleEnemies(g.fleets, 'blue', revealFor(g, 'blue'), scan), red: visibleEnemies(g.fleets, 'red', false, scan)};
   };
 
   // 1 回の攻撃を出す。kind: 'shot' (主砲) / 'torpedo' (魚雷) / 'bomber' (爆撃機。回避できない)。fp は火力 (特殊攻撃は 100)、hitChance は命中率 (null なら相手の回避で決まる)
@@ -588,6 +587,8 @@
       if(!clearShot(g, f, range)) return false;
       launchAttack(g, f, f.lockRef, 'torpedo', SPECIAL_FIREPOWER, TORPEDO_HIT, range);
       for(let k = 1; k < TORPEDO_SHOTS; k++) schedule(g, f, f.lockRef, 'torpedo', SPECIAL_FIREPOWER, TORPEDO_HIT, k * DOUBLE_SHOT_DELAY, range);
+    }else if(f.special === 'airstrike'){
+      launchAirstrike(g, f);
     }else if(f.special === 'salvo'){
       const shooters = g.fleets.filter(a => a.team === f.team && alive(a) && clearShot(g, a));
       if(!shooters.length) return false;
@@ -607,18 +608,42 @@
   function autoSpecial(g, f){
     if(!f.special || !(f.charge >= CHARGE_MAX - EPS)) return;
     if(f.special === 'boost' && !(f.lockRef && f.lockRef.id === f.lockId && alive(f.lockRef))) return;
+    if(f.special === 'airstrike'){ // 爆撃機群は、敵旗艦の位置 (見えている・最終確認位置) が分かっているときだけ
+      const flag = g.fleets.find(e => e.team !== f.team && e.flagship && alive(e));
+      if(!(flag && g.intel && g.intel[f.team] && g.intel[f.team][flag.id])) return;
+    }
     useSpecial(g, f);
   }
 
-  // 空母: 試合の始まりと、その後 RECON_EVERY 秒ごとに、偵察機を 1 機、進行方向の左右 RECON_CONE の範囲へ射出する。索敵範囲は空母の索敵の半分
-  function launchRecon(g, rng){
+  // 空母の特殊対空 (戦闘機。第 4.2 段階): 敵の爆撃機群が空母の索敵範囲に入ったら戦闘機を出し、その中の爆撃機群を 1 機ずつ対空% で撃ち落とす。
+  // 迎撃なので、撃ち落とせなかった機体に免疫は付かない。一度出したら FIGHTER_COOLDOWN 秒は出さない。NP は使わない
+  function launchFighters(g, dt, rng){
     for(const f of g.fleets){
-      if(!alive(f) || !f.recon || g.time + EPS < f.recon.next) continue;
-      const heading = f.heading + (rng() * 2 - 1) * RECON_CONE;
-      g.aircraft.push({id: g.nextProjectileId++, kind: 'recon', team: f.team, from: f.id, x: f.x, y: f.y, heading, life: RECON_LIFE, sensor: sensorRange(f) / 2});
-      record(g, {type: 'launch', kind: 'recon', team: f.team, x: f.x, y: f.y});
-      f.recon.next += RECON_EVERY;
+      if(!alive(f) || f.role !== 'carrier') continue;
+      f.fighterCooldown = Math.max(0, (f.fighterCooldown || 0) - dt);
+      if(f.fighterCooldown > EPS) continue;
+      const intruders = g.aircraft.filter(a => a.group && a.team !== f.team && dist(f, a) <= sensorRange(f));
+      if(!intruders.length) continue;
+      for(const a of intruders){
+        record(g, {type: 'intercept', kind: 'fighter', team: f.team, from: f.id, fromX: f.x, fromY: f.y, x: a.x, y: a.y});
+        if(rng() < antiAirChance(f)) g.aircraft.splice(g.aircraft.indexOf(a), 1);
+      }
+      f.fighterCooldown = FIGHTER_COOLDOWN;
     }
+  }
+
+  // 空母の特殊攻撃 (爆撃機群。第 4.2 段階): 敵旗艦の方向 (見えている・最終確認位置。分からなければ進む向き) の幅 AIRSTRIKE_SPREAD に、
+  // AIRSTRIKE_BOMBERS 機を扇形に出す。火力は空母の火力、回避できない
+  function launchAirstrike(g, f){
+    const flag = g.fleets.find(e => e.team !== f.team && e.flagship && alive(e));
+    const info = flag && g.intel && g.intel[f.team] && g.intel[f.team][flag.id];
+    const center = info ? Math.atan2(info.y - f.y, info.x - f.x) : f.heading;
+    for(let k = 0; k < AIRSTRIKE_BOMBERS; k++){
+      const heading = center - AIRSTRIKE_SPREAD / 2 + AIRSTRIKE_SPREAD * k / (AIRSTRIKE_BOMBERS - 1);
+      g.aircraft.push({id: g.nextProjectileId++, kind: 'bomber', group: true, team: f.team, from: f.id, targetId: null, x: f.x, y: f.y, heading,
+        life: AIRSTRIKE_LIFE, fp: firepowerOf(f), mult: attackMultiplier(f), crit: critChanceOf(f), hitChance: 1, evasionCut: 0});
+    }
+    record(g, {type: 'fire', kind: 'bomber', size: SHIP_TYPES[f.role].size, team: f.team, from: f.id, x: f.x, y: f.y});
   }
 
   // 対空射撃: 全艦種が、AA_RANGE 以内の最も近い (免疫のない) 敵の艦載機を撃ち、対空% で撃ち落とす。
@@ -712,21 +737,31 @@
     });
   }
 
-  // 艦載機を進める。偵察機はまっすぐ飛び、RECON_LIFE 秒かマップの外で消える。
-  // 爆撃機は目標へ向かい (1 ステップで BOMBER_TURN_RATE × dt まで向きを変える)、目標の当たり判定に触れたら爆撃して (回避で抽選) 消える。
-  // 目標が空母の射程の外に出たら消える。BOMBER_LIFE 秒で消える
+  // 艦載機を進める。爆撃機は目標へ向かい (1 ステップで BOMBER_TURN_RATE × dt まで向きを変える)、目標の当たり判定に触れたら爆撃して (回避で抽選) 消える。
+  // 通常攻撃の爆撃機は、目標が空母の射程の外に出たら消える。BOMBER_LIFE 秒で消える。
+  // 爆撃機群 (group) は、狙いがなければ自分の向きから左右 AIRSTRIKE_CONE 以内で最も近い見えている敵を狙い、いなければまっすぐ飛ぶ。射程では消えず、寿命で消える
   function moveAircraft(g, dt, damage, rng){
     const byId = new Map(g.fleets.map(f => [f.id, f]));
+    let vis = null;
     g.aircraft = g.aircraft.filter(a => {
-      if(a.kind === 'recon'){
-        a.x += Math.cos(a.heading) * RECON_SPEED * dt;
-        a.y += Math.sin(a.heading) * RECON_SPEED * dt;
-        a.life -= dt;
-        return a.life > 0 && a.x >= 0 && a.x <= WORLD.w && a.y >= 0 && a.y <= WORLD.h;
+      let t = byId.get(a.targetId);
+      if(a.group && (!t || !alive(t))){
+        vis = vis || visibleByTeam(g);
+        t = null;
+        for(const e of vis[a.team]){
+          const diff = Math.atan2(e.y - a.y, e.x - a.x) - a.heading;
+          if(Math.abs(Math.atan2(Math.sin(diff), Math.cos(diff))) <= AIRSTRIKE_CONE + EPS && (!t || dist(a, e) < dist(a, t))) t = e;
+        }
+        a.targetId = t ? t.id : null;
+        if(!t){
+          a.x += Math.cos(a.heading) * BOMBER_SPEED * dt;
+          a.y += Math.sin(a.heading) * BOMBER_SPEED * dt;
+          a.life -= dt;
+          return a.life > 0;
+        }
       }
-      const t = byId.get(a.targetId);
       if(!t || !alive(t)) return false;
-      if(outOfRange(byId, a, t)){ record(g, {type: 'fizzle', kind: 'bomber', team: a.team, x: a.x, y: a.y}); return false; }
+      if(!a.group && outOfRange(byId, a, t)){ record(g, {type: 'fizzle', kind: 'bomber', team: a.team, x: a.x, y: a.y}); return false; }
       const want = Math.atan2(t.y - a.y, t.x - a.x);
       let diff = want - a.heading;
       diff = Math.atan2(Math.sin(diff), Math.cos(diff)); // -π〜π にそろえる
@@ -881,7 +916,7 @@
     }
     const living = g.fleets.filter(alive);
     if(!g.aircraft) g.aircraft = [];
-    const refreshIntel = () => { for(const team of TEAMS) updateIntel(g.intel[team], g.fleets, team, revealFor(g, team), scanActive(g.time), g.aircraft); };
+    const refreshIntel = () => { for(const team of TEAMS) updateIntel(g.intel[team], g.fleets, team, revealFor(g, team), scanActive(g.time)); };
 
     refreshIntel();
     // 衛星スキャンの始まり (第 4.1 段階)
@@ -897,7 +932,6 @@
     for(const f of living) moveFleet(f, dt, g.intel[f.team], g.islands || []);
     updateBuffs(g);
     updateFinalBattle(g);
-    launchRecon(g, rng);
     refreshIntel();
 
     // NP は時間でもたまる (艦種ごとの速さ。空母にはない。最終戦の前の巡洋艦・駆逐艦はたまらない)
@@ -908,6 +942,7 @@
       if(f.isPlayer ? f.autoSpecial : g.controllers && g.controllers[f.team]) autoSpecial(g, f);
     }
     antiAir(g, dt, rng);
+    launchFighters(g, dt, rng);
 
     // 弾と爆撃のダメージは全艦隊ぶんを先に計算してから同時に反映する
     const damage = new Map();
@@ -926,10 +961,10 @@
     WORLD, DEFAULT_WORLD, setWorld, SCAN_INTERVAL, SCAN_DURATION, scanActive, ISLAND_SPAWN_CLEARANCE, ISLAND_GAP, randomIslands, fixedIslands, lineBlocked, RANGES, SPEEDS, weaponRange, specialRange, FLAG_ARMOR_MAX, flagArmorOf, sensorRange, hpRatio, damageState,
     attackMultiplier, hitChance, expectedDamage, antiAirChance, resolveHit, speedOf, firepowerOf, armorOf, critChanceOf, GHOST_CLEAR_RANGE,
     CHARGE_MAX, evasionCutOf, BOOST_DURATION, BOOST_MULTIPLIER, SPECIALS, FLEET_CLASSES, useSpecial,
-    STEALTH_DURATION, SHOT_LIFE, BOMBER_LIFE, BOMBER_TURN_RATE, RECON_SPEED, RECON_LIFE, AA_RANGE,
+    STEALTH_DURATION, SHOT_LIFE, BOMBER_LIFE, BOMBER_TURN_RATE, AIRSTRIKE_BOMBERS, AIRSTRIKE_LIFE, FIGHTER_COOLDOWN, AA_RANGE,
     BUFF_RANGE, isBuffed, updateBuffs, SHIP_TYPES, FORMATION, AI_THINK_INTERVAL, maxSpeed, lockRange, visibleEnemies, updateIntel,
     lockTarget, moveFleet, checkOutcome, createGame, step, HP_SCALE, maxHpOf, applyHit, FINAL_BATTLE_DISTANCE, specialLocked,
-    fireWeapons, launchRecon, antiAir, moveProjectiles, moveAircraft, keyCourse, battleStats,
+    fireWeapons, launchFighters, autoSpecial, antiAir, moveProjectiles, moveAircraft, keyCourse, battleStats,
     fullIntel, targetInfo, clampView, SHIP_SHAPES, WRECK_DURATION, createWreck, wreckState,
     newCheatProgress, cheatSequenceStep, parseCommand, applyCommand, warpFleet
   };
