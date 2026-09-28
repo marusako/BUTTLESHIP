@@ -7,7 +7,7 @@
   const WORLD = Object.assign({}, DEFAULT_WORLD); // 今のマップの広さ (学習では setWorld で狭くする。ゲームは常に本番の広さ)
   // ステータスは艦種ごと (SHIP_TYPES)。耐久 = 最大 HP (艦隊の ships は今の HP)
   const RANGES = {short: 300, medium: 450, long: 650, veryLong: 1200}; // 射程 (短・中・長・超長)
-  const SPEEDS = {slow: 65, fast: 105, fastPlus: 145};                 // 速力 (低速・高速・高速+) の速さ (px/秒)。試合時間が 3 分前後になるように調整
+  const SPEEDS = {slow: 65, fast: 105, fastPlus: 165};                 // 速力 (低速・高速・高速+) の速さ (px/秒)。試合時間が 3 分前後になるように調整。高速+ (駆逐艦) は強化中の巡洋艦 (105 × 1.5) より速い
   const ATTACK_BONUS = 5;        // 攻撃の値 = 火力 + ATTACK_BONUS
   const ARMOR_FACTOR = 0.7;      // ダメージ = 攻撃の値 − 装甲 × ARMOR_FACTOR
   const SCRATCH_MIN = 0.05;      // かすり = 今の HP × (SCRATCH_MIN 〜 SCRATCH_MIN + SCRATCH_SPREAD)。最低 1
@@ -45,6 +45,8 @@
   const BUFF_RANGE = 1000;       // バフ: この距離以内に組む相手 (戦艦 ⇔ 空母・巡洋艦) がいると強化される
   const BUFF_ATTACK = 1.2;       // バフ中の与えるダメージの倍率
   const BUFF_DEFENSE = 1.2;      // バフ中の受けるダメージの割る数
+  const FLAG_ARMOR_MAX = 0.5;    // 戦艦の特殊装甲が受けるダメージを減らす最大の割合 (味方の空母・巡洋艦が満タンのとき)
+  const DESTROYER_SPECIAL_RANGE = 450; // 駆逐艦の特殊攻撃 (精密射撃・魚雷) の射程 (通常攻撃は短 300)
   const EPS = 1e-9;              // 小数の誤差を吸収する (待ち時間の判定など)
   const CHEAT_SEQUENCE = ['KeyY', 'KeyU', 'KeyK', 'KeyI']; // 隠しコマンド入力欄を開くキー列
   const CHEAT_WINDOW = 2;        // キー列を押し切るまでの制限時間 (秒)
@@ -57,22 +59,22 @@
   // 艦種。stats: 耐久 (hp = 最大 HP)・火力・装甲・回避 (%)・対空 (%)・索敵 (索敵距離)・射程 (RANGES のキー)・速力 (SPEEDS のキー)
   // npPerSecond / npPerDamage: 特殊攻撃のゲージ (NP) が時間でたまる速さ (毎秒) と、与えたダメージでたまる速さ (ダメージ 1 あたり)。通常攻撃は艦種ごとに 1 種類 (weapon.kind: 'gun' = 主砲の二段攻撃 / 'bomber' = 爆撃機)。interval は再装填 (秒)。大きさは当たり判定の半径と見た目に効く
   const SHIP_TYPES = {
-    battleship: {name: '戦艦', stats: {hp: 300, firepower: 120, armor: 85, evasion: 15, antiAir: 40, sensor: 500, range: 'long', speed: 'slow'},
-      size: 'large', hitRadius: 40, weapon: {kind: 'gun', interval: 4}, npPerSecond: 0.3, npPerDamage: 0.2, description: '旗艦。重装甲・高火力だが遅く、よけられない'},
+    battleship: {name: '戦艦', stats: {hp: 100, firepower: 120, armor: 85, evasion: 15, antiAir: 40, sensor: 500, range: 'long', speed: 'slow'},
+      size: 'large', hitRadius: 40, weapon: {kind: 'gun', interval: 4}, npPerSecond: 0.3, npPerDamage: 0.2, description: '旗艦。重装甲・高火力だが遅く、よけられない。味方の空母・巡洋艦が健在なうちは特殊装甲で被ダメージが最大 50% 減る'},
     carrier: {name: '空母', stats: {hp: 70, firepower: 50, armor: 40, evasion: 40, antiAir: 60, sensor: 800, range: 'veryLong', speed: 'fast'},
       size: 'large', hitRadius: 40, weapon: {kind: 'bomber', interval: 5}, npPerSecond: 0, npPerDamage: 0, description: '制空タイプ。遠くの敵に爆撃機を送り、偵察機で敵を探す。攻撃を受けると大きな被害が出ることがある'},
     cruiser: {name: '巡洋艦', stats: {hp: 50, firepower: 55, armor: 50, evasion: 60, antiAir: 40, sensor: 600, range: 'medium', speed: 'fast'},
       size: 'medium', hitRadius: 25, weapon: {kind: 'gun', interval: 2}, npPerSecond: 5, npPerDamage: 3, description: '主砲タイプの主力。攻守のバランスがよい'},
-    destroyer: {name: '駆逐艦', stats: {hp: 30, firepower: 20, armor: 20, evasion: 85, antiAir: 50, sensor: 700, range: 'short', speed: 'fastPlus'},
-      size: 'small', hitRadius: 15, weapon: {kind: 'gun', interval: 1.5}, npPerSecond: 3, npPerDamage: 1, description: '最速。当たりにくいが打たれ弱い'}
+    destroyer: {name: '駆逐艦', stats: {hp: 30, firepower: 20, armor: 20, evasion: 85, antiAir: 50, sensor: 900, range: 'short', speed: 'fastPlus'},
+      size: 'small', hitRadius: 15, weapon: {kind: 'gun', interval: 1.5}, npPerSecond: 3, npPerDamage: 1, description: '最速。当たりにくいが打たれ弱い。索敵が広い偵察役'}
   };
 
   // 特殊攻撃 (category: 'attack') と特殊行動 ('action')。NP (ゲージ) が満タンのときに使え、使うと 0 に戻る
   const SPECIALS = {
     salvo: {name: '全艦一斉射撃', category: 'attack', description: '射程の中の敵を狙っている味方の全艦が、火力 100 の攻撃を 5 回ずつ (空母は爆撃機)'},
-    boost: {name: '強化', category: 'action', description: '15 秒間、火力・装甲・速力が 1.5 倍、会心率 20%、命中率 +40%'},
-    precision: {name: '精密射撃', category: 'attack', description: '火力 100 の単発弾。回避を無視して必ず当たる'},
-    torpedo: {name: '魚雷', category: 'attack', description: '火力 100 の二連攻撃。回避を無視し、命中率 70%'}
+    boost: {name: '強化', category: 'action', description: '15 秒間、火力・装甲・速力・射程が 1.5 倍、会心率 20%、命中率 +40%'},
+    precision: {name: '精密射撃', category: 'attack', description: '火力 100 の単発弾 (射程 450)。回避を無視して必ず当たる'},
+    torpedo: {name: '魚雷', category: 'attack', description: '火力 100 の二連攻撃 (射程 450)。回避を無視し、命中率 70%'}
   };
 
   // 連合艦隊の編成 (第 1〜第 5 艦隊)。第 1 艦隊 (戦艦) が旗艦。敵味方とも同じ。艦隊の名前は艦種の名前
@@ -150,18 +152,29 @@
 
   const weaponOf = f => SHIP_TYPES[f.role].weapon;
 
-  // 期待ダメージ (AI の狙いの判断用): f の通常攻撃 1 発が t に与えるダメージの見込み = 命中率 × ダメージ。
+  // 期待ダメージ (AI の狙いの判断用): f の通常攻撃 1 発が t に与えるダメージの見込み = 命中率 × ダメージ × (1 − 特殊装甲)。
   // ダメージが 0 以下ならかすり (今の HP の 10% = かすりの幅の真ん中、最低 1)。会心・空母の弱点・バフの軽減は数えない
   function expectedDamage(f, t){
     const base = Math.floor((firepowerOf(f) + ATTACK_BONUS) * attackMultiplier(f) - armorOf(t) * ARMOR_FACTOR);
     const amount = base > 0 ? base : Math.max(1, t.ships * (SCRATCH_MIN + SCRATCH_SPREAD / 2));
     const hit = weaponOf(f).kind === 'bomber' ? 1 : hitChance(t, evasionCutOf(f));
-    return hit * amount;
+    return hit * amount * (1 - (t.flagArmor || 0));
   }
 
-  // 攻撃できる距離 (射程)
+  // 攻撃できる距離 (射程)。巡洋艦の強化中は 1.5 倍
   function weaponRange(f){
-    return RANGES[f.stats.range];
+    return RANGES[f.stats.range] * (boosted(f) ? BOOST_MULTIPLIER : 1);
+  }
+
+  // 特殊攻撃 (精密射撃・魚雷) の射程。駆逐艦は DESTROYER_SPECIAL_RANGE、ほかは通常攻撃と同じ
+  function specialRange(f){
+    return f.role === 'destroyer' ? Math.max(DESTROYER_SPECIAL_RANGE, weaponRange(f)) : weaponRange(f);
+  }
+
+  // 攻撃命令で近づく目安の射程: 特殊攻撃 (精密射撃・魚雷) が撃てるときは特殊攻撃の射程、それ以外は通常攻撃の射程
+  function attackRange(f){
+    const ready = (f.special === 'precision' || f.special === 'torpedo') && f.charge >= CHARGE_MAX - EPS;
+    return ready ? specialRange(f) : weaponRange(f);
   }
 
   // ロックオンできる範囲: 索敵距離と射程の長いほう (空母は味方が見つけた敵なら射程 1200 まで)
@@ -176,9 +189,26 @@
     return !!partners && alive(f) && fleets.some(a => a !== f && a.team === f.team && alive(a) && partners.includes(a.role) && dist(a, f) <= BUFF_RANGE);
   }
 
-  // 全艦隊のバフを付け直す (1 ステップごと)
+  // 戦艦の特殊装甲 (第 3.8 段階): 受けるダメージを減らす割合 = FLAG_ARMOR_MAX × 味方の空母・巡洋艦 (護衛) の残り HP の合計 ÷ 最大 HP の合計。
+  // 護衛が傷つくと弱まり、全部沈むと 0。戦艦以外は 0
+  const FLAG_ARMOR_ESCORTS = ['carrier', 'cruiser'];
+  function flagArmorOf(f, fleets){
+    if(f.role !== 'battleship') return 0;
+    let left = 0, max = 0;
+    for(const a of fleets){
+      if(a.team !== f.team || !FLAG_ARMOR_ESCORTS.includes(a.role)) continue;
+      left += Math.max(0, a.ships);
+      max += a.maxShips;
+    }
+    return max > 0 ? FLAG_ARMOR_MAX * left / max : 0;
+  }
+
+  // 全艦隊のバフと特殊装甲を付け直す (1 ステップごと)
   function updateBuffs(g){
-    for(const f of g.fleets) f.buffed = isBuffed(f, g.fleets);
+    for(const f of g.fleets){
+      f.buffed = isBuffed(f, g.fleets);
+      f.flagArmor = flagArmorOf(f, g.fleets);
+    }
   }
 
   // 旗艦の位置がばれている時間か (開始から BEACON_INTERVAL 秒ごとに BEACON_DURATION 秒間)
@@ -265,7 +295,7 @@
       const info = intel[o.targetId];
       if(!info){ f.order = null; return; }
       dest = info;
-      stopAt = info.visible ? weaponRange(f) * ATTACK_STOP_RATIO : 0;
+      stopAt = info.visible ? attackRange(f) * ATTACK_STOP_RATIO : 0;
     }
     // 行き先はマップの内側に収める (外なら最も近い端へ向かう)
     dest = {x: clamp(dest.x, 0, WORLD.w), y: clamp(dest.y, 0, WORLD.h)};
@@ -343,6 +373,7 @@
           weapons: {fire: true},
           stealth: 0, // 透明化の残り秒数 (隠しコマンド stealth)
           buffed: false, // バフ中か (1 ステップごとに付け直す)
+          flagArmor: 0, // 戦艦の特殊装甲の割合 (1 ステップごとに付け直す)
           ai: {nextThink: 0}
         });
         if(cls.role === 'carrier') fleets[fleets.length - 1].recon = {next: 0}; // 偵察機: 次に射出する時刻
@@ -369,17 +400,18 @@
 
   // 1 回の攻撃を出す。kind: 'shot' (主砲) / 'torpedo' (魚雷) / 'bomber' (爆撃機。回避できない)。fp は火力 (特殊攻撃は 100)、hitChance は命中率 (null なら相手の回避で決まる)
   // 攻撃の倍率 (損傷・バフ) と会心率は撃った瞬間の値
-  function launchAttack(g, f, t, kind, fp, hitChance){
+  // range: 目標がこれより離れると弾が消える距離 (省略時は通常攻撃の射程。駆逐艦の特殊攻撃は特殊攻撃の射程)
+  function launchAttack(g, f, t, kind, fp, hitChance, range){
     const attack = {id: g.nextProjectileId++, kind, team: f.team, from: f.id, targetId: t.id, x: f.x, y: f.y, heading: Math.atan2(t.y - f.y, t.x - f.x),
-      range: weaponRange(f), fp, mult: attackMultiplier(f), crit: critChanceOf(f), hitChance: kind === 'bomber' ? 1 : hitChance, evasionCut: evasionCutOf(f)};
+      range: range || weaponRange(f), fp, mult: attackMultiplier(f), crit: critChanceOf(f), hitChance: kind === 'bomber' ? 1 : hitChance, evasionCut: evasionCutOf(f)};
     if(kind === 'bomber') g.aircraft.push(Object.assign(attack, {life: BOMBER_LIFE}));
     else g.projectiles.push(Object.assign(attack, {life: SHOT_LIFE}));
     record(g, {type: 'fire', kind: kind === 'shot' ? 'gun' : kind, size: SHIP_TYPES[f.role].size, team: f.team, from: f.id, x: f.x, y: f.y});
   }
 
   // あとで出す攻撃 (二段攻撃の 2 発目・連続攻撃) を予約する。delay 秒後に、撃つ艦と目標が生きていて目標が射程の中なら出す
-  function schedule(g, f, t, kind, fp, hitChance, delay){
-    g.pending.push({from: f.id, targetId: t.id, kind, fp, hitChance, delay});
+  function schedule(g, f, t, kind, fp, hitChance, delay, range){
+    g.pending.push({from: f.id, targetId: t.id, kind, fp, hitChance, delay, range});
   }
 
   // 予約した攻撃の待ち時間を進め、時間が来たものを出す
@@ -390,7 +422,8 @@
       p.delay -= dt;
       if(p.delay > EPS){ left.push(p); continue; }
       const f = byId.get(p.from), t = byId.get(p.targetId);
-      if(f && t && alive(f) && alive(t) && dist(f, t) <= weaponRange(f)) launchAttack(g, f, t, p.kind, p.fp, p.hitChance);
+      const range = p.range || weaponRange(f);
+      if(f && t && alive(f) && alive(t) && dist(f, t) <= range) launchAttack(g, f, t, p.kind, p.fp, p.hitChance, p.range);
     }
     g.pending = left;
   }
@@ -422,8 +455,8 @@
     }
   }
 
-  // ロックオンしている敵が射程の中にいるか
-  const targetInRange = f => !!f.lockRef && f.lockRef.id === f.lockId && alive(f.lockRef) && dist(f, f.lockRef) <= weaponRange(f);
+  // ロックオンしている敵が射程 (省略時は通常攻撃の射程) の中にいるか
+  const targetInRange = (f, range) => !!f.lockRef && f.lockRef.id === f.lockId && alive(f.lockRef) && dist(f, f.lockRef) <= (range || weaponRange(f));
 
   // 特殊攻撃を使う。ゲージが満タンで、使える状況なら使ってゲージを 0 に戻し true を返す
   function useSpecial(g, f){
@@ -432,12 +465,13 @@
     if(f.special === 'boost'){
       f.boost = BOOST_DURATION;
     }else if(f.special === 'precision'){
-      if(!targetInRange(f)) return false;
-      launchAttack(g, f, f.lockRef, 'shot', SPECIAL_FIREPOWER, 1);
+      if(!targetInRange(f, specialRange(f))) return false;
+      launchAttack(g, f, f.lockRef, 'shot', SPECIAL_FIREPOWER, 1, specialRange(f));
     }else if(f.special === 'torpedo'){
-      if(!targetInRange(f)) return false;
-      launchAttack(g, f, f.lockRef, 'torpedo', SPECIAL_FIREPOWER, TORPEDO_HIT);
-      for(let k = 1; k < TORPEDO_SHOTS; k++) schedule(g, f, f.lockRef, 'torpedo', SPECIAL_FIREPOWER, TORPEDO_HIT, k * DOUBLE_SHOT_DELAY);
+      const range = specialRange(f);
+      if(!targetInRange(f, range)) return false;
+      launchAttack(g, f, f.lockRef, 'torpedo', SPECIAL_FIREPOWER, TORPEDO_HIT, range);
+      for(let k = 1; k < TORPEDO_SHOTS; k++) schedule(g, f, f.lockRef, 'torpedo', SPECIAL_FIREPOWER, TORPEDO_HIT, k * DOUBLE_SHOT_DELAY, range);
     }else if(f.special === 'salvo'){
       const shooters = g.fleets.filter(a => a.team === f.team && alive(a) && targetInRange(a));
       if(!shooters.length) return false;
@@ -503,7 +537,7 @@
 
   // 攻撃 p が目標 t に届いたときの結果。乱数は 命中 → 会心 → (かすりなら HP) → 空母の弱点 の順に使う
   //   命中: p.hitChance (null なら 100% − (回避 − p.evasionCut)%)。ダメージ = (火力 (会心なら × 1.5) + 5) × 倍率 − 装甲 × 0.7 を切り捨て
-  //   0 以下ならかすり (今の HP の 5〜15%、最低 1)。空母は 15% で 2 倍 (弱点)、バフ中の目標は ÷ BUFF_DEFENSE (切り捨て)
+  //   0 以下ならかすり (今の HP の 5〜15%、最低 1)。空母は 15% で 2 倍 (弱点)、バフ中の目標は ÷ BUFF_DEFENSE (切り捨て)、戦艦は × (1 − 特殊装甲) (切り捨て、最低 1)
   function resolveHit(p, t, rng){
     const chance = p.hitChance === null || p.hitChance === undefined ? hitChance(t, p.evasionCut) : p.hitChance;
     if(!(rng() < chance)) return {hit: false, damage: 0, critical: false, scratch: false, weakness: false};
@@ -514,6 +548,7 @@
     const weakness = t.role === 'carrier' && rng() < CARRIER_CRIT_CHANCE;
     if(weakness) amount *= CARRIER_CRIT_MULTIPLIER;
     if(t.buffed) amount = Math.floor(amount / BUFF_DEFENSE);
+    if(t.flagArmor > 0) amount = Math.max(1, Math.floor(amount * (1 - t.flagArmor)));
     return {hit: true, damage: amount, critical, scratch, weakness};
   }
 
@@ -766,9 +801,9 @@
   }
 
   const api = {
-    WORLD, DEFAULT_WORLD, setWorld, BEACON_INTERVAL, BEACON_DURATION, beaconActive, RANGES, SPEEDS, weaponRange, sensorRange, hpRatio, damageState,
+    WORLD, DEFAULT_WORLD, setWorld, BEACON_INTERVAL, BEACON_DURATION, beaconActive, RANGES, SPEEDS, weaponRange, specialRange, FLAG_ARMOR_MAX, flagArmorOf, sensorRange, hpRatio, damageState,
     attackMultiplier, hitChance, expectedDamage, antiAirChance, resolveHit, speedOf, firepowerOf, armorOf, critChanceOf, GHOST_CLEAR_RANGE,
-    CHARGE_MAX, evasionCutOf, BOOST_DURATION, SPECIALS, FLEET_CLASSES, useSpecial,
+    CHARGE_MAX, evasionCutOf, BOOST_DURATION, BOOST_MULTIPLIER, SPECIALS, FLEET_CLASSES, useSpecial,
     STEALTH_DURATION, SHOT_LIFE, BOMBER_LIFE, BOMBER_TURN_RATE, RECON_SPEED, RECON_LIFE, AA_RANGE,
     BUFF_RANGE, isBuffed, updateBuffs, SHIP_TYPES, FORMATION, AI_THINK_INTERVAL, maxSpeed, lockRange, visibleEnemies, updateIntel,
     lockTarget, moveFleet, checkOutcome, createGame, step,

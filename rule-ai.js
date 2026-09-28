@@ -25,13 +25,11 @@
       attackerForward: 200,      // アタッカーが普段いる位置の、旗艦より前 (進む向き) の距離 (第 3.6 段階: 旗艦の前に出て守る)
       attackerLeash: 1500,       // アタッカーは旗艦からこの距離以内の敵を攻撃する
       attackerRetreatRatio: 1.3, // アタッカーはこの戦力比を超えたら旗艦のもとへ下がる
-      speederMarkDistance: 690,  // 駆逐艦が敵旗艦を見張る距離 (駆逐艦の索敵距離 700 より内側)
+      speederMarkDistance: 880,  // 駆逐艦が敵旗艦を見張る距離 (駆逐艦の索敵距離 900 より内側、強化中の巡洋艦の射程 675 より外。第 3.8 段階で 690 → 880)
       speederSafeDistance: 660,  // 駆逐艦はこれより近い敵から離れる (どの艦種の砲の射程 (最大 650) よりも外)
       speederBoostAvoidDistance: 700, // 駆逐艦は、強化中の敵巡洋艦がこれより近ければ NP が満タンでも離れる (巡洋艦の射程 450 の外)
       speederRetreatHp: 0.5,     // 駆逐艦は HP の割合がこれ以下なら、味方の旗艦のもとへ下がる
-      speederEngageRange: 1200,  // 駆逐艦は、これより近い見えている敵とヒットアンドアウェイで戦う (第 3.7 段階)
-      speederHitAwayDistance: 450, // ヒットアンドアウェイで、再装填のあいだ下がる先 (狙った敵からの距離)
-      speederHoldAfterFire: 0.8, // 撃ってからこの秒数は下がらない (二段攻撃の 2 発目と弾が届くまで。射程の外に出ると弾が消えるため)
+      speederFinalDistance: 3000, // 最終戦: 味方の旗艦と見えている敵旗艦がこれより近いと、駆逐艦は NP が満タンなら特殊攻撃をしに行く (第 3.8 段階)
       speederCarrierDistance: 1300 // 駆逐艦は、見えている敵空母とこれだけ離れる (爆撃機の射程 1200 の外。NP が満タンなら攻める)
     }
   };
@@ -173,33 +171,28 @@
     return best;
   }
 
-  // 駆逐艦: まず身を守る (第 3.4 段階): HP が speederRetreatHp 以下なら味方の旗艦のもとへ下がり、強化中の敵巡洋艦が近ければ離れる。
-  // NP が満タンなら攻撃しに行く (特殊攻撃は射程に入ると自動で使う)。旗艦への脅威 (第 3.6 段階) → 敵旗艦が見えていれば敵旗艦 (魚雷・精密射撃は火力 100 で
-  // 戦艦にもよく効く)、いなければ見えている最も近い敵。
-  // それ以外は 戦わない > 見張る。敵空母の爆撃機の射程と近すぎる敵からは離れ、敵旗艦の位置が分かれば距離を保って見張り、分からなければ索敵する
+  // 駆逐艦 (第 3.8 段階): 役割は索敵・偵察が約 8 割、最終戦の特殊攻撃が約 2 割。通常攻撃では戦わない。
+  // まず身を守る (第 3.4 段階): HP が speederRetreatHp 以下なら味方の旗艦のもとへ下がり、強化中の敵巡洋艦が近ければ離れる。
+  // 最終戦 (NP が満タン・敵旗艦が見えている・味方の旗艦と敵旗艦が speederFinalDistance 以内) なら、旗艦への脅威 (第 3.6 段階)、
+  // いなければ敵旗艦に近づいて特殊攻撃 (射程に入ると自動で使う)。
+  // それ以外は偵察: 敵空母の爆撃機の射程と近すぎる敵からは離れ、敵旗艦の位置が分かれば距離を保って見張り、分からなければ索敵する
+  function isFinalBattle(f, flag, fleets, intel, p){
+    if(!flag || !f.special || !(f.charge >= L.CHARGE_MAX)) return false;
+    const enemyFlag = visibleEnemyFlag(f, fleets, intel);
+    return !!enemyFlag && dist(flag, intel[enemyFlag.id]) <= p.speederFinalDistance;
+  }
+
   function speederDecide(f, fleets, intel, rng, p){
     const flag = ownFlag(f, fleets);
     if(flag && hpRatio(f) <= p.speederRetreatHp) return moveTo(flag);
     const boosted = nearestVisibleEnemy(f, fleets, intel, p.speederBoostAvoidDistance, e => e.role === 'cruiser' && e.boost > 0);
     if(boosted) return moveTo(pointToward(boosted.info, f, p.speederBoostAvoidDistance + 150));
-    if(f.special && f.charge >= L.CHARGE_MAX){
-      const threat = flag && nearestVisibleEnemy(flag, fleets, intel, p.guardRadius, () => true);
-      if(threat) return {type: 'attack', targetId: threat.e.id}; // 旗艦への脅威を最優先
-      const enemyFlag = visibleEnemyFlag(f, fleets, intel);
-      if(enemyFlag) return {type: 'attack', targetId: enemyFlag.id};
-      let target = null;
-      for(const [id, info] of Object.entries(intel)) if(info.visible && (!target || dist(f, info) < dist(f, target.info))) target = {id, info};
-      if(target) return {type: 'attack', targetId: target.id};
+    if(isFinalBattle(f, flag, fleets, intel, p)){
+      const threat = nearestVisibleEnemy(flag, fleets, intel, p.guardRadius, () => true);
+      return {type: 'attack', targetId: threat ? threat.e.id : visibleEnemyFlag(f, fleets, intel).id};
     }
     const carrier = nearestVisibleEnemy(f, fleets, intel, p.speederCarrierDistance, e => e.role === 'carrier');
     if(carrier) return moveTo(pointToward(carrier.info, f, p.speederCarrierDistance + 150));
-    // ヒットアンドアウェイ (第 3.7 段階): 近くの敵 (旗艦への脅威を優先) に、再装填が終わっていれば近づいて撃ち、再装填中は少しだけ下がる
-    const foe = (flag && nearestVisibleEnemy(flag, fleets, intel, p.guardRadius, () => true)) || nearestVisibleEnemy(f, fleets, intel, p.speederEngageRange, () => true);
-    if(foe && dist(f, foe.info) < p.speederEngageRange){
-      const sinceFire = L.SHIP_TYPES[f.role].weapon.interval - (f.cooldown || 0);
-      if(!(f.cooldown > 0) || sinceFire < p.speederHoldAfterFire) return {type: 'attack', targetId: foe.e.id};
-      return moveTo(pointToward(foe.info, f, Math.max(p.speederHitAwayDistance, dist(f, foe.info)))); // 近ければ下がり、遠ければとどまる
-    }
     let threat = null;
     for(const info of Object.values(intel)){
       if(info.visible && dist(f, info) < p.speederSafeDistance && (!threat || dist(f, info) < dist(f, threat))) threat = info;
@@ -207,8 +200,32 @@
     if(threat) return moveTo(pointToward(threat, f, p.speederSafeDistance + 150));
     const enemyFlag = fleets.find(e => e.team !== f.team && e.flagship && alive(e));
     const info = enemyFlag && intel[enemyFlag.id];
-    if(info) return moveTo(pointToward(info, f, p.speederMarkDistance));
+    if(info) return moveTo(shadowPoint(f, enemyFlag, info, fleets, intel, p));
     return explore(f, rng);
+  }
+
+  // 敵旗艦を見張る位置 (第 3.8 段階): 敵旗艦から speederMarkDistance の円の上で、見えているほかの敵 (護衛) から speederSafeDistance 以上
+  // 離れた位置のうち、自分に最も近いところ。どこも近ければ、ほかの敵から最も離れたところ。ほかの敵がいなければ自分の側
+  const SHADOW_DIRECTIONS = 16;
+  function shadowPoint(f, enemyFlag, info, fleets, intel, p){
+    const others = [];
+    for(const e of fleets){
+      const o = intel[e.id];
+      if(e !== enemyFlag && e.team !== f.team && alive(e) && o && o.visible) others.push(o);
+    }
+    const base = pointToward(info, f, p.speederMarkDistance);
+    const clearance = pt => others.reduce((m, o) => Math.min(m, dist(pt, o)), Infinity);
+    if(clearance(base) >= p.speederSafeDistance) return base;
+    const start = Math.atan2(f.y - info.y, f.x - info.x);
+    let best = base, bestSafe = null, bestClear = clearance(base);
+    for(let k = 1; k < SHADOW_DIRECTIONS; k++){
+      const a = start + 2 * Math.PI * k / SHADOW_DIRECTIONS;
+      const pt = {x: clamp(info.x + Math.cos(a) * p.speederMarkDistance, 0, WORLD.w), y: clamp(info.y + Math.sin(a) * p.speederMarkDistance, 0, WORLD.h)};
+      const c = clearance(pt);
+      if(c >= p.speederSafeDistance){ if(!bestSafe || dist(f, pt) < dist(f, bestSafe)) bestSafe = pt; }
+      else if(c > bestClear){ best = pt; bestClear = c; }
+    }
+    return bestSafe || best;
   }
 
   // AI の命令を決める (艦種ごと)。profile は AI プロファイル (省略時は標準)。

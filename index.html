@@ -135,6 +135,7 @@
         <div class="kv2" id="stStats"></div>
         <div class="kv"><span>NP</span><span id="stSpecial"></span></div>
         <div class="kv"><span>BUFF</span><span id="stBuff"></span></div>
+        <div class="kv"><span>FLAG ARMOR</span><span id="stFlagArmor"></span></div>
         <div class="kv"><span>ORDER</span><span id="stOrder"></span></div>
         <div class="kv"><span>CONTROL</span><span class="controls" id="controls">
           <button class="cmdBtn" data-weapon="fire">FIRE</button><button class="cmdBtn" data-auto="1">AUTO</button><button class="cmdBtn" data-special="1">SPECIAL</button>
@@ -1295,7 +1296,8 @@ function updateRows(container){
     if(row.firstChild.textContent !== name) row.firstChild.textContent = name;
     const state = DAMAGE_NAMES[L.damageState(f)];
     const np = watching && f.special ? ` NP ${Math.floor(f.charge)}%` : '';
-    const text = dead ? '撃沈' : `${Math.ceil(f.ships)} / ${f.maxShips}${watching && state ? ` ${state}` : ''}${np}`;
+    const armor = watching && f.role === 'battleship' ? ` 装甲 ${Math.round(100 * (f.flagArmor || 0))}%` : '';
+    const text = dead ? '撃沈' : `${Math.ceil(f.ships)} / ${f.maxShips}${watching && state ? ` ${state}` : ''}${np}${armor}`;
     if(row.lastChild.textContent !== text) row.lastChild.textContent = text;
   }
 }
@@ -1371,6 +1373,8 @@ function updateSidePanels(me){
   setText('stShips', alive ? `${Math.ceil(me.ships)} / ${me.maxShips}${damage ? ` (${damage})` : ''}` : `撃沈 / ${me.maxShips}`);
   setText('stSpecial', specialText(me));
   setText('stBuff', me.buffed ? 'ON (火力 +20% / 耐久 +20%)' : me.role === 'destroyer' ? '-' : 'OFF');
+  // 特殊装甲 (戦艦だけ): 受けるダメージを減らす割合。味方の空母・巡洋艦の残り HP で弱まる
+  setText('stFlagArmor', me.role === 'battleship' ? `特殊装甲 ${Math.round(100 * (me.flagArmor || 0))}% (被ダメージ −${Math.round(100 * (me.flagArmor || 0))}%)` : '-');
   setText('stOrder', watching ? '観戦中 (味方の旗艦を表示)' : alive ? orderText(me) : '観戦中');
   updateRows($('allies'));
   updateRows($('watchBlue'));
