@@ -1107,15 +1107,15 @@ test('移動: 攻撃命令は見えている相手に、自分の射程の内側
 
 // ---------- バフ ----------
 
-test('バフ: 空母と巡洋艦は、味方の戦艦から 1000 以内で強化される', () => {
-  assert.equal(L.BUFF_RANGE, 1000);
+test('バフ: 空母と巡洋艦は、味方の戦艦から 4000 以内で強化される (1000 から 4 倍に)', () => {
+  assert.equal(L.BUFF_RANGE, 4000);
   const bb = ship('battleship', {id: 'bb', x: 0, y: 0, flagship: true});
-  const cv = ship('carrier', {id: 'cv', x: 1000, y: 0});
-  const cr = ship('cruiser', {id: 'cr', x: 0, y: 1001});
+  const cv = ship('carrier', {id: 'cv', x: 4000, y: 0});
+  const cr = ship('cruiser', {id: 'cr', x: 0, y: 4001});
   const dd = ship('destroyer', {id: 'dd', x: 10, y: 0});
   const fleets = [bb, cv, cr, dd];
-  assert.equal(L.isBuffed(cv, fleets), true, 'ちょうど 1000 はかかる');
-  assert.equal(L.isBuffed(cr, fleets), false, '1000 を超えるとかからない');
+  assert.equal(L.isBuffed(cv, fleets), true, 'ちょうど 4000 はかかる');
+  assert.equal(L.isBuffed(cr, fleets), false, '4000 を超えるとかからない');
   assert.equal(L.isBuffed(dd, fleets), false, '駆逐艦はかからない');
   bb.ships = 0;
   assert.equal(L.isBuffed(cv, fleets), false, '戦艦が全滅したらかからない');
@@ -1123,12 +1123,13 @@ test('バフ: 空母と巡洋艦は、味方の戦艦から 1000 以内で強化
   assert.equal(L.isBuffed(cv, [cv, enemyBb]), false, '敵の戦艦ではかからない');
 });
 
-test('バフ: 戦艦は、味方の空母か巡洋艦が 1000 以内にいると強化される (駆逐艦ではかからない)', () => {
+test('バフ: 戦艦は、味方の空母か巡洋艦が 4000 以内にいると強化される (駆逐艦ではかからない)', () => {
   const bb = ship('battleship', {id: 'bb', x: 0, y: 0});
   assert.equal(L.isBuffed(bb, [bb, ship('destroyer', {id: 'dd', x: 10, y: 0})]), false);
-  assert.equal(L.isBuffed(bb, [bb, ship('cruiser', {id: 'cr', x: 900, y: 0})]), true);
-  assert.equal(L.isBuffed(bb, [bb, ship('carrier', {id: 'cv', x: 0, y: 999})]), true);
-  assert.equal(L.isBuffed(bb, [bb, ship('carrier', {id: 'cv', x: 0, y: 999, ships: 0})]), false);
+  assert.equal(L.isBuffed(bb, [bb, ship('cruiser', {id: 'cr', x: 3900, y: 0})]), true);
+  assert.equal(L.isBuffed(bb, [bb, ship('carrier', {id: 'cv', x: 0, y: 3999})]), true);
+  assert.equal(L.isBuffed(bb, [bb, ship('carrier', {id: 'cv', x: 0, y: 4001})]), false);
+  assert.equal(L.isBuffed(bb, [bb, ship('carrier', {id: 'cv', x: 0, y: 3999, ships: 0})]), false);
 });
 
 test('バフ: 強化中は受けるダメージ ÷ 1.2 (切り捨て)', () => {
@@ -1146,7 +1147,7 @@ test('バフ: 1 ステップごとに付け直す (離れたら外れる)', () =
   const g = game([bb, cr, far]);
   L.step(g, 0.01, seq(0.5));
   assert.deepEqual([bb.buffed, cr.buffed, far.buffed], [true, true, false]);
-  cr.x = 7000;
+  cr.x = 9500;
   L.step(g, 0.01, seq(0.5));
   assert.deepEqual([bb.buffed, cr.buffed], [false, false]);
 });

@@ -1268,7 +1268,7 @@ function drawSensorArea(allies, team){
 function drawFog(allies){
   fogCtx.globalCompositeOperation = 'source-over';
   fogCtx.clearRect(0, 0, fog.width, fog.height);
-  fogCtx.fillStyle = 'rgba(0, 3, 10, 0.45)'; // 第 4.3 段階の後で 0.7 → 0.45 (スキャン・ゴーストを見やすく)
+  fogCtx.fillStyle = 'rgba(0, 3, 10, 0.25)'; // 0.7 → 0.45 → 0.25 (スキャン・ゴーストを見やすく。ユーザーの指定)
   fogCtx.fillRect(0, 0, fog.width, fog.height);
   fogCtx.globalCompositeOperation = 'destination-out';
   for(const f of allies){

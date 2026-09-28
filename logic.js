@@ -44,7 +44,7 @@
   const AA_INTERVAL = 0.5;       // 対空射撃の間隔 (秒)
   const CARRIER_CRIT_CHANCE = 0.15; // 空母が攻撃を受けたとき、ダメージが増える確率 (空母の弱点)
   const CARRIER_CRIT_MULTIPLIER = 2;
-  const BUFF_RANGE = 1000;       // バフ: この距離以内に組む相手 (戦艦 ⇔ 空母・巡洋艦) がいると強化される
+  const BUFF_RANGE = 4000;       // バフ: この距離以内に組む相手 (戦艦 ⇔ 空母・巡洋艦) がいると強化される (ユーザーの指定で 1000 → 4000)
   const BUFF_ATTACK = 1.2;       // バフ中の与えるダメージの倍率
   const BUFF_DEFENSE = 1.2;      // バフ中の受けるダメージの割る数
   const FLAG_ARMOR_MAX = 0.5;    // 戦艦の特殊装甲が受けるダメージを減らす最大の割合 (味方の空母・巡洋艦が満タンのとき)
