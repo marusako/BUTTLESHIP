@@ -9,7 +9,9 @@
   const ALLY_SLOTS = 2;   // 入力に入れる近い味方の数 (自分と旗艦を除く)
   const ENEMY_SLOTS = 3;  // 入力に入れる近い見えている敵の数 (= 攻撃の相手の候補)
   const GHOST_SLOTS = 2;  // 入力に入れる近いゴースト (見失った敵の最終確認位置) の数
-  const INPUTS = 5 + 5 + ALLY_SLOTS * 5 + ENEMY_SLOTS * 6 + GHOST_SLOTS * 5;
+  const ISLAND_INPUTS = 4; // 一番近い島 (第 4 段階): ある・向き x・向き y・ふちまでの距離
+  const OLD_INPUTS = 5 + 5 + ALLY_SLOTS * 5 + ENEMY_SLOTS * 6 + GHOST_SLOTS * 5; // 島の入力を足す前の入力の数 (前の脳を読むため)
+  const INPUTS = OLD_INPUTS + ISLAND_INPUTS;
   const HIDDEN = 24;
   const OUT = {moveX: 0, moveY: 1, attackNone: 2, attack0: 3, attack1: 4, attack2: 5};
   const OUTPUTS = 3 + ENEMY_SLOTS;
@@ -62,8 +64,8 @@
     return Object.entries(intel).filter(([, i]) => i.visible).map(([id, i]) => ({id, x: i.x, y: i.y})).sort(byDistance(f)).slice(0, ENEMY_SLOTS);
   }
 
-  // 盤面から脳への入力を作る。敵の情報はチームの位置情報 (intel) にあるものだけ使う (見えていない敵の本当の位置は使わない)
-  function observe(f, fleets, intel){
+  // 盤面から脳への入力を作る。敵の情報はチームの位置情報 (intel) にあるものだけ使う (見えていない敵の本当の位置は使わない)。islands: 島 (第 4 段階)
+  function observe(f, fleets, intel, islands){
     const input = [];
     const push = (...v) => input.push(...v);
     const s = flip(f.team);
@@ -103,12 +105,23 @@
       if(g) push(1, ...relative(f, g, f.team), e && e.flagship ? 1 : 0);
       else push(0, 0, 0, 0, 0);
     }
+
+    // 一番近い島 (ふちまでの距離で比べる): ある・向き (チームから見た向き)・ふちまでの距離
+    let near = null, nearEdge = Infinity;
+    for(const i of islands || []){
+      const edge = Math.max(0, Math.hypot(i.x - f.x, i.y - f.y) - i.r);
+      if(edge < nearEdge){ near = i; nearEdge = edge; }
+    }
+    if(near){
+      const [dx, dy] = relative(f, near, f.team);
+      push(1, dx, dy, Math.min(nearEdge / DIST_SCALE, 3));
+    }else push(0, 0, 0, 0);
     return input;
   }
 
   // 脳の出力から命令を作る。攻撃の点数 (攻撃しない / 近い順の敵) がいちばん高いものを選び、攻撃しないなら移動する
-  function decide(w, f, fleets, intel){
-    const out = forward(w, observe(f, fleets, intel));
+  function decide(w, f, fleets, intel, islands){
+    const out = forward(w, observe(f, fleets, intel, islands));
     const targets = visibleTargets(f, intel);
     let best = -1, bestScore = out[OUT.attackNone];
     for(let i = 0; i < targets.length; i++){
@@ -124,7 +137,7 @@
 
   // createGame の options.controllers に渡す形の AI。brains: 艦種 → 重み
   function controller(brains){
-    return (f, fleets, intel) => decide(brains[ROLES.includes(f.role) ? f.role : 'battleship'], f, fleets, intel);
+    return (f, fleets, intel, rng, islands) => decide(brains[ROLES.includes(f.role) ? f.role : 'battleship'], f, fleets, intel, islands);
   }
 
   // 学習前のランダムな脳の組 (重みは -scale〜scale)
@@ -141,11 +154,21 @@
     for(const r of ROLES) o[r] = Array.from(set[r]);
     return o;
   }
+  // 島の入力を足す前の形 (入力 OLD_INPUTS) の脳は、島の入力の重みを 0 で足して読む (同じ動きのまま続きから育てられる)
   function fromPlain(o){
     const set = {};
+    const oldCount = HIDDEN * OLD_INPUTS + HIDDEN + OUTPUTS * HIDDEN + OUTPUTS;
     for(const r of ROLES){
-      if(!Array.isArray(o[r]) || o[r].length !== paramCount()) throw new Error(`脳の形が違う: ${r}`);
-      set[r] = Float64Array.from(o[r]);
+      const a = o[r];
+      if(Array.isArray(a) && a.length === oldCount){
+        const w = new Float64Array(paramCount());
+        for(let h = 0; h < HIDDEN; h++) for(let i = 0; i < OLD_INPUTS; i++) w[h * INPUTS + i] = a[h * OLD_INPUTS + i];
+        w.set(a.slice(HIDDEN * OLD_INPUTS), HIDDEN * INPUTS);
+        set[r] = w;
+        continue;
+      }
+      if(!Array.isArray(a) || a.length !== paramCount()) throw new Error(`脳の形が違う: ${r}`);
+      set[r] = Float64Array.from(a);
     }
     return set;
   }

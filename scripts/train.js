@@ -4,7 +4,7 @@
 //   node scripts/train.js --minutes 60 --fresh --from training/imitation.json   模倣学習の脳を出発点にして最初から
 // 学習の試合のマップは小さい広さから始め、時間切れが減ったら広げる (evolve.js の WORLD_STAGES)。評価はいつも本番の広さ
 // ほかのオプション: --workers 5 --pop 48 --games 6 --elite 6 --sigma 0.05 --rate 0.1 --tournament 3
-//   --hall-prob 0.25 --hall-every 5 --hall-max 20 --eval-every 10 --eval-games 20 --dt 0.0333 --max-time 600 --seed 1
+//   --hall-prob 0.25 --hall-every 5 --hall-max 20 --eval-every 10 --eval-games 20 --dt 0.0333 --max-time 900 --seed 1
 const fs = require('node:fs');
 const path = require('node:path');
 const B = require('../brain.js');
@@ -15,7 +15,7 @@ const DIR = path.join(__dirname, '..', 'training');
 const DEFAULTS = {
   minutes: 60, workers: 5, pop: 48, games: 6, elite: 6, sigma: 0.05, rate: 0.1, tournament: 3,
   'hall-prob': 0.25, 'hall-every': 5, 'hall-max': 20, 'eval-every': 10, 'eval-games': 20,
-  dt: 1 / 30, 'max-time': 600, seed: 1, fresh: false, from: ''
+  dt: 1 / 30, 'max-time': 900, seed: 1, fresh: false, from: ''
 };
 
 function parseArgs(argv){
@@ -114,7 +114,7 @@ async function main(){
     const tasks = sched.map(m => {
       const me = side(state.population[m.subject]);
       const opp = side(m.opponent.kind === 'hall' ? state.hall[m.opponent.index] : state.population[m.opponent.index]);
-      return {blue: m.side === 'blue' ? me : opp, red: m.side === 'blue' ? opp : me, opts: {seed: m.seed, dt: args.dt, maxTime: args['max-time'], world: world}};
+      return {blue: m.side === 'blue' ? me : opp, red: m.side === 'blue' ? opp : me, opts: {seed: m.seed, dt: args.dt, maxTime: args['max-time'], world: world, map: 'fixed'}}; // 固定の地図 (第 4 段階)
     });
     const results = await pool.run(tasks);
 
@@ -145,7 +145,7 @@ async function main(){
         const learnedBlue = k % 2 === 0;
         return {
           blue: learnedBlue ? side(best) : {kind: 'rule'}, red: learnedBlue ? {kind: 'rule'} : side(best),
-          opts: {seed: Math.floor(evalRng() * 2147483647), dt: 1 / 60, maxTime: 900, redFirst: k % 4 >= 2, world: FULL_WORLD}
+          opts: {seed: Math.floor(evalRng() * 2147483647), dt: 1 / 60, maxTime: 900, redFirst: k % 4 >= 2, world: FULL_WORLD, map: 'fixed'}
         };
       });
       const ev = await pool.run(evalTasks);

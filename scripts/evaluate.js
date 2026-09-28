@@ -45,7 +45,7 @@ async function main(){
     subjects.push(side);
     tasks.push({
       blue: side === 'blue' ? learned : {kind: 'rule'}, red: side === 'blue' ? {kind: 'rule'} : learned,
-      opts: {seed: Math.floor(rng() * 2147483647), dt: 1 / 60, maxTime: args['max-time'], redFirst: k % 4 >= 2}
+      opts: {seed: Math.floor(rng() * 2147483647), dt: 1 / 60, maxTime: args['max-time'], redFirst: k % 4 >= 2, map: 'fixed'} // 固定の地図 (第 4 段階)
     });
   }
   const pool = createPool(args.workers);

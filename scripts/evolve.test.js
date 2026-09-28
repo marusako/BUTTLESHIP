@@ -185,3 +185,11 @@ test('今の学習型 AI (learned-brain.js) と旧型 AI の試合が最後ま�
   const r = E.playMatch(B.controller(B.fromPlain(learned.brains)), R.controller(), {seed: 5, dt: 1 / 10, maxTime: 900});
   assert.ok(['win', 'lose', 'draw'].includes(r.outcome), r.outcome);
 });
+
+test('1 試合: opts.map で地図 (島) を指定できる (学習は固定の地図。第 4 段階)', () => {
+  const stay = () => B.fromPlain(B.toPlain(B.randomBrainSet(() => 0.5)));
+  const fixed = E.playMatch(B.controller(stay()), B.controller(stay()), {seed: 2, dt: 1 / 10, maxTime: 1, map: 'fixed'});
+  assert.ok(fixed.islands > 0);
+  const none = E.playMatch(B.controller(stay()), B.controller(stay()), {seed: 2, dt: 1 / 10, maxTime: 1});
+  assert.equal(none.islands, 0);
+});

@@ -33,7 +33,7 @@ const mirrorInfo = i => Object.assign({}, i, {x: L.WORLD.w - i.x, y: L.WORLD.h -
 
 test('脳の大きさ: 入力 → 中間層 → 出力の重みとバイアスの数', () => {
   assert.equal(B.paramCount(), B.HIDDEN * B.INPUTS + B.HIDDEN + B.OUTPUTS * B.HIDDEN + B.OUTPUTS);
-  assert.equal(B.INPUTS, 48);
+  assert.equal(B.INPUTS, 52, '第 4 段階で一番近い島 (4 つ) を足した');
   assert.equal(B.OUTPUTS, 6);
   assert.deepEqual(B.ROLES, ['battleship', 'carrier', 'cruiser', 'destroyer']);
 });
@@ -175,4 +175,43 @@ test('入力: 自分にバフがかかっているかが入る', () => {
   const diff = a.map((v, i) => v !== c[i] ? i : -1).filter(i => i >= 0);
   assert.equal(diff.length, 1);
   assert.deepEqual([a[diff[0]], c[diff[0]]], [1, 0]);
+});
+
+// ---------- 第 4 段階: 島の入力 ----------
+
+test('入力 (島): 一番近い島 (ふちまでの距離で比べる) の [ある, 向き x, 向き y, ふちまでの距離] が最後に入る。島がなければ 0。赤は向きが逆', () => {
+  const me = fleet({id: 'me', x: 5000, y: 10000});
+  const islands = [{x: 5000, y: 9000, r: 500}, {x: 7000, y: 10000, r: 1600}];
+  const obs = B.observe(me, [me], {}, islands);
+  assert.equal(obs.length, B.INPUTS);
+  const last = obs.slice(-4);
+  assert.deepEqual(last.map(v => Math.round(v * 1000) / 1000), [1, 1, 0, Math.round(400 / 5000 * 1000) / 1000], 'ふちまで 400 の東の島 (中心は遠いがふちが近い)');
+  assert.deepEqual(B.observe(me, [me], {}).slice(-4), [0, 0, 0, 0], '島がない');
+  const red = Object.assign({}, me, {team: 'red'});
+  assert.deepEqual(B.observe(red, [red], {}, islands).slice(-4).map(v => Math.round(v * 1000) / 1000 || 0), [1, -1, 0, 0.08], '赤は向きが逆 (-0 は 0 にそろえる)');
+});
+
+test('脳の読み込み: 島の入力を足す前の形 (入力 48) の脳は、島の入力の重みを 0 で足して読める (ほかの重みはそのまま)', () => {
+  const OLD = 48;
+  const oldCount = B.HIDDEN * OLD + B.HIDDEN + B.OUTPUTS * B.HIDDEN + B.OUTPUTS;
+  const old = {};
+  for(const r of B.ROLES) old[r] = Array.from({length: oldCount}, (_, i) => Math.sin(i + 1));
+  const set = B.fromPlain(old);
+  for(const r of B.ROLES){
+    const w = set[r];
+    assert.equal(w.length, B.paramCount());
+    for(let h = 0; h < B.HIDDEN; h++){
+      for(let i = 0; i < OLD; i++) assert.equal(w[h * B.INPUTS + i], old[r][h * OLD + i]);
+      for(let i = OLD; i < B.INPUTS; i++) assert.equal(w[h * B.INPUTS + i], 0, '島の入力の重みは 0');
+    }
+    assert.deepEqual([...w.slice(B.HIDDEN * B.INPUTS)], old[r].slice(B.HIDDEN * OLD), 'バイアスと出力の重みはそのまま');
+  }
+  assert.throws(() => B.fromPlain({battleship: [1, 2, 3]}), /脳の形が違う/);
+});
+
+test('controller: 5 番目の引数の島を入力に使う', () => {
+  const brains = B.randomBrainSet(() => 0.7);
+  const me = fleet({id: 'me', role: 'cruiser', x: 5000, y: 10000});
+  const islands = [{x: 5300, y: 10000, r: 200}];
+  assert.deepEqual(B.controller(brains)(me, [me], {}, () => 0.5, islands), B.decide(brains.cruiser, me, [me], {}, islands));
 });

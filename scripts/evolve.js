@@ -35,7 +35,8 @@ function gaussian(rng){
 }
 
 // AI 同士の 1 試合。blue / red は createGame の controllers に渡す関数。プレイヤーはいない (青の旗艦も AI)。
-// opts: seed, dt (1 ステップの秒数), maxTime (これを超えたら時間切れ), redFirst (処理順を赤が先に), world (マップの広さ {w, h}。省略時は本番の広さ)
+// opts: seed, dt (1 ステップの秒数), maxTime (これを超えたら時間切れ), redFirst (処理順を赤が先に), world (マップの広さ {w, h}。省略時は本番の広さ)、
+//   map (地図 'fixed' / 'random'。省略時は島なし。第 4 段階)
 // 返り値: outcome (青から見た 'win' / 'lose' / 'draw'、または 'timeout')、time、ships (チームごとの残存戦力)、
 //   spotted (チームごとに、敵の旗艦を一度でも見つけたか)、metrics
 function playMatch(blue, red, opts){
@@ -49,7 +50,7 @@ function playMatch(blue, red, opts){
 
 function runMatch(blue, red, opts){
   const rng = mulberry32(opts.seed);
-  const g = L.createGame({controllers: {blue, red}});
+  const g = L.createGame({controllers: {blue, red}, map: opts.map, mapSeed: opts.seed});
   for(const f of g.fleets) f.isPlayer = false;
   if(opts.redFirst) g.fleets = [...g.fleets.filter(f => f.team === 'red'), ...g.fleets.filter(f => f.team === 'blue')];
 
@@ -91,6 +92,7 @@ function runMatch(blue, red, opts){
     time: g.time,
     ships,
     spotted,
+    islands: g.islands.length, // 島の数 (地図を指定したか確かめる用)
     metrics: {
       edgeRatio: samples ? edgeSum / samples : 0,
       edgeByTeam: {blue: samplesTeam.blue ? edgeTeam.blue / samplesTeam.blue : 0, red: samplesTeam.red ? edgeTeam.red / samplesTeam.red : 0},
