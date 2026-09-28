@@ -75,7 +75,7 @@
   // npPerSecond / npPerDamage: 特殊攻撃のゲージ (NP) が時間でたまる速さ (毎秒) と、与えたダメージでたまる速さ (ダメージ 1 あたり)。通常攻撃は艦種ごとに 1 種類 (weapon.kind: 'gun' = 主砲の二段攻撃 / 'bomber' = 爆撃機)。interval は再装填 (秒)。大きさは当たり判定の半径と見た目に効く
   const SHIP_TYPES = {
     battleship: {name: '戦艦', stats: {hp: 100, firepower: 120, armor: 85, evasion: 15, antiAir: 40, sensor: 500, range: 'long', speed: 'slow'},
-      size: 'large', hitRadius: 28, weapon: {kind: 'gun', interval: 4}, npPerSecond: 0.21, npPerDamage: 0.02, description: '旗艦。重装甲・高火力だが遅く、よけられない。味方の空母・巡洋艦が健在なうちは特殊装甲で被ダメージが最大 50% 減る'},
+      size: 'large', hitRadius: 28, weapon: {kind: 'gun', interval: 4}, npPerSecond: 0.21, npPerDamage: 0.02, description: '旗艦。重装甲・高火力だが遅く、よけられない。味方の空母 (副艦) が健在なうちは特殊装甲で被ダメージが最大 50% 減る'},
     carrier: {name: '空母', stats: {hp: 70, firepower: 50, armor: 40, evasion: 40, antiAir: 60, sensor: 800, range: 'veryLong', speed: 'fast'},
       size: 'large', hitRadius: 28, weapon: {kind: 'bomber', interval: 5}, npPerSecond: 1.3, npPerDamage: 0.1, description: '副艦。遠くの敵に爆撃機を送る。健在なうちは旗艦の特殊装甲が効き、敵の爆撃機群は戦闘機で迎え撃つ。攻撃を受けると大きな被害が出ることがある'},
     cruiser: {name: '巡洋艦', stats: {hp: 50, firepower: 55, armor: 50, evasion: 60, antiAir: 40, sensor: 600, range: 'medium', speed: 'fast'},

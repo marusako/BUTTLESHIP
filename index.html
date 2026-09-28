@@ -280,6 +280,7 @@ const camera = {cx: 0, cy: 0, zoom: 1};
 const keys = new Set();
 let logs = [];
 let wrecks = [];
+let scanRings = [];    // 衛星スキャンのエフェクト: 始まった時刻 (実時間の秒) の一覧
 let fighterLines = []; // 戦闘機の迎撃 (第 4.2 段階): {x1, y1, x2, y2, team, t0: 始まった時刻 (実時間の秒)}
 let watchSelected = null;        // 中立の観戦: クリックで選んだ艦 (TARGET にその艦の狙いを出す) // 撃沈エフェクト {w: createWreck の結果, t0: 始まった時刻 (実時間の秒)}
 let prevVisible = new Set();
@@ -476,6 +477,7 @@ function startBattle(){
   logs = [];
   wrecks = [];
   fighterLines = [];
+  scanRings = [];
   prevVisible = new Set();
   watchSelected = null;
   prevAlive = new Set(game.fleets.map(f => f.id));
@@ -832,6 +834,7 @@ function formatTime(sec){
 // 前のフレームとの差から「発見」「撃沈」を知らせる。ログは撃沈報告だけ (第 4.1 段階。ユーザーの依頼)、ほかは音だけ
 function trackEvents(){
   if(game.events.some(ev => ev.type === 'finalBattle' || ev.type === 'scan')) Snd.ping(true); // 最終戦の始まり・衛星スキャン
+  if(game.events.some(ev => ev.type === 'scan')) scanRings.push(performance.now() / 1000); // スキャンのエフェクト
   const visible = new Set(Object.entries(game.intel.blue).filter(([, i]) => i.visible).map(([id]) => id));
   for(const id of visible) if(!prevVisible.has(id)) Snd.ping(fleetById(id).flagship); // 発見
   prevVisible = visible;
@@ -952,6 +955,7 @@ function draw(){
     drawFog(allies);
   }
   drawIslands(); // 島は地形なので霧の上に描く (いつも見える)
+  drawScanRings();
   drawMapOverlay();
   drawMinimap();
   updateSidePanels(statusFleet());
@@ -1144,6 +1148,25 @@ function drawShipShape(role, x, y, heading, scale, color, clip){
 }
 
 // 撃沈エフェクト: 船体が割れた破片が回りながら散って沈み、水しぶきの輪が広がる
+// 衛星スキャンのエフェクト: マップの中央から 1 本の輪が SCAN_RING_TIME 秒でマップの角まで広がり、薄くなって消える
+const SCAN_RING_TIME = 2.5;
+// 輪の今の半径 (ワールドの長さ) と濃さ。k は 0〜1 の進み具合
+const scanRingState = k => ({r: Math.hypot(L.WORLD.w, L.WORLD.h) / 2 * k, alpha: 1 - k});
+function drawScanRings(){
+  const now = performance.now() / 1000;
+  scanRings = scanRings.filter(t0 => now - t0 < SCAN_RING_TIME);
+  const c = toScreen(L.WORLD.w / 2, L.WORLD.h / 2);
+  for(const t0 of scanRings){
+    const {r, alpha} = scanRingState((now - t0) / SCAN_RING_TIME);
+    ctx.globalAlpha = alpha;
+    ctx.strokeStyle = COLORS.accent;
+    ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(c.x, c.y, r * camera.zoom, 0, Math.PI * 2); ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+  ctx.lineWidth = 1;
+}
+
 // 戦闘機の迎撃: 空母から爆撃機への短い線 (0.6 秒で消える)
 const FIGHTER_LINE_TIME = 0.6;
 function drawFighterLines(){
@@ -1245,7 +1268,7 @@ function drawSensorArea(allies, team){
 function drawFog(allies){
   fogCtx.globalCompositeOperation = 'source-over';
   fogCtx.clearRect(0, 0, fog.width, fog.height);
-  fogCtx.fillStyle = 'rgba(0, 3, 10, 0.7)';
+  fogCtx.fillStyle = 'rgba(0, 3, 10, 0.45)'; // 第 4.3 段階の後で 0.7 → 0.45 (スキャン・ゴーストを見やすく)
   fogCtx.fillRect(0, 0, fog.width, fog.height);
   fogCtx.globalCompositeOperation = 'destination-out';
   for(const f of allies){
@@ -1455,6 +1478,15 @@ function drawMinimap(){
     mctx.fillStyle = flagshipKnown(f) ? COLORS.accent : info.visible ? COLORS.red : 'rgba(255, 90, 90, 0.4)';
     mctx.fillRect(r.x + info.x * sx - 2.5, r.y + info.y * sy - 2.5, 5, 5);
   }
+  // 衛星スキャンの輪
+  const now = performance.now() / 1000;
+  for(const t0 of scanRings){
+    const {r: sr, alpha} = scanRingState((now - t0) / SCAN_RING_TIME);
+    mctx.globalAlpha = alpha;
+    mctx.strokeStyle = COLORS.accent;
+    mctx.beginPath(); mctx.ellipse(r.x + L.WORLD.w / 2 * sx, r.y + L.WORLD.h / 2 * sy, sr * sx, sr * sy, 0, 0, Math.PI * 2); mctx.stroke();
+  }
+  mctx.globalAlpha = 1;
   // 表示中の範囲
   const corners = [[0, 0], [canvas.width, 0], [canvas.width, canvas.height], [0, canvas.height]].map(([x, y]) => toWorld(x, y));
   mctx.strokeStyle = 'rgba(216, 228, 255, 0.6)';
