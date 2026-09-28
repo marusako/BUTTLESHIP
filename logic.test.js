@@ -14,9 +14,10 @@ function fleet(over){
 }
 
 // テスト用のゲーム状態を作る
+// テスト用の試合。特殊攻撃のロック (第 3.9 段階) を外した最終戦の状態から始める
 function game(fleets){
   return {time: 0, fleets, intel: {blue: {}, red: {}}, locks: [], projectiles: [], aircraft: [], nextProjectileId: 1, events: [],
-    reveal: false, warpArmed: false, outcome: null};
+    reveal: false, warpArmed: false, outcome: null, finalBattle: true};
 }
 
 // 決まった値を順に返す乱数
@@ -908,17 +909,17 @@ test('対空射撃: 全艦種が、400 以内の敵の艦載機を 0.5 秒ごと
   assert.equal(own.aircraft.length, 1, '味方の艦載機は撃たない');
 });
 
-test('NP (特殊攻撃のゲージ): たまる速さは艦種ごと (毎秒 戦艦 +0.3 / 巡洋艦 +5 / 駆逐艦 +3、与えたダメージ 1 につき 戦艦 0.3 / 巡洋艦 3 / 駆逐艦 1)。満タン 100。空母にはない', () => {
+test('NP (特殊攻撃のゲージ): たまる速さは艦種ごと (毎秒 戦艦 +0.44 / 巡洋艦 +6 / 駆逐艦 +24、与えたダメージ 1 につき 戦艦 0.2 / 巡洋艦 1 / 駆逐艦 2。第 3.9 段階)。満タン 100。空母にはない', () => {
   assert.equal(L.CHARGE_MAX, 100);
-  assert.deepEqual(Object.values(L.SHIP_TYPES).map(t => t.npPerDamage), [0.2, 0, 3, 1], '与えたダメージでたまる速さも艦種ごと');
-  assert.deepEqual(Object.values(L.SHIP_TYPES).map(t => t.npPerSecond), [0.3, 0, 5, 3]);
+  assert.deepEqual(Object.values(L.SHIP_TYPES).map(t => t.npPerDamage), [0.2, 0, 1, 2], '与えたダメージでたまる速さも艦種ごと');
+  assert.deepEqual(Object.values(L.SHIP_TYPES).map(t => t.npPerSecond), [0.44, 0, 6, 24]);
   const b = ship('cruiser', {id: 'b', x: 0, y: 0});
   const r = ship('destroyer', {id: 'r', team: 'red', x: 5000, y: 5000});
   const cv = ship('carrier', {id: 'v', x: 100, y: 0});
   const bb = ship('battleship', {id: 'bb', x: 0, y: 3000});
   const g = game([b, r, cv, bb]);
   L.step(g, 2, seq(0.5));
-  assert.deepEqual([bb.charge, b.charge, r.charge, cv.charge], [0.6, 10, 6, 0]);
+  assert.deepEqual([bb.charge, b.charge, r.charge, cv.charge], [0.88, 12, 48, 0]);
   b.charge = 97;
   L.step(g, 1, seq(0.5));
   assert.equal(b.charge, 100);
@@ -926,7 +927,7 @@ test('NP (特殊攻撃のゲージ): たまる速さは艦種ごと (毎秒 戦�
   h.projectiles.push(shot({x: 280, y: 0, fp: 55}));
   L.step(h, 0.01, seq(0.01, 0.5, 0.5));
   const dealt = h.events.find(e => e.type === 'hit').damage;
-  assert.ok(Math.abs(h.fleets[0].charge - (0.05 + dealt * 3)) < 1e-9, '与えたダメージの分たまる (巡洋艦は 1 につき 3。時間の分は毎秒 +5)');
+  assert.ok(Math.abs(h.fleets[0].charge - (0.06 + dealt * 1)) < 1e-9, '与えたダメージの分たまる (巡洋艦は 1 につき 1。時間の分は毎秒 +6)');
 });
 
 test('特殊攻撃: ゲージが満たないと使えない。使うと 0 に戻り、出来事 special を記録', () => {
@@ -1248,4 +1249,66 @@ test('攻撃命令: 駆逐艦は特殊攻撃が撃てる (NP 満タン) とき�
   const g = game([b, r]);
   L.moveFleet(b, 1, {r: {x: r.x, y: r.y, visible: true}});
   assert.ok(Math.abs(b.y - (1000 - 5)) < 1e-6, '360 まで近づいて止まる');
+});
+
+// ---------- 第 3.9 段階: 特殊攻撃の最終戦ロック ----------
+
+// 最終戦の場面: 青と赤の旗艦 (戦艦) が gap 離れていて、巡洋艦・駆逐艦がいる
+function finalGame(gap){
+  const bb = ship('battleship', {id: 'bb', x: 5000, y: 10000, flagship: true});
+  const cr = ship('cruiser', {id: 'cr', x: 5200, y: 10000});
+  const dd = ship('destroyer', {id: 'dd', x: 4800, y: 10000});
+  const rb = ship('battleship', {id: 'rb', team: 'red', x: 5000, y: 10000 - gap, flagship: true});
+  const g = Object.assign(game([bb, cr, dd, rb]), {finalBattle: false});
+  return {g, bb, cr, dd, rb};
+}
+
+test('最終戦: 両チームの旗艦どうしが FINAL_BATTLE_DISTANCE (3000) 以内になったら始まり、離れても続く。出来事 finalBattle は 1 回だけ', () => {
+  assert.equal(L.FINAL_BATTLE_DISTANCE, 3000);
+  const s = finalGame(3100);
+  L.step(s.g, 0.01, seq(0.5));
+  assert.equal(s.g.finalBattle, false);
+  s.rb.y = 10000 - 2990;
+  L.step(s.g, 0.01, seq(0.5));
+  assert.equal(s.g.finalBattle, true);
+  assert.equal(s.g.events.filter(e => e.type === 'finalBattle').length, 1);
+  s.rb.y = 10000 - 5000;
+  L.step(s.g, 0.01, seq(0.5));
+  assert.equal(s.g.finalBattle, true, '離れても続く');
+  assert.equal(s.g.events.filter(e => e.type === 'finalBattle').length, 0, '出来事は始まったときだけ');
+});
+
+test('最終戦の前: 巡洋艦・駆逐艦は NP がたまらず (時間・与えたダメージとも) 特殊攻撃を使えない。戦艦は今までどおり', () => {
+  const s = finalGame(8000);
+  L.step(s.g, 1, seq(0.5));
+  assert.deepEqual([s.cr.charge, s.dd.charge], [0, 0], '時間でたまらない');
+  assert.ok(s.bb.charge > 0, '戦艦はたまる');
+  assert.equal(L.specialLocked(s.g, s.cr), true);
+  assert.equal(L.specialLocked(s.g, s.dd), true);
+  assert.equal(L.specialLocked(s.g, s.bb), false);
+  s.cr.charge = 100; s.dd.charge = 100;
+  s.cr.lockRef = s.rb; s.cr.lockId = 'rb';
+  assert.equal(L.useSpecial(s.g, s.cr), false, 'NP が満タンでも使えない');
+  assert.equal(s.cr.boost, 0);
+  s.cr.charge = 0;
+  const damage = new Map();
+  L.applyHit(s.g, damage, {team: 'blue', from: 'cr', fp: 100, mult: 1, crit: 0, hitChance: 1, evasionCut: 0}, s.rb, 'shot', seq(0, 0.5));
+  assert.ok(damage.get(s.rb) > 0);
+  assert.equal(s.cr.charge, 0, '与えたダメージでもたまらない');
+});
+
+test('最終戦のあと: 巡洋艦・駆逐艦も NP がたまり、特殊攻撃を使える', () => {
+  const s = finalGame(2000);
+  L.step(s.g, 1, seq(0.5));
+  assert.equal(s.g.finalBattle, true);
+  assert.ok(s.cr.charge > 0 && s.dd.charge > 0);
+  assert.equal(L.specialLocked(s.g, s.cr), false);
+  s.cr.charge = 100;
+  s.cr.lockRef = s.rb; s.cr.lockId = 'rb';
+  assert.equal(L.useSpecial(s.g, s.cr), true);
+  assert.ok(s.cr.boost > 0);
+});
+
+test('ゲーム作成: 最終戦の前から始まる', () => {
+  assert.equal(L.createGame().finalBattle, false);
 });

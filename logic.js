@@ -46,6 +46,8 @@
   const BUFF_ATTACK = 1.2;       // バフ中の与えるダメージの倍率
   const BUFF_DEFENSE = 1.2;      // バフ中の受けるダメージの割る数
   const FLAG_ARMOR_MAX = 0.5;    // 戦艦の特殊装甲が受けるダメージを減らす最大の割合 (味方の空母・巡洋艦が満タンのとき)
+  const FINAL_BATTLE_DISTANCE = 3000; // 両チームの旗艦どうしがこれより近づくと最終戦が始まる (巡洋艦・駆逐艦の特殊攻撃の解禁。第 3.9 段階)
+  const FINAL_LOCKED_SPECIALS = ['boost', 'precision', 'torpedo']; // 最終戦まで使えず、NP もたまらない特殊攻撃・特殊行動
   const DESTROYER_SPECIAL_RANGE = 450; // 駆逐艦の特殊攻撃 (精密射撃・魚雷) の射程 (通常攻撃は短 300)
   const EPS = 1e-9;              // 小数の誤差を吸収する (待ち時間の判定など)
   const CHEAT_SEQUENCE = ['KeyY', 'KeyU', 'KeyK', 'KeyI']; // 隠しコマンド入力欄を開くキー列
@@ -60,13 +62,13 @@
   // npPerSecond / npPerDamage: 特殊攻撃のゲージ (NP) が時間でたまる速さ (毎秒) と、与えたダメージでたまる速さ (ダメージ 1 あたり)。通常攻撃は艦種ごとに 1 種類 (weapon.kind: 'gun' = 主砲の二段攻撃 / 'bomber' = 爆撃機)。interval は再装填 (秒)。大きさは当たり判定の半径と見た目に効く
   const SHIP_TYPES = {
     battleship: {name: '戦艦', stats: {hp: 100, firepower: 120, armor: 85, evasion: 15, antiAir: 40, sensor: 500, range: 'long', speed: 'slow'},
-      size: 'large', hitRadius: 40, weapon: {kind: 'gun', interval: 4}, npPerSecond: 0.3, npPerDamage: 0.2, description: '旗艦。重装甲・高火力だが遅く、よけられない。味方の空母・巡洋艦が健在なうちは特殊装甲で被ダメージが最大 50% 減る'},
+      size: 'large', hitRadius: 40, weapon: {kind: 'gun', interval: 4}, npPerSecond: 0.44, npPerDamage: 0.2, description: '旗艦。重装甲・高火力だが遅く、よけられない。味方の空母・巡洋艦が健在なうちは特殊装甲で被ダメージが最大 50% 減る'},
     carrier: {name: '空母', stats: {hp: 70, firepower: 50, armor: 40, evasion: 40, antiAir: 60, sensor: 800, range: 'veryLong', speed: 'fast'},
       size: 'large', hitRadius: 40, weapon: {kind: 'bomber', interval: 5}, npPerSecond: 0, npPerDamage: 0, description: '制空タイプ。遠くの敵に爆撃機を送り、偵察機で敵を探す。攻撃を受けると大きな被害が出ることがある'},
     cruiser: {name: '巡洋艦', stats: {hp: 50, firepower: 55, armor: 50, evasion: 60, antiAir: 40, sensor: 600, range: 'medium', speed: 'fast'},
-      size: 'medium', hitRadius: 25, weapon: {kind: 'gun', interval: 2}, npPerSecond: 5, npPerDamage: 3, description: '主砲タイプの主力。攻守のバランスがよい'},
+      size: 'medium', hitRadius: 25, weapon: {kind: 'gun', interval: 2}, npPerSecond: 6, npPerDamage: 1, description: '主砲タイプの主力。攻守のバランスがよい'},
     destroyer: {name: '駆逐艦', stats: {hp: 30, firepower: 20, armor: 20, evasion: 85, antiAir: 50, sensor: 900, range: 'short', speed: 'fastPlus'},
-      size: 'small', hitRadius: 15, weapon: {kind: 'gun', interval: 1.5}, npPerSecond: 3, npPerDamage: 1, description: '最速。当たりにくいが打たれ弱い。索敵が広い偵察役'}
+      size: 'small', hitRadius: 15, weapon: {kind: 'gun', interval: 1.5}, npPerSecond: 24, npPerDamage: 2, description: '最速。当たりにくいが打たれ弱い。索敵が広い偵察役'}
   };
 
   // 特殊攻撃 (category: 'attack') と特殊行動 ('action')。NP (ゲージ) が満タンのときに使え、使うと 0 に戻る
@@ -201,6 +203,22 @@
       max += a.maxShips;
     }
     return max > 0 ? FLAG_ARMOR_MAX * left / max : 0;
+  }
+
+  // 最終戦 (第 3.9 段階): 両チームの旗艦どうしが FINAL_BATTLE_DISTANCE 以内になったら始まり、試合の終わりまで続く。始まったら出来事 finalBattle
+  function updateFinalBattle(g){
+    if(g.finalBattle){ return; }
+    g.finalBattle = false;
+    const flags = TEAMS.map(team => g.fleets.find(f => f.team === team && f.flagship && alive(f)));
+    if(flags[0] && flags[1] && dist(flags[0], flags[1]) <= FINAL_BATTLE_DISTANCE){
+      g.finalBattle = true;
+      record(g, {type: 'finalBattle'});
+    }
+  }
+
+  // 特殊攻撃がロックされているか: 巡洋艦の強化・駆逐艦の精密射撃と魚雷は、最終戦の前は使えず NP もたまらない
+  function specialLocked(g, f){
+    return !g.finalBattle && FINAL_LOCKED_SPECIALS.includes(f.special);
   }
 
   // 全艦隊のバフと特殊装甲を付け直す (1 ステップごと)
@@ -381,7 +399,7 @@
     }
     return {
       time: 0, mode: 'modern', controllers, fleets, intel: {blue: {}, red: {}}, locks: [],
-      projectiles: [], aircraft: [], pending: [], nextProjectileId: 1, events: [], reveal: false, warpArmed: false, outcome: null
+      projectiles: [], aircraft: [], pending: [], nextProjectileId: 1, events: [], reveal: false, warpArmed: false, outcome: null, finalBattle: false
     };
   }
 
@@ -460,7 +478,7 @@
 
   // 特殊攻撃を使う。ゲージが満タンで、使える状況なら使ってゲージを 0 に戻し true を返す
   function useSpecial(g, f){
-    if(!f.special || !alive(f) || !(f.charge >= CHARGE_MAX - EPS)) return false;
+    if(!f.special || !alive(f) || specialLocked(g, f) || !(f.charge >= CHARGE_MAX - EPS)) return false;
     if(!g.pending) g.pending = [];
     if(f.special === 'boost'){
       f.boost = BOOST_DURATION;
@@ -565,7 +583,7 @@
     if(before === 0 && t.ships >= t.maxShips && amount >= t.ships) amount = t.ships - 1;
     damage.set(t, before + amount);
     const shooter = g.fleets.find(f => f.id === p.from);
-    if(shooter && shooter.special) shooter.charge = Math.min(CHARGE_MAX, shooter.charge + amount * SHIP_TYPES[shooter.role].npPerDamage);
+    if(shooter && shooter.special && !specialLocked(g, shooter)) shooter.charge = Math.min(CHARGE_MAX, shooter.charge + amount * SHIP_TYPES[shooter.role].npPerDamage);
     record(g, {type: 'hit', kind, team: p.team, from: p.from, targetId: t.id, critical: r.critical, scratch: r.scratch, weakness: r.weakness, damage: amount, x: t.x, y: t.y});
   }
 
@@ -775,11 +793,12 @@
 
     for(const f of living) moveFleet(f, dt, g.intel[f.team]);
     updateBuffs(g);
+    updateFinalBattle(g);
     launchRecon(g, rng);
     refreshIntel();
 
-    // NP は時間でもたまる (艦種ごとの速さ。空母にはない)
-    for(const f of living) if(f.special) f.charge = Math.min(CHARGE_MAX, (f.charge || 0) + SHIP_TYPES[f.role].npPerSecond * dt);
+    // NP は時間でもたまる (艦種ごとの速さ。空母にはない。最終戦の前の巡洋艦・駆逐艦はたまらない)
+    for(const f of living) if(f.special && !specialLocked(g, f)) f.charge = Math.min(CHARGE_MAX, (f.charge || 0) + SHIP_TYPES[f.role].npPerSecond * dt);
 
     fireWeapons(g, dt);
     for(const f of living){
@@ -806,7 +825,7 @@
     CHARGE_MAX, evasionCutOf, BOOST_DURATION, BOOST_MULTIPLIER, SPECIALS, FLEET_CLASSES, useSpecial,
     STEALTH_DURATION, SHOT_LIFE, BOMBER_LIFE, BOMBER_TURN_RATE, RECON_SPEED, RECON_LIFE, AA_RANGE,
     BUFF_RANGE, isBuffed, updateBuffs, SHIP_TYPES, FORMATION, AI_THINK_INTERVAL, maxSpeed, lockRange, visibleEnemies, updateIntel,
-    lockTarget, moveFleet, checkOutcome, createGame, step,
+    lockTarget, moveFleet, checkOutcome, createGame, step, applyHit, FINAL_BATTLE_DISTANCE, specialLocked,
     fireWeapons, launchRecon, antiAir, moveProjectiles, moveAircraft, keyCourse, battleStats,
     fullIntel, targetInfo, clampView, SHIP_SHAPES, WRECK_DURATION, createWreck, wreckState,
     newCheatProgress, cheatSequenceStep, parseCommand, applyCommand, warpFleet

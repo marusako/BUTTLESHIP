@@ -203,15 +203,15 @@ test('AI (巡洋艦): 旗艦から attackerLeash より遠い敵は追わず、�
   assert.equal(Math.round(o2.y), 3000 - P.attackerForward);
 });
 
-test('AI (巡洋艦): 攻撃対象がいなければ、旗艦の前方 attackerForward (標準 200)・左右 attackerDistance (標準 700) につく (第 3.6 段階: 旗艦の前に出て守る)', () => {
-  assert.deepEqual([P.attackerForward, P.attackerDistance], [200, 700]);
+test('AI (巡洋艦): 攻撃対象がいなければ、旗艦の前方 attackerForward (標準 350)・左右 attackerDistance (標準 550) につく (第 3.6 段階: 旗艦の前に出て守る。第 3.9 段階で 200・700 から前へ)', () => {
+  assert.deepEqual([P.attackerForward, P.attackerDistance], [350, 550]);
   const flag = fleet({id: 'f', x: 1200, y: 3000, role: 'battleship', flagship: true, heading: -Math.PI / 2}); // 北向き
   const a1 = fleet({id: 'a1', x: 1200, y: 3500, role: 'cruiser'});
   const a2 = fleet({id: 'a2', x: 1200, y: 3500, role: 'cruiser'});
   const o1 = R.aiDecide(a1, [flag, a1, a2], {}, seq(0.5), P);
   const o2 = R.aiDecide(a2, [flag, a1, a2], {}, seq(0.5), P);
-  assert.deepEqual([Math.round(o1.x), Math.round(o1.y)], [1200 - 700, 3000 - 200], '1 隻目は前方の左');
-  assert.deepEqual([Math.round(o2.x), Math.round(o2.y)], [1200 + 700, 3000 - 200], '2 隻目は前方の右');
+  assert.deepEqual([Math.round(o1.x), Math.round(o1.y)], [1200 - 550, 3000 - 350], '1 隻目は前方の左');
+  assert.deepEqual([Math.round(o2.x), Math.round(o2.y)], [1200 + 550, 3000 - 350], '2 隻目は前方の右');
   const side = Object.assign({}, P, {attackerForward: 0, attackerDistance: 700});
   const o = R.aiDecide(a1, [flag, a1, a2], {}, seq(0.5), side);
   assert.deepEqual([Math.round(o.x), Math.round(o.y)], [500, 3000], 'つまみで真横にもできる');
@@ -268,7 +268,7 @@ test('AI (駆逐艦): 見えている敵空母から speederCarrierDistance (爆
   const o = R.aiDecide(me, [flag, me, cv], intel, seq(0.5), P);
   assert.deepEqual([o.type, Math.round(o.x), Math.round(o.y)], ['move', 1200, Math.round(cv.y + P.speederCarrierDistance + 150)]);
   me.charge = L.CHARGE_MAX;
-  assert.equal(R.aiDecide(me, [flag, me, cv], intel, seq(0.5), P).type, 'move', 'NP が満タンでも、最終戦でなければ離れる (第 3.8 段階)');
+  assert.deepEqual(R.aiDecide(me, [flag, me, cv], intel, seq(0.5), P), {type: 'attack', targetId: 'cv'}, 'NP が満タン (最終戦) なら近くの空母に特殊攻撃をしに行く (第 3.9 段階)');
 });
 
 test('AI (駆逐艦): 敵旗艦の位置が分かれば、speederMarkDistance を保って見張る', () => {
@@ -389,7 +389,7 @@ test('AI (巡洋艦・空母): HP の割合が escortRetreatHp 以下なら、�
 
 // ---------- 第 3.8 段階: 駆逐艦は索敵・偵察が約 8 割、最終戦の特殊攻撃が約 2 割 ----------
 
-// 最終戦の場面: 味方の旗艦 (y 5000) と敵の旗艦 (y 5000 − gap) が見えている。駆逐艦は間 (y 4200)
+// 最終戦の場面: 味方の旗艦 (y 5000) と敵の旗艦 (y 5000 − gap) が見えている。駆逐艦は y 4200
 function finalScene(gap, over){
   const flag = fleet({id: 'f', x: 1200, y: 5000, role: 'battleship', flagship: true});
   const me = fleet(Object.assign({id: 's', x: 1200, y: 4200, role: 'destroyer', special: 'torpedo', charge: L.CHARGE_MAX, cooldown: 0}, over));
@@ -397,25 +397,20 @@ function finalScene(gap, over){
   return {me, fleets: [flag, me, rf], intel: {rf: {x: rf.x, y: rf.y, visible: true}}};
 }
 
-test('AI プロファイル (標準): 最終戦とみなす旗艦どうしの距離 speederFinalDistance は 3000。強化中の巡洋艦 (射程 675) は射程の外から避ける', () => {
-  assert.equal(P.speederFinalDistance, 3000);
+test('AI プロファイル (標準): 強化中の巡洋艦 (射程 675) は射程の外から避ける。最終戦はルールで決まるので speederFinalDistance はない (第 3.9 段階)', () => {
+  assert.equal(P.speederFinalDistance, undefined);
   assert.ok(P.speederBoostAvoidDistance > L.weaponRange(Object.assign(fleet({role: 'cruiser'}), {boost: 5})));
   for(const k of ['speederEngageRange', 'speederHitAwayDistance', 'speederHoldAfterFire']) assert.equal(P[k], undefined, k + ' (ヒットアンドアウェイ) はもう使わない');
 });
 
-test('AI (駆逐艦): 最終戦 (NP が満タン・敵旗艦が見えている・旗艦どうしが speederFinalDistance 以内) なら敵旗艦に特殊攻撃をしに行く', () => {
-  const s = finalScene(P.speederFinalDistance - 100);
+test('AI (駆逐艦): NP が満タン (最終戦の間だけたまる) で敵旗艦が見えていれば、敵旗艦に特殊攻撃をしに行く (旗艦どうしが遠くても)', () => {
+  const s = finalScene(5000);
   assert.deepEqual(R.aiDecide(s.me, s.fleets, s.intel, seq(0.5), P), {type: 'attack', targetId: 'rf'});
 });
 
 test('AI (駆逐艦): 最終戦の条件が 1 つでも欠ければ攻撃しない', () => {
-  const far = finalScene(P.speederFinalDistance + 100);
-  assert.equal(R.aiDecide(far.me, far.fleets, far.intel, seq(0.5), P).type, 'move', '旗艦どうしが遠い');
-  const notFull = finalScene(P.speederFinalDistance - 100, {charge: L.CHARGE_MAX - 1});
+  const notFull = finalScene(2000, {charge: L.CHARGE_MAX - 1});
   assert.equal(R.aiDecide(notFull.me, notFull.fleets, notFull.intel, seq(0.5), P).type, 'move', 'NP が満タンでない');
-  const hidden = finalScene(P.speederFinalDistance - 100);
-  hidden.intel.rf.visible = false;
-  assert.equal(R.aiDecide(hidden.me, hidden.fleets, hidden.intel, seq(0.5), P).type, 'move', '敵旗艦は最終確認位置しか分からない');
 });
 
 
@@ -431,4 +426,17 @@ test('AI (駆逐艦): 敵旗艦を見張る位置は、見えているほかの�
   assert.ok(Math.hypot(o.x - cr.x, o.y - cr.y) >= P.speederSafeDistance, '護衛から離れた方向');
   const alone = R.aiDecide(me, [flag, me, rf], {rf: intel.rf}, seq(0.5), P);
   assert.deepEqual([Math.round(alone.x), Math.round(alone.y)], [3000, 2000 + P.speederMarkDistance], 'ほかの敵がいなければ今までどおり自分の側');
+});
+
+test('AI (駆逐艦): NP が満タンで敵旗艦が見えていなければ、speederFinalEngageRange 以内の見えている敵に特殊攻撃をしに行き、いなければ敵旗艦の最終確認位置へ向かう (第 3.9 段階)', () => {
+  assert.equal(P.speederFinalEngageRange, 1500);
+  const s = finalScene(2000);
+  s.intel.rf.visible = false;
+  const o = R.aiDecide(s.me, s.fleets, s.intel, seq(0.5), P);
+  assert.deepEqual([o.type, Math.round(o.x), Math.round(o.y)], ['move', 1200, 3000], '最終確認位置へ');
+  const e = fleet({id: 'e', team: 'red', x: 1200, y: 4200 - 1000});
+  s.fleets.push(e); s.intel.e = {x: e.x, y: e.y, visible: true};
+  assert.deepEqual(R.aiDecide(s.me, s.fleets, s.intel, seq(0.5), P), {type: 'attack', targetId: 'e'}, '近くの見えている敵');
+  e.y = 4200 - P.speederFinalEngageRange - 100; s.intel.e.y = e.y;
+  assert.equal(R.aiDecide(s.me, s.fleets, s.intel, seq(0.5), P).type, 'move', '遠い敵は追わない');
 });

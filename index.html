@@ -655,6 +655,7 @@ function triggerSpecial(){
   const me = commandable();
   if(!me) return;
   if(!me.special){ addLog('空母は特殊攻撃のかわりに偵察機を自動で出す'); return; }
+  if(L.specialLocked(game, me)){ addLog(`${L.SPECIALS[me.special].name}: 最終戦 (旗艦どうしが ${L.FINAL_BATTLE_DISTANCE} 以内) まで使えない`); return; }
   if(me.charge < L.CHARGE_MAX){ addLog(`${L.SPECIALS[me.special].name}: NP がまだたまっていない (${Math.floor(me.charge)}%)`); return; }
   if(!L.useSpecial(game, me)) addLog(`${L.SPECIALS[me.special].name}: 射程の中に狙える敵がいない`);
 }
@@ -822,6 +823,11 @@ function formatTime(sec){
 }
 // 前のフレームとの差から「発見」「全滅」を記録する
 function trackEvents(){
+  // 最終戦の始まり (第 3.9 段階): 巡洋艦・駆逐艦の特殊攻撃が解禁
+  if(game.events.some(ev => ev.type === 'finalBattle')){
+    addLog('最終戦 開始。巡洋艦・駆逐艦の特殊攻撃が解禁', COLORS.accent);
+    Snd.ping(true);
+  }
   // 旗艦の位置がばれる時間の始まり (60 秒ごと)
   const beacon = L.beaconActive(game.time);
   if(beacon && !prevBeacon){
@@ -1321,6 +1327,7 @@ function specialText(me){
   if(!me.special) return '偵察機 (自動)';
   const name = L.SPECIALS[me.special].name;
   if(me.boost > 0) return `${name} 中 (あと ${Math.ceil(me.boost)} 秒)`;
+  if(L.specialLocked(game, me)) return `${name} ロック中 (最終戦で解禁)`;
   const auto = me.autoSpecial ? ' / AUTO' : '';
   return (me.charge >= L.CHARGE_MAX ? `${name} READY` : `${name} ${Math.floor(me.charge)}%`) + auto;
 }

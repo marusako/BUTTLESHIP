@@ -21,15 +21,15 @@
       flagshipRetreatRatio: 1.5, // 旗艦はこの戦力比を超えたら味方の中心へ下がる
       carrierDistance: 500,      // 空母が普段つく旗艦の後ろの距離
       carrierSafeDistance: 800,  // 空母はこれより近い敵から離れる
-      attackerDistance: 700,     // アタッカーが普段保つ旗艦との距離 (左右)
-      attackerForward: 200,      // アタッカーが普段いる位置の、旗艦より前 (進む向き) の距離 (第 3.6 段階: 旗艦の前に出て守る)
+      attackerDistance: 550,     // アタッカーが普段保つ旗艦との距離 (左右。第 3.9 段階で 700 → 550)
+      attackerForward: 350,      // アタッカーが普段いる位置の、旗艦より前 (進む向き) の距離 (第 3.6 段階: 旗艦の前に出て守る。第 3.9 段階で 200 → 350: 巡洋艦も敵の射程に入り弾を引き受ける)
       attackerLeash: 1500,       // アタッカーは旗艦からこの距離以内の敵を攻撃する
       attackerRetreatRatio: 1.3, // アタッカーはこの戦力比を超えたら旗艦のもとへ下がる
       speederMarkDistance: 880,  // 駆逐艦が敵旗艦を見張る距離 (駆逐艦の索敵距離 900 より内側、強化中の巡洋艦の射程 675 より外。第 3.8 段階で 690 → 880)
       speederSafeDistance: 660,  // 駆逐艦はこれより近い敵から離れる (どの艦種の砲の射程 (最大 650) よりも外)
       speederBoostAvoidDistance: 700, // 駆逐艦は、強化中の敵巡洋艦がこれより近ければ NP が満タンでも離れる (巡洋艦の射程 450 の外)
       speederRetreatHp: 0.5,     // 駆逐艦は HP の割合がこれ以下なら、味方の旗艦のもとへ下がる
-      speederFinalDistance: 3000, // 最終戦: 味方の旗艦と見えている敵旗艦がこれより近いと、駆逐艦は NP が満タンなら特殊攻撃をしに行く (第 3.8 段階)
+      speederFinalEngageRange: 1500, // 最終戦で NP が満タンの駆逐艦は、敵旗艦が見えていなければこれより近い見えている敵に特殊攻撃をしに行く (第 3.9 段階)
       speederCarrierDistance: 1300 // 駆逐艦は、見えている敵空母とこれだけ離れる (爆撃機の射程 1200 の外。NP が満タンなら攻める)
     }
   };
@@ -173,13 +173,20 @@
 
   // 駆逐艦 (第 3.8 段階): 役割は索敵・偵察が約 8 割、最終戦の特殊攻撃が約 2 割。通常攻撃では戦わない。
   // まず身を守る (第 3.4 段階): HP が speederRetreatHp 以下なら味方の旗艦のもとへ下がり、強化中の敵巡洋艦が近ければ離れる。
-  // 最終戦 (NP が満タン・敵旗艦が見えている・味方の旗艦と敵旗艦が speederFinalDistance 以内) なら、旗艦への脅威 (第 3.6 段階)、
-  // いなければ敵旗艦に近づいて特殊攻撃 (射程に入ると自動で使う)。
+  // 最終戦 (NP が満タン。NP は最終戦の間だけたまる (第 3.9 段階)) なら特殊攻撃 (射程に入ると自動で使う) をしに行く: 旗艦への脅威 (第 3.6 段階)
+  // → 見えている敵旗艦 → speederFinalEngageRange 以内の見えている敵 → 敵旗艦の最終確認位置へ移動。
   // それ以外は偵察: 敵空母の爆撃機の射程と近すぎる敵からは離れ、敵旗艦の位置が分かれば距離を保って見張り、分からなければ索敵する
-  function isFinalBattle(f, flag, fleets, intel, p){
-    if(!flag || !f.special || !(f.charge >= L.CHARGE_MAX)) return false;
+  function finalBattleOrder(f, flag, fleets, intel, p){
+    if(!flag || !f.special || !(f.charge >= L.CHARGE_MAX)) return null;
+    const threat = nearestVisibleEnemy(flag, fleets, intel, p.guardRadius, () => true);
+    if(threat) return {type: 'attack', targetId: threat.e.id};
     const enemyFlag = visibleEnemyFlag(f, fleets, intel);
-    return !!enemyFlag && dist(flag, intel[enemyFlag.id]) <= p.speederFinalDistance;
+    if(enemyFlag) return {type: 'attack', targetId: enemyFlag.id};
+    const near = nearestVisibleEnemy(f, fleets, intel, p.speederFinalEngageRange, () => true);
+    if(near) return {type: 'attack', targetId: near.e.id};
+    const lost = fleets.find(e => e.team !== f.team && e.flagship && alive(e));
+    const info = lost && intel[lost.id];
+    return info ? moveTo(info) : null;
   }
 
   function speederDecide(f, fleets, intel, rng, p){
@@ -187,10 +194,8 @@
     if(flag && hpRatio(f) <= p.speederRetreatHp) return moveTo(flag);
     const boosted = nearestVisibleEnemy(f, fleets, intel, p.speederBoostAvoidDistance, e => e.role === 'cruiser' && e.boost > 0);
     if(boosted) return moveTo(pointToward(boosted.info, f, p.speederBoostAvoidDistance + 150));
-    if(isFinalBattle(f, flag, fleets, intel, p)){
-      const threat = nearestVisibleEnemy(flag, fleets, intel, p.guardRadius, () => true);
-      return {type: 'attack', targetId: threat ? threat.e.id : visibleEnemyFlag(f, fleets, intel).id};
-    }
+    const final = finalBattleOrder(f, flag, fleets, intel, p);
+    if(final) return final;
     const carrier = nearestVisibleEnemy(f, fleets, intel, p.speederCarrierDistance, e => e.role === 'carrier');
     if(carrier) return moveTo(pointToward(carrier.info, f, p.speederCarrierDistance + 150));
     let threat = null;
