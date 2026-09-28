@@ -225,14 +225,14 @@ test('AI (巡洋艦): 周りの戦力比が不利なら、旗艦のもとへ下�
   assert.deepEqual(R.aiDecide(me, [flag, me, e], intel, seq(0.5), P), {type: 'move', x: 1200, y: 4800});
 });
 
-test('AI (駆逐艦): 見えている敵が speederSafeDistance より近ければ、まず離れる (戦わない > 見張る)', () => {
+test('AI (駆逐艦): 再装填中は、近くの敵に近づかない (speederHitAwayDistance より遠ければその場にとどまる。第 3.7 段階)', () => {
   const flag = fleet({id: 'f', x: 1200, y: 4000, role: 'battleship', flagship: true});
-  const me = fleet({id: 's', x: 1200, y: 2000, role: 'destroyer'});
+  const me = fleet({id: 's', x: 1200, y: 2000, role: 'destroyer', cooldown: 0.5}); // 撃ってから 1 秒 (弾は届いた)
   const e = fleet({id: 'e', team: 'red', x: 1200, y: 2000 - P.speederSafeDistance + 50, flagship: true});
   const intel = {e: {x: e.x, y: e.y, visible: true}};
   const o = R.aiDecide(me, [flag, me, e], intel, seq(0.5), P);
   assert.equal(o.type, 'move');
-  assert.ok(o.y > 2000, '敵と反対側へ');
+  assert.ok(o.y >= 2000 - 1e-9, '敵のほうへは進まない');
 });
 
 test('AI (駆逐艦): NP が満タンなら、近くに敵がいても攻撃しに行く (特殊攻撃を使うため)。敵旗艦が見えていなければ最も近い敵', () => {
@@ -247,8 +247,9 @@ test('AI (駆逐艦): NP が満タンなら、近くに敵がいても攻撃し�
     {type: 'attack', targetId: 'n'}, '最終確認位置しか分からない敵旗艦は狙わない');
   assert.deepEqual(R.aiDecide(me, [flag, me, near, far, rf], Object.assign({rf: {x: rf.x, y: rf.y, visible: true}}, intel), seq(0.5), P),
     {type: 'attack', targetId: 'rf'}, '③ 敵旗艦が見えていれば、より近い敵がいても敵旗艦 (魚雷・精密射撃は戦艦に 1 発 45)');
-  me.charge = L.CHARGE_MAX - 1;
-  assert.equal(R.aiDecide(me, [flag, me, near, far], intel, seq(0.5), P).type, 'move', '満タンでなければ離れる');
+  me.charge = L.CHARGE_MAX - 1; me.cooldown = 0.5;
+  assert.equal(R.aiDecide(me, [flag, me, near, far], intel, seq(0.5), P).type, 'move', '満タンでなく再装填中なら下がる (第 3.7 段階)');
+  me.cooldown = 0;
   assert.equal(R.aiDecide(Object.assign(me, {charge: L.CHARGE_MAX}), [flag, me, near, far], {}, seq(0.5), P).type, 'move', '見えている敵がいなければ今までどおり');
 });
 
@@ -401,4 +402,44 @@ test('AI (巡洋艦・空母): HP の割合が escortRetreatHp 以下なら、�
     me.ships = 50;
     assert.notDeepEqual(R.aiDecide(me, [flag, me, e], intel, seq(0.5), P), o, role + ': HP が多ければ下がらない');
   }
+});
+
+// ---------- 第 3.7 段階: 駆逐艦のヒットアンドアウェイ ----------
+
+test('AI (駆逐艦): 再装填が終わっていれば、speederEngageRange 以内の見えている敵に近づいて撃つ (NP が満タンでなくても)', () => {
+  const flag = fleet({id: 'f', x: 1200, y: 5000, role: 'battleship', flagship: true});
+  const me = fleet({id: 's', x: 1200, y: 3000, role: 'destroyer', special: 'torpedo', charge: 0, cooldown: 0});
+  const e = fleet({id: 'e', team: 'red', x: 1200, y: 2400});
+  const intel = {e: {x: e.x, y: e.y, visible: true}};
+  assert.deepEqual(R.aiDecide(me, [flag, me, e], intel, seq(0.5), P), {type: 'attack', targetId: 'e'});
+});
+
+test('AI (駆逐艦): 再装填中は、狙った敵から speederHitAwayDistance (450) まで下がる (下がりすぎない)', () => {
+  assert.equal(P.speederHitAwayDistance, 450);
+  const flag = fleet({id: 'f', x: 1200, y: 5000, role: 'battleship', flagship: true});
+  const me = fleet({id: 's', x: 1200, y: 2700, role: 'destroyer', special: 'torpedo', charge: 0, cooldown: 0.5}); // 撃ってから 1 秒 (弾は届いた)
+  const e = fleet({id: 'e', team: 'red', x: 1200, y: 2400});
+  const intel = {e: {x: e.x, y: e.y, visible: true}};
+  const o = R.aiDecide(me, [flag, me, e], intel, seq(0.5), P);
+  assert.deepEqual([o.type, Math.round(o.x), Math.round(o.y)], ['move', 1200, 2400 + P.speederHitAwayDistance]);
+});
+
+test('AI (駆逐艦): speederEngageRange より遠い敵は追わず、今までどおり見張る', () => {
+  const flag = fleet({id: 'f', x: 1200, y: 5000, role: 'battleship', flagship: true});
+  const me = fleet({id: 's', x: 1200, y: 3000, role: 'destroyer', special: 'torpedo', charge: 0, cooldown: 0});
+  const e = fleet({id: 'e', team: 'red', x: 1200, y: 3000 - P.speederEngageRange - 100});
+  const intel = {e: {x: e.x, y: e.y, visible: true}};
+  assert.equal(R.aiDecide(me, [flag, me, e], intel, seq(0.5), P).type, 'move');
+});
+
+test('AI (駆逐艦): 撃ってから speederHoldAfterFire 秒 (弾が届くまで) は下がらずに撃ち続ける (射程の外に出ると弾が消えるため)', () => {
+  assert.equal(P.speederHoldAfterFire, 0.8);
+  const interval = L.SHIP_TYPES.destroyer.weapon.interval;
+  const flag = fleet({id: 'f', x: 1200, y: 5000, role: 'battleship', flagship: true});
+  const me = fleet({id: 's', x: 1200, y: 2650, role: 'destroyer', special: 'torpedo', charge: 0, cooldown: interval - 0.3});
+  const e = fleet({id: 'e', team: 'red', x: 1200, y: 2400});
+  const intel = {e: {x: e.x, y: e.y, visible: true}};
+  assert.deepEqual(R.aiDecide(me, [flag, me, e], intel, seq(0.5), P), {type: 'attack', targetId: 'e'}, '撃った直後はとどまる');
+  me.cooldown = interval - 1;
+  assert.equal(R.aiDecide(me, [flag, me, e], intel, seq(0.5), P).type, 'move', '弾が届いたら下がる');
 });

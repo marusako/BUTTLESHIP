@@ -29,6 +29,9 @@
       speederSafeDistance: 660,  // 駆逐艦はこれより近い敵から離れる (どの艦種の砲の射程 (最大 650) よりも外)
       speederBoostAvoidDistance: 700, // 駆逐艦は、強化中の敵巡洋艦がこれより近ければ NP が満タンでも離れる (巡洋艦の射程 450 の外)
       speederRetreatHp: 0.5,     // 駆逐艦は HP の割合がこれ以下なら、味方の旗艦のもとへ下がる
+      speederEngageRange: 1200,  // 駆逐艦は、これより近い見えている敵とヒットアンドアウェイで戦う (第 3.7 段階)
+      speederHitAwayDistance: 450, // ヒットアンドアウェイで、再装填のあいだ下がる先 (狙った敵からの距離)
+      speederHoldAfterFire: 0.8, // 撃ってからこの秒数は下がらない (二段攻撃の 2 発目と弾が届くまで。射程の外に出ると弾が消えるため)
       speederCarrierDistance: 1300 // 駆逐艦は、見えている敵空母とこれだけ離れる (爆撃機の射程 1200 の外。NP が満タンなら攻める)
     }
   };
@@ -190,6 +193,13 @@
     }
     const carrier = nearestVisibleEnemy(f, fleets, intel, p.speederCarrierDistance, e => e.role === 'carrier');
     if(carrier) return moveTo(pointToward(carrier.info, f, p.speederCarrierDistance + 150));
+    // ヒットアンドアウェイ (第 3.7 段階): 近くの敵 (旗艦への脅威を優先) に、再装填が終わっていれば近づいて撃ち、再装填中は少しだけ下がる
+    const foe = (flag && nearestVisibleEnemy(flag, fleets, intel, p.guardRadius, () => true)) || nearestVisibleEnemy(f, fleets, intel, p.speederEngageRange, () => true);
+    if(foe && dist(f, foe.info) < p.speederEngageRange){
+      const sinceFire = L.SHIP_TYPES[f.role].weapon.interval - (f.cooldown || 0);
+      if(!(f.cooldown > 0) || sinceFire < p.speederHoldAfterFire) return {type: 'attack', targetId: foe.e.id};
+      return moveTo(pointToward(foe.info, f, Math.max(p.speederHitAwayDistance, dist(f, foe.info)))); // 近ければ下がり、遠ければとどまる
+    }
     let threat = null;
     for(const info of Object.values(intel)){
       if(info.visible && dist(f, info) < p.speederSafeDistance && (!threat || dist(f, info) < dist(f, threat))) threat = info;
