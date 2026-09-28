@@ -14,10 +14,15 @@
       flagshipWeight: 2.5,       // 敵旗艦の期待ダメージの割合に、さらに掛ける倍率 (旗艦を倒せば勝ちなので優先する)
       flagshipHoldHp: 0.5,       // 旗艦は HP の割合がこれ以下で、見えている敵旗艦より弱ければ粘る (撃ち合いを避けて下がる)
       flagshipHoldDistance: 800, // 粘るときに敵旗艦から保つ距離 (戦艦の射程 650 の外)
+      guardRadius: 900,          // 味方の旗艦からこの距離以内の敵を「旗艦への脅威」とする (第 3.6 段階)
+      guardWeight: 10,           // 旗艦以外の艦は、旗艦への脅威の狙いの点数からこれを引いて優先する
+      escortRetreatHp: 0.4,      // 巡洋艦・空母は HP の割合がこれ以下なら旗艦の後ろへ下がる
+      escortRetreatDistance: 400, // 下がる先 (旗艦の後ろの距離)
       flagshipRetreatRatio: 1.5, // 旗艦はこの戦力比を超えたら味方の中心へ下がる
       carrierDistance: 500,      // 空母が普段つく旗艦の後ろの距離
       carrierSafeDistance: 800,  // 空母はこれより近い敵から離れる
-      attackerDistance: 800,     // アタッカーが普段保つ旗艦との距離 (左右)
+      attackerDistance: 700,     // アタッカーが普段保つ旗艦との距離 (左右)
+      attackerForward: 200,      // アタッカーが普段いる位置の、旗艦より前 (進む向き) の距離 (第 3.6 段階: 旗艦の前に出て守る)
       attackerLeash: 1500,       // アタッカーは旗艦からこの距離以内の敵を攻撃する
       attackerRetreatRatio: 1.3, // アタッカーはこの戦力比を超えたら旗艦のもとへ下がる
       speederMarkDistance: 690,  // 駆逐艦が敵旗艦を見張る距離 (駆逐艦の索敵距離 700 より内側)
@@ -37,15 +42,18 @@
 
   // 見えている敵のうち、点数が最も小さい敵を選ぶ。点数 = 距離 / 100 − targetWeight × 効きめ。
   // 効きめ = f の通常攻撃 1 発の期待ダメージ ÷ 相手の今の HP (1 で頭打ち)。敵旗艦は flagshipWeight 倍。
-  // 命中率と装甲を見るので、弾がかすりしか入らない相手より、よく効く相手を狙う。accept(info, e) で対象を絞る
+  // 命中率と装甲を見るので、弾がかすりしか入らない相手より、よく効く相手を狙う。accept(info, e) で対象を絞る。
+  // 旗艦以外の艦は、味方の旗艦から guardRadius 以内の敵 (旗艦への脅威) の点数から guardWeight を引く (旗艦の命を最優先)
   function bestVisibleTarget(f, fleets, intel, p, accept){
     const byId = new Map(fleets.map(e => [e.id, e]));
+    const flag = ownFlag(f, fleets);
     let best = null, bestScore = Infinity;
     for(const [id, info] of Object.entries(intel)){
       const e = byId.get(id);
       if(!info.visible || !e || !alive(e) || (accept && !accept(info, e))) continue;
       const effect = Math.min(1, expectedDamage(f, e) / e.ships) * (e.flagship ? p.flagshipWeight : 1);
-      const score = dist(f, info) / 100 - p.targetWeight * effect;
+      const threat = flag && dist(flag, info) <= p.guardRadius ? p.guardWeight : 0;
+      const score = dist(f, info) / 100 - p.targetWeight * effect - threat;
       if(score < bestScore){ best = id; bestScore = score; }
     }
     return best;
@@ -91,6 +99,9 @@
     return {type: 'move', x, y, explore: true};
   }
 
+  // 味方の生きている旗艦 (自分が旗艦・旗艦がいなければ null)
+  const ownFlag = (f, fleets) => fleets.find(a => a.team === f.team && a.flagship && alive(a) && a !== f) || null;
+
   // 見えている敵旗艦 (いなければ null)
   function visibleEnemyFlag(f, fleets, intel){
     const e = fleets.find(a => a.team !== f.team && a.flagship && alive(a));
@@ -128,6 +139,7 @@
 
   // 空母: 旗艦 (戦艦) の後ろにつく。近すぎる敵からは離れる (攻撃は爆撃機が自動で行う)
   function carrierDecide(f, flag, fleets, intel, p){
+    if(hpRatio(f) <= p.escortRetreatHp) return moveTo(offsetFrom(flag, -p.escortRetreatDistance, 0)); // 各艦の命 (第 3.6 段階)
     let threat = null;
     for(const info of Object.values(intel)){
       if(info.visible && dist(f, info) < p.carrierSafeDistance && (!threat || dist(f, info) < dist(f, threat))) threat = info;
@@ -138,35 +150,38 @@
 
   // 巡洋艦: 旗艦から attackerLeash 以内の敵を攻撃する。周りが不利なら旗艦のもとへ下がる
   function attackerDecide(f, flag, fleets, intel, p){
+    if(hpRatio(f) <= p.escortRetreatHp) return moveTo(offsetFrom(flag, -p.escortRetreatDistance, 0)); // 各艦の命 (第 3.6 段階)
     if(localForceRatio(f, f.team, fleets, intel, p.localRadius) > p.attackerRetreatRatio) return moveTo(flag);
     const target = bestVisibleTarget(f, fleets, intel, p, info => dist(flag, info) <= p.attackerLeash);
     if(target) return {type: 'attack', targetId: target};
     const attackers = fleets.filter(a => a.team === f.team && a.role === 'cruiser' && alive(a));
     const [fwd, right] = ATTACKER_SLOTS[Math.max(0, attackers.indexOf(f)) % ATTACKER_SLOTS.length];
-    return moveTo(offsetFrom(flag, fwd * p.attackerDistance, right * p.attackerDistance));
+    return moveTo(offsetFrom(flag, fwd * p.attackerDistance + p.attackerForward, right * p.attackerDistance));
   }
 
-  // 見えている敵のうち、accept(e) を満たし、f から distance より近い最も近い敵の位置情報 (なければ null)
-  function nearestVisibleEnemy(f, fleets, intel, distance, accept){
+  // 見えている敵のうち、accept(e) を満たし、from から distance より近い最も近い敵 ({e, info}。なければ null)
+  function nearestVisibleEnemy(from, fleets, intel, distance, accept){
     let best = null;
     for(const e of fleets){
       const info = intel[e.id];
-      if(e.team === f.team || !alive(e) || !info || !info.visible || !accept(e)) continue;
-      if(dist(f, info) < distance && (!best || dist(f, info) < dist(f, best))) best = info;
+      if(e.team === from.team || !alive(e) || !info || !info.visible || !accept(e)) continue;
+      if(dist(from, info) < distance && (!best || dist(from, info) < dist(from, best.info))) best = {e, info};
     }
     return best;
   }
 
   // 駆逐艦: まず身を守る (第 3.4 段階): HP が speederRetreatHp 以下なら味方の旗艦のもとへ下がり、強化中の敵巡洋艦が近ければ離れる。
-  // NP が満タンなら攻撃しに行く (特殊攻撃は射程に入ると自動で使う)。敵旗艦が見えていれば敵旗艦 (魚雷・精密射撃は火力 100 で
+  // NP が満タンなら攻撃しに行く (特殊攻撃は射程に入ると自動で使う)。旗艦への脅威 (第 3.6 段階) → 敵旗艦が見えていれば敵旗艦 (魚雷・精密射撃は火力 100 で
   // 戦艦にもよく効く)、いなければ見えている最も近い敵。
   // それ以外は 戦わない > 見張る。敵空母の爆撃機の射程と近すぎる敵からは離れ、敵旗艦の位置が分かれば距離を保って見張り、分からなければ索敵する
   function speederDecide(f, fleets, intel, rng, p){
-    const flag = fleets.find(a => a.team === f.team && a.flagship && alive(a) && a !== f);
+    const flag = ownFlag(f, fleets);
     if(flag && hpRatio(f) <= p.speederRetreatHp) return moveTo(flag);
     const boosted = nearestVisibleEnemy(f, fleets, intel, p.speederBoostAvoidDistance, e => e.role === 'cruiser' && e.boost > 0);
-    if(boosted) return moveTo(pointToward(boosted, f, p.speederBoostAvoidDistance + 150));
+    if(boosted) return moveTo(pointToward(boosted.info, f, p.speederBoostAvoidDistance + 150));
     if(f.special && f.charge >= L.CHARGE_MAX){
+      const threat = flag && nearestVisibleEnemy(flag, fleets, intel, p.guardRadius, () => true);
+      if(threat) return {type: 'attack', targetId: threat.e.id}; // 旗艦への脅威を最優先
       const enemyFlag = visibleEnemyFlag(f, fleets, intel);
       if(enemyFlag) return {type: 'attack', targetId: enemyFlag.id};
       let target = null;
@@ -174,7 +189,7 @@
       if(target) return {type: 'attack', targetId: target.id};
     }
     const carrier = nearestVisibleEnemy(f, fleets, intel, p.speederCarrierDistance, e => e.role === 'carrier');
-    if(carrier) return moveTo(pointToward(carrier, f, p.speederCarrierDistance + 150));
+    if(carrier) return moveTo(pointToward(carrier.info, f, p.speederCarrierDistance + 150));
     let threat = null;
     for(const info of Object.values(intel)){
       if(info.visible && dist(f, info) < p.speederSafeDistance && (!threat || dist(f, info) < dist(f, threat))) threat = info;

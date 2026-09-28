@@ -188,7 +188,7 @@ test('AI (巡洋艦): 旗艦から attackerLeash 以内の敵を積極的に攻�
   assert.deepEqual(R.aiDecide(me, [flag, me, e], intel, seq(0.5), P), {type: 'attack', targetId: 'e'});
 });
 
-test('AI (巡洋艦): 旗艦から attackerLeash より遠い敵は追わず、旗艦の左右の隊列へ', () => {
+test('AI (巡洋艦): 旗艦から attackerLeash より遠い敵は追わず、旗艦の前方の左右の隊列へ', () => {
   const flag = fleet({id: 'f', x: 1200, y: 3000, role: 'battleship', flagship: true, heading: -Math.PI / 2});
   const a1 = fleet({id: 'a1', x: 1200, y: 3200, role: 'cruiser'});
   const a2 = fleet({id: 'a2', x: 1200, y: 3200, role: 'cruiser'});
@@ -199,27 +199,27 @@ test('AI (巡洋艦): 旗艦から attackerLeash より遠い敵は追わず、�
   const o2 = R.aiDecide(a2, fleets, intel, seq(0.5), P);
   assert.equal(o1.type, 'move');
   assert.ok(o1.x < 1200 && o2.x > 1200, '左と右');
-  assert.equal(Math.round(o1.y), 3000, '旗艦の真横 (北向きの旗艦と同じ高さ)');
-  assert.equal(Math.round(o2.y), 3000);
+  assert.equal(Math.round(o1.y), 3000 - P.attackerForward, '旗艦の前方 (北向きの旗艦より北)');
+  assert.equal(Math.round(o2.y), 3000 - P.attackerForward);
 });
 
-test('AI (巡洋艦): 攻撃対象がいなければ、旗艦から attackerDistance (標準 800) の左右につく', () => {
-  assert.equal(P.attackerDistance, 800);
-  const flag = fleet({id: 'f', x: 1200, y: 3000, role: 'battleship', flagship: true, heading: -Math.PI / 2});
+test('AI (巡洋艦): 攻撃対象がいなければ、旗艦の前方 attackerForward (標準 200)・左右 attackerDistance (標準 700) につく (第 3.6 段階: 旗艦の前に出て守る)', () => {
+  assert.deepEqual([P.attackerForward, P.attackerDistance], [200, 700]);
+  const flag = fleet({id: 'f', x: 1200, y: 3000, role: 'battleship', flagship: true, heading: -Math.PI / 2}); // 北向き
   const a1 = fleet({id: 'a1', x: 1200, y: 3500, role: 'cruiser'});
   const a2 = fleet({id: 'a2', x: 1200, y: 3500, role: 'cruiser'});
-  for(const a of [a1, a2]){
-    const o = R.aiDecide(a, [flag, a1, a2], {}, seq(0.5), P);
-    assert.equal(Math.round(Math.hypot(o.x - flag.x, o.y - flag.y)), P.attackerDistance, a.id);
-  }
-  const wide = Object.assign({}, P, {attackerDistance: 700});
-  const o = R.aiDecide(a1, [flag, a1, a2], {}, seq(0.5), wide);
-  assert.equal(Math.round(Math.hypot(o.x - flag.x, o.y - flag.y)), 700);
+  const o1 = R.aiDecide(a1, [flag, a1, a2], {}, seq(0.5), P);
+  const o2 = R.aiDecide(a2, [flag, a1, a2], {}, seq(0.5), P);
+  assert.deepEqual([Math.round(o1.x), Math.round(o1.y)], [1200 - 700, 3000 - 200], '1 隻目は前方の左');
+  assert.deepEqual([Math.round(o2.x), Math.round(o2.y)], [1200 + 700, 3000 - 200], '2 隻目は前方の右');
+  const side = Object.assign({}, P, {attackerForward: 0, attackerDistance: 700});
+  const o = R.aiDecide(a1, [flag, a1, a2], {}, seq(0.5), side);
+  assert.deepEqual([Math.round(o.x), Math.round(o.y)], [500, 3000], 'つまみで真横にもできる');
 });
 
 test('AI (巡洋艦): 周りの戦力比が不利なら、旗艦のもとへ下がって合流する', () => {
   const flag = fleet({id: 'f', x: 1200, y: 4800, role: 'battleship', flagship: true}); // 自分から localRadius の外
-  const me = fleet({id: 'a', x: 1200, y: 3200, role: 'cruiser', ships: 4000 / 300});
+  const me = fleet({id: 'a', x: 1200, y: 3200, role: 'cruiser', ships: 25}); // HP 50% (escortRetreatHp より多い)。戦力比は 50 / 25 = 2
   const e = fleet({id: 'e', team: 'red', x: 1200, y: 2900, ships: 15000 / 300});
   const intel = {e: {x: 1200, y: 2900, visible: true}};
   assert.deepEqual(R.aiDecide(me, [flag, me, e], intel, seq(0.5), P), {type: 'move', x: 1200, y: 4800});
@@ -366,4 +366,39 @@ test('旧型 AI どうしの試合が最後まで進む (艦種・艦載機が�
   const rng = () => { rngState = (rngState * 16807) % 2147483647; return rngState / 2147483647; };
   for(let i = 0; i < 30 * 600 && !g.outcome; i++) L.step(g, 1 / 30, rng);
   assert.ok(g.outcome, '10 分以内に決着');
+});
+
+// ---------- 第 3.6 段階: 旗艦の命を最優先、各艦の命も大事に ----------
+
+test('AI (巡洋艦): 自分に近い敵より、味方の旗艦から guardRadius 以内の敵 (旗艦への脅威) を狙う', () => {
+  const flag = fleet({id: 'f', x: 1200, y: 3000, role: 'battleship', flagship: true, heading: -Math.PI / 2});
+  const me = fleet({id: 'a', x: 2000, y: 3000});
+  const near = fleet({id: 'n', team: 'red', x: 2300, y: 3000});                       // 自分に近いが旗艦から 1100
+  const threat = fleet({id: 't', team: 'red', x: 1200, y: 3000 - P.guardRadius + 100}); // 旗艦から guardRadius の内側
+  const intel = {n: {x: near.x, y: near.y, visible: true}, t: {x: threat.x, y: threat.y, visible: true}};
+  assert.deepEqual(R.aiDecide(me, [flag, me, near, threat], intel, seq(0.5), P), {type: 'attack', targetId: 't'});
+  const calm = Object.assign({}, P, {guardWeight: 0});
+  assert.deepEqual(R.aiDecide(me, [flag, me, near, threat], intel, seq(0.5), calm), {type: 'attack', targetId: 'n'}, 'guardWeight 0 なら今までどおり近い敵');
+});
+
+test('AI (駆逐艦): NP が満タンなら、敵旗艦より旗艦への脅威 (最も近いもの) を狙う', () => {
+  const flag = fleet({id: 'f', x: 1200, y: 4000, role: 'battleship', flagship: true});
+  const me = fleet({id: 's', x: 1200, y: 3000, role: 'destroyer', special: 'torpedo', charge: L.CHARGE_MAX});
+  const rf = fleet({id: 'rf', team: 'red', x: 1200, y: 2400, role: 'battleship', flagship: true});
+  const threat = fleet({id: 't', team: 'red', x: 1500, y: 4000 - P.guardRadius + 200});
+  const intel = {rf: {x: rf.x, y: rf.y, visible: true}, t: {x: threat.x, y: threat.y, visible: true}};
+  assert.deepEqual(R.aiDecide(me, [flag, me, rf, threat], intel, seq(0.5), P), {type: 'attack', targetId: 't'});
+});
+
+test('AI (巡洋艦・空母): HP の割合が escortRetreatHp 以下なら、旗艦の後ろ escortRetreatDistance へ下がる', () => {
+  const flag = fleet({id: 'f', x: 1200, y: 3000, role: 'battleship', flagship: true, heading: -Math.PI / 2}); // 北向き
+  const e = fleet({id: 'e', team: 'red', x: 1500, y: 2600});
+  const intel = {e: {x: e.x, y: e.y, visible: true}};
+  for(const role of ['cruiser', 'carrier']){
+    const me = fleet({id: 'm', x: 1400, y: 2800, role, maxShips: 50, ships: 50 * P.escortRetreatHp});
+    const o = R.aiDecide(me, [flag, me, e], intel, seq(0.5), P);
+    assert.deepEqual([o.type, Math.round(o.x), Math.round(o.y)], ['move', 1200, 3000 + P.escortRetreatDistance], role);
+    me.ships = 50;
+    assert.notDeepEqual(R.aiDecide(me, [flag, me, e], intel, seq(0.5), P), o, role + ': HP が多ければ下がらない');
+  }
 });
