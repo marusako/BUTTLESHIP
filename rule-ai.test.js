@@ -453,3 +453,37 @@ test('AI: 移動先が島の中なら、島のふちの外 (ISLAND_MARGIN の余
   assert.ok(Math.abs(Math.hypot(o.x - island.x, o.y - island.y) - (island.r + R.ISLAND_MARGIN)) < 1e-6, '島のふちの外');
   assert.deepEqual(R.controller(P)(me, [flag, me], {}, seq(0.5), [island]), o, 'controller も島を受け取る');
 });
+
+// ---------- 第 4.3 段階: 敵駆逐艦は巡洋艦が迎え撃ち、旗艦は敵旗艦を目指す ----------
+
+test('AI (旗艦): 敵の駆逐艦は攻撃の狙いにしない。敵旗艦の最終確認位置を目指す', () => {
+  const me = fleet({id: 'me', x: 1200, y: 3000, role: 'battleship', flagship: true, ships: 1000, maxShips: 1000}); // 実際の戦艦の HP (駆逐艦 1 隻で下がらない)
+  const dd = fleet({id: 'dd', team: 'red', x: 1200, y: 2600, role: 'destroyer', ships: 300, maxShips: 300});
+  const rf = fleet({id: 'rf', team: 'red', x: 1200, y: 500, role: 'battleship', flagship: true});
+  const intel = {dd: {x: dd.x, y: dd.y, visible: true}, rf: {x: 1200, y: 500, visible: false}};
+  assert.deepEqual(R.aiDecide(me, [me, dd, rf], intel, seq(0.5), P), {type: 'move', x: 1200, y: 500});
+  const cr = fleet({id: 'cr', team: 'red', x: 1300, y: 2600});
+  intel.cr = {x: cr.x, y: cr.y, visible: true};
+  assert.deepEqual(R.aiDecide(me, [me, dd, rf, cr], intel, seq(0.5), P), {type: 'attack', targetId: 'cr'}, '駆逐艦以外は今までどおり攻撃する');
+});
+
+test('AI (旗艦): 駆逐艦の最終確認位置は追わない (ほかになければ索敵)', () => {
+  const me = fleet({id: 'me', x: 1200, y: 3000, role: 'battleship', flagship: true});
+  const dd = fleet({id: 'dd', team: 'red', x: 1500, y: 2500, role: 'destroyer'});
+  const intel = {dd: {x: 1500, y: 2500, visible: false}};
+  const o = R.aiDecide(me, [me, dd], intel, seq(0.3), P);
+  assert.equal(o.type, 'move');
+  assert.notDeepEqual([o.x, o.y], [1500, 2500]);
+});
+
+test('AI (巡洋艦): 味方の旗艦から interceptRange (1500) 以内の敵の駆逐艦を、ほかの敵より優先して迎え撃つ', () => {
+  assert.equal(P.interceptRange, 1500);
+  const flag = fleet({id: 'f', x: 1200, y: 3000, role: 'battleship', flagship: true, heading: -Math.PI / 2});
+  const me = fleet({id: 'a', x: 2000, y: 3000, role: 'cruiser'});
+  const cr = fleet({id: 'c', team: 'red', x: 2300, y: 3000, ships: 5});
+  const dd = fleet({id: 'dd', team: 'red', x: 1200, y: 3000 - 1400, role: 'destroyer', ships: 300, maxShips: 300});
+  const intel = {c: {x: cr.x, y: cr.y, visible: true}, dd: {x: dd.x, y: dd.y, visible: true}};
+  assert.deepEqual(R.aiDecide(me, [flag, me, cr, dd], intel, seq(0.5), P), {type: 'attack', targetId: 'dd'});
+  dd.y = 3000 - 1600; intel.dd.y = dd.y;
+  assert.deepEqual(R.aiDecide(me, [flag, me, cr, dd], intel, seq(0.5), P), {type: 'attack', targetId: 'c'}, '遠い駆逐艦は今までどおり');
+});

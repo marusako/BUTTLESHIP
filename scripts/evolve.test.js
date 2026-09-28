@@ -182,7 +182,7 @@ test('学習型 AI の脳のファイル (learnedBrainSource): ブラウザで�
 test('今の学習型 AI (learned-brain.js) と旧型 AI の試合が最後まで進む', () => {
   const learned = require('../learned-brain.js');
   assert.ok(learned.generation > 0);
-  const r = E.playMatch(B.controller(B.fromPlain(learned.brains)), R.controller(), {seed: 5, dt: 1 / 10, maxTime: 900});
+  const r = E.playMatch(B.controller(B.fromPlain(learned.brains)), R.controller(), {seed: 5, dt: 1 / 10, maxTime: 900, map: 'fixed'}); // ゲームと学習と同じ固定の地図 (第 4 段階)
   assert.ok(['win', 'lose', 'draw'].includes(r.outcome), r.outcome);
 });
 

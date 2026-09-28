@@ -30,6 +30,7 @@
       speederBoostAvoidDistance: 700, // 駆逐艦は、強化中の敵巡洋艦がこれより近ければ NP が満タンでも離れる (巡洋艦の射程 450 の外)
       speederRetreatHp: 0.5,     // 駆逐艦は HP の割合がこれ以下なら、味方の旗艦のもとへ下がる
       speederFinalEngageRange: 1500, // 最終戦で NP が満タンの駆逐艦は、敵旗艦が見えていなければこれより近い見えている敵に特殊攻撃をしに行く (第 3.9 段階)
+      interceptRange: 1500,      // 巡洋艦は、味方の旗艦からこれ以内に見えている敵の駆逐艦を優先して迎え撃つ (第 4.3 段階)
       speederCarrierDistance: 1300 // 駆逐艦は、見えている敵空母とこれだけ離れる (爆撃機の射程 1200 の外。NP が満タンなら攻める)
     }
   };
@@ -123,14 +124,15 @@
       }
       return {type: 'move', x: f.x, y: f.team === 'blue' ? WORLD.h - 300 : 300};
     }
-    const target = bestVisibleTarget(f, fleets, intel, p, hold ? (info, e) => e !== enemyFlag : null);
+    // 敵の駆逐艦は狙わない (巡洋艦が迎え撃つ。旗艦は敵旗艦の索敵と撃破を優先する。第 4.3 段階)
+    const target = bestVisibleTarget(f, fleets, intel, p, (info, e) => e.role !== 'destroyer' && !(hold && e === enemyFlag));
     if(target) return {type: 'attack', targetId: target};
 
-    // 見失った敵の最終確認位置 (敵旗艦を優先、なければ最も近いもの)
+    // 見失った敵の最終確認位置 (敵旗艦を優先、なければ最も近いもの。駆逐艦のものは追わない)
     const byId = new Map(fleets.map(e => [e.id, e]));
     let ghost = null;
     for(const [id, info] of Object.entries(intel)){
-      if(info.visible) continue;
+      if(info.visible || (byId.get(id) && byId.get(id).role === 'destroyer')) continue;
       const isFlag = byId.get(id) && byId.get(id).flagship;
       if(!ghost || (isFlag && !ghost.isFlag) || (isFlag === ghost.isFlag && dist(f, info) < dist(f, ghost.info))) ghost = {info, isFlag};
     }
@@ -153,6 +155,9 @@
   function attackerDecide(f, flag, fleets, intel, p){
     if(hpRatio(f) <= p.escortRetreatHp) return moveTo(offsetFrom(flag, -p.escortRetreatDistance, 0)); // 各艦の命 (第 3.6 段階)
     if(localForceRatio(f, f.team, fleets, intel, p.localRadius) > p.attackerRetreatRatio) return moveTo(flag);
+    // 旗艦の近くの敵の駆逐艦を優先して迎え撃つ (第 4.3 段階)
+    const interceptor = bestVisibleTarget(f, fleets, intel, p, (info, e) => e.role === 'destroyer' && dist(flag, info) <= p.interceptRange);
+    if(interceptor) return {type: 'attack', targetId: interceptor};
     const target = bestVisibleTarget(f, fleets, intel, p, info => dist(flag, info) <= p.attackerLeash);
     if(target) return {type: 'attack', targetId: target};
     const attackers = fleets.filter(a => a.team === f.team && a.role === 'cruiser' && alive(a));
