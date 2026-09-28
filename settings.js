@@ -4,10 +4,12 @@
   'use strict';
 
   const STORAGE_KEY = 'sagittarius.settings';
-  const SETTINGS_VERSION = 2; // 保存データの版 (版がない = 第 3.3 段階より前)
+  const SETTINGS_VERSION = 3; // 保存データの版 (版がない = 第 3.3 段階より前、2 = 第 3.3〜4.0 段階)
   // 第 3.3 段階より前の初期のキー。前の版の保存データで、これと同じキーのままの操作は新しい初期のキーにする
   // (前は何かを変えると全部のキーが保存されたので、自分で選んだキーと区別するため)
   const LEGACY_DEFAULT_KEYS = {moveUp: 'KeyO', moveDown: 'KeyL', moveLeft: 'KeyK', moveRight: 'Semicolon', fire: 'Digit1', special: 'Digit2', center: 'KeyC'};
+  // 版 2 の初期のキーのうち、第 4.1 段階で変わったもの (自艦へ視点移動 Q → C。味方旗艦へ視点移動はなくなった)
+  const V2_DEFAULT_KEYS = {center: 'KeyQ', centerFlagship: 'KeyE'};
   const NAME_MAX = 12;
   const DEFAULT_NAME = '味方戦艦';
 
@@ -24,8 +26,9 @@
     {id: 'camDown', label: '視点 下', key: 'KeyS'},
     {id: 'camLeft', label: '視点 左', key: 'KeyA'},
     {id: 'camRight', label: '視点 右', key: 'KeyD'},
-    {id: 'center', label: '自艦へ視点移動', key: 'KeyQ'},
-    {id: 'centerFlagship', label: '味方旗艦へ視点移動', key: 'KeyE'}
+    {id: 'center', label: '自艦へ視点移動', key: 'KeyC'},
+    {id: 'zoomOut', label: '縮小', key: 'KeyQ'},
+    {id: 'zoomIn', label: '拡大', key: 'KeyE'}
   ];
 
   // 対戦する AI の種類 (第 3.5 段階): 旧型 AI (人が書いたルール) / 学習型 AI (学習した脳)
@@ -88,8 +91,9 @@
   // 前の版の保存データを今の版に移し替える: 前の初期のキーのままの操作は外す (normalize で新しい初期のキーになる)
   function migrate(raw){
     if(!raw || typeof raw !== 'object' || raw.version === SETTINGS_VERSION || !raw.keys || typeof raw.keys !== 'object') return raw;
+    const old = raw.version === 2 ? V2_DEFAULT_KEYS : LEGACY_DEFAULT_KEYS;
     const keys = {};
-    for(const [id, code] of Object.entries(raw.keys)) if(LEGACY_DEFAULT_KEYS[id] !== code) keys[id] = code;
+    for(const [id, code] of Object.entries(raw.keys)) if(old[id] !== code) keys[id] = code;
     return Object.assign({}, raw, {keys});
   }
 

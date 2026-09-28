@@ -279,7 +279,6 @@ const camera = {cx: 0, cy: 0, zoom: 1};
 const keys = new Set();
 let logs = [];
 let wrecks = [];
-let prevVisibleRed = new Set(); // 中立の観戦: 赤が見つけている艦 (発見のログ用)
 let watchSelected = null;        // 中立の観戦: クリックで選んだ艦 (TARGET にその艦の狙いを出す) // 撃沈エフェクト {w: createWreck の結果, t0: 始まった時刻 (実時間の秒)}
 let prevVisible = new Set();
 let prevAlive = new Set();
@@ -476,14 +475,12 @@ function startBattle(){
   logs = [];
   wrecks = [];
   prevVisible = new Set();
-  prevVisibleRed = new Set();
   watchSelected = null;
   prevAlive = new Set(game.fleets.map(f => f.id));
   cheatProgress = L.newCheatProgress();
   document.body.classList.toggle('watching', neutral());
   buildAllyRows();
   document.body.classList.remove('no-game');
-  addLog(player() ? '全艦、出撃。敵の旗艦を探し出せ' : '観戦開始。10 隻すべてを AI が動かす', COLORS.accent);
   acc = 0;
   setMode('battle');
 }
@@ -639,7 +636,6 @@ window.addEventListener('keydown', e => {
   }
   if(mode === 'battle'){
     if(isAction(e.code, 'center')) centerOnPlayer();
-    if(isAction(e.code, 'centerFlagship')) centerOnFlagship();
     if(!e.repeat && isAction(e.code, 'fire')) toggleWeapon('fire');
     if(!e.repeat && isAction(e.code, 'autoSpecial')) toggleAutoSpecial();
     if(!e.repeat && isAction(e.code, 'special')) triggerSpecial();
@@ -753,12 +749,15 @@ function applyDragMove(){
   me.order = {type: 'move', x: w.x, y: w.y};
 }
 
+const ZOOM_MIN = 0.1, ZOOM_MAX = 1.6; // 拡大率の範囲 (ホイールとキー)
+const ZOOM_KEY_RATE = 2; // 縮小・拡大のキー (第 4.1 段階): 押している間、1 秒でこの倍率だけ変わる
+const clampZoom = z => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, z));
 canvas.addEventListener('wheel', e => {
   if(mode !== 'battle') return;
   e.preventDefault();
   const p = local(e, canvas);
   const before = toWorld(p.x, p.y);
-  camera.zoom = Math.min(1.6, Math.max(0.1, camera.zoom * (e.deltaY < 0 ? 1.1 : 1 / 1.1)));
+  camera.zoom = clampZoom(camera.zoom * (e.deltaY < 0 ? 1.1 : 1 / 1.1));
   const after = toWorld(p.x, p.y);
   camera.cx += before.x - after.x;
   camera.cy += before.y - after.y;
@@ -792,13 +791,6 @@ function centerOnPlayer(){
   if(!me) return;
   camera.cx = me.x;
   camera.cy = me.y;
-}
-// 味方の旗艦へ視点を移す (沈んでいても最後の位置へ)
-function centerOnFlagship(){
-  const flag = game && game.fleets.find(f => f.team === 'blue' && f.flagship);
-  if(!flag) return;
-  camera.cx = flag.x;
-  camera.cy = flag.y;
 }
 
 function player(){ return game && game.fleets.find(f => f.isPlayer); }
@@ -837,39 +829,25 @@ function formatTime(sec){
   const s = Math.floor(sec);
   return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
 }
-// 前のフレームとの差から「発見」「全滅」を記録する
+// 前のフレームとの差から「発見」「撃沈」を知らせる。ログは撃沈報告だけ (第 4.1 段階。ユーザーの依頼)、ほかは音だけ
 function trackEvents(){
-  // 最終戦の始まり (第 3.9 段階): 巡洋艦・駆逐艦の特殊攻撃が解禁
-  if(game.events.some(ev => ev.type === 'finalBattle')){
-    addLog('最終戦 開始。巡洋艦・駆逐艦の特殊攻撃が解禁', COLORS.accent);
-    Snd.ping(true);
-  }
-  // 衛星スキャンの始まり (60 秒ごと。第 4.1 段階)
-  if(game.events.some(ev => ev.type === 'scan')){
-    addLog('衛星スキャン: 両軍の全艦の位置が判明', COLORS.accent);
-    Snd.ping(true);
-  }
+  if(game.events.some(ev => ev.type === 'finalBattle' || ev.type === 'scan')) Snd.ping(true); // 最終戦の始まり・衛星スキャン
   const visible = new Set(Object.entries(game.intel.blue).filter(([, i]) => i.visible).map(([id]) => id));
-  for(const id of visible){
-    if(prevVisible.has(id)) continue;
-    const f = fleetById(id);
-    if(neutral()) addLog(`青が${displayName(f)}を発見`, COLORS.blue);
-    else addLog(f.flagship ? `${f.name}を発見 ── 敵の旗艦だ!` : `${f.name}を発見`, f.flagship ? COLORS.accent : COLORS.red);
-    Snd.ping(f.flagship);
-  }
+  for(const id of visible) if(!prevVisible.has(id)) Snd.ping(fleetById(id).flagship); // 発見
   prevVisible = visible;
-  if(neutral()){ // 中立の観戦: 赤の発見も出す
-    const red = new Set(Object.entries(game.intel.red).filter(([, i]) => i.visible).map(([id]) => id));
-    for(const id of red) if(!prevVisibleRed.has(id)) addLog(`赤が${displayName(fleetById(id))}を発見`, COLORS.red);
-    prevVisibleRed = red;
+  for(const ev of game.events){
+    if(ev.type !== 'destroyed' || !prevAlive.has(ev.id)) continue;
+    prevAlive.delete(ev.id);
+    const f = fleetById(ev.id);
+    addLog(`${displayName(f)} 撃沈 (${killerName(ev.by)})`, f.team === 'blue' ? COLORS.blue : COLORS.red);
   }
-  for(const f of game.fleets){
-    if(f.ships <= 0 && prevAlive.has(f.id)){
-      prevAlive.delete(f.id);
-      if(f.isPlayer) addLog('我が艦は沈んだ… 味方の戦いを見届けよう', COLORS.accent);
-      else addLog(`${displayName(f)} 撃沈`, f.team === 'blue' ? COLORS.blue : COLORS.red);
-    }
-  }
+}
+// 撃沈報告の「沈めた艦」: 味方から見えていない敵なら「不明」(中立の観戦ではいつも名前)
+function killerName(id){
+  const k = id && fleetById(id);
+  if(!k) return '不明';
+  if(!neutral() && k.team === 'red' && !(game.intel.blue[k.id] && game.intel.blue[k.id].visible)) return '不明';
+  return displayName(k);
 }
 
 // ---------- 更新 ----------
@@ -880,6 +858,8 @@ function update(dt){
   const k = CAMERA_SPEED * dt / camera.zoom;
   camera.cx += vx * k;
   camera.cy += vy * k;
+  const zoomDir = held('zoomIn') - held('zoomOut'); // 画面の中心を軸に拡大縮小
+  if(zoomDir) camera.zoom = clampZoom(camera.zoom * Math.pow(ZOOM_KEY_RATE, zoomDir * dt));
   clampCamera();
 
   if(!applyKeyMove()) applyDragMove();

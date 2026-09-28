@@ -22,8 +22,9 @@ test('初期設定: 操作ごとのキー、音量、名前 (空)', () => {
   assert.equal(d.keys.fire, 'KeyZ');
   assert.equal(d.keys.autoSpecial, 'KeyX', '特殊攻撃の自動使用 オン / オフ');
   assert.equal(d.keys.special, 'Space', '特殊攻撃を今使う');
-  assert.equal(d.keys.center, 'KeyQ');
-  assert.equal(d.keys.centerFlagship, 'KeyE', '味方旗艦へ視点移動');
+  assert.equal(d.keys.center, 'KeyC', '自艦へ視点移動 (第 4.1 段階で Q → C)');
+  assert.deepEqual([d.keys.zoomOut, d.keys.zoomIn], ['KeyQ', 'KeyE'], '縮小・拡大 (第 4.1 段階)');
+  assert.equal('centerFlagship' in d.keys, false, '味方旗艦へ視点移動はない (第 4.1 段階)');
   assert.equal('pause' in d.keys, false, '一時停止は Esc で固定 (設定の一覧に出さない)');
   assert.deepEqual(d.volume, {bgm: 70, sfx: 80});
   assert.equal(d.name, '');
@@ -68,7 +69,7 @@ test('読み込み: おかしな値は直す (音量は 0〜100 の整数、名�
   assert.equal(s.keys.camRight, 'KeyD');
   assert.equal(s.keys.camUp, 'KeyW');
   assert.equal(new Set(Object.values(s.keys)).size, Object.keys(s.keys).length, '重ならない');
-  assert.equal(s.keys.center, 'KeyQ');
+  assert.equal(s.keys.center, 'KeyC', 'おかしな値は初期値');
   assert.equal(s.keys.fire, 'KeyZ', '予約されたキー (Esc) は使えない');
   assert.equal('unknownAction' in s.keys, false);
   assert.deepEqual(s.volume, {bgm: 100, sfx: 0});
@@ -115,7 +116,7 @@ test('キーの表示名: 画面に出す短い名前', () => {
 
 test('操作の一覧: 設定画面に出す順番と名前', () => {
   const ids = S.ACTIONS.map(a => a.id);
-  assert.deepEqual(ids, ['moveUp', 'moveDown', 'moveLeft', 'moveRight', 'fire', 'autoSpecial', 'special', 'camUp', 'camDown', 'camLeft', 'camRight', 'center', 'centerFlagship']);
+  assert.deepEqual(ids, ['moveUp', 'moveDown', 'moveLeft', 'moveRight', 'fire', 'autoSpecial', 'special', 'camUp', 'camDown', 'camLeft', 'camRight', 'center', 'zoomOut', 'zoomIn']);
   assert.ok(S.ACTIONS.every(a => a.label));
 });
 
@@ -147,16 +148,16 @@ test('読み込み: 第 3.3 段階より前の保存データは、前の初期�
   assert.deepEqual(s.keys, Object.assign(S.defaults().keys, {camUp: 'KeyI'}));
   assert.deepEqual(s.volume, {bgm: 0, sfx: 80}, '音量はそのまま');
   const custom = S.load(memoryStorage({[S.STORAGE_KEY]: JSON.stringify({keys: {fire: 'KeyF', center: 'KeyC'}})}));
-  assert.deepEqual([custom.keys.fire, custom.keys.center], ['KeyF', 'KeyQ']);
+  assert.deepEqual([custom.keys.fire, custom.keys.center], ['KeyF', 'KeyC']);
 });
 
 test('保存: 設定の版 (SETTINGS_VERSION) を一緒に保存し、今の版のデータは移し替えずにそのまま読む', () => {
   const st = memoryStorage();
-  const s = S.assignKey(S.defaults(), 'center', 'KeyC'); // 前の初期のキーと同じでも、今の版で選んだものは残す
+  const s = S.assignKey(S.defaults(), 'center', 'KeyQ'); // 前の版の初期のキーと同じでも、今の版で選んだものは残す
   S.save(st, s);
-  assert.equal(S.SETTINGS_VERSION, 2);
+  assert.equal(S.SETTINGS_VERSION, 3);
   assert.equal(JSON.parse(st.data[S.STORAGE_KEY]).version, S.SETTINGS_VERSION);
-  assert.equal(S.load(st).keys.center, 'KeyC');
+  assert.equal(S.load(st).keys.center, 'KeyQ');
 });
 
 test('音量の表示: 保存する値 (0〜100) と画面の 10 段階 (0〜10) の変換。10 刻みでない値は近い段階に丸める', () => {
@@ -197,4 +198,13 @@ test('地図 (第 4.1 段階): 固定 (fixed) / ランダム (random) から選�
   S.save(st, s);
   assert.equal(S.load(st).map, 'random');
   assert.equal(S.assignKey(s, 'camUp', 'KeyI').map, 'random');
+});
+
+test('読み込み: 版 2 (第 3.3〜4.0 段階) の保存データは、初期のキーのままの自艦へ視点移動 (Q) を新しい初期のキー (C) にし、味方旗艦へ視点移動は捨てる。自分で変えたキーは残す', () => {
+  const v2 = {version: 2, keys: {center: 'KeyQ', centerFlagship: 'KeyE', fire: 'KeyF'}, volume: {bgm: 50, sfx: 50}, name: ''};
+  const s = S.load(memoryStorage({[S.STORAGE_KEY]: JSON.stringify(v2)}));
+  assert.deepEqual([s.keys.center, s.keys.zoomOut, s.keys.zoomIn, s.keys.fire], ['KeyC', 'KeyQ', 'KeyE', 'KeyF']);
+  assert.equal('centerFlagship' in s.keys, false);
+  const custom = S.load(memoryStorage({[S.STORAGE_KEY]: JSON.stringify({version: 2, keys: {center: 'KeyP'}})}));
+  assert.equal(custom.keys.center, 'KeyP');
 });

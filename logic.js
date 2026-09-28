@@ -678,6 +678,7 @@
     }
     const before = damage.get(t) || 0;
     let amount = r.damage;
+    t.lastHitBy = p.from; // 沈めた艦 (出来事 destroyed の by) を決めるため、最後にダメージを与えた艦を覚える
     if(before === 0 && t.ships >= t.maxShips && amount >= t.ships) amount = t.ships - 1;
     damage.set(t, before + amount);
     const shooter = g.fleets.find(f => f.id === p.from);
@@ -914,7 +915,7 @@
     moveAircraft(g, dt, damage, rng);
     for(const [t, d] of damage) t.ships = Math.max(0, t.ships - d);
     for(const f of living){
-      if(!alive(f)) record(g, {type: 'destroyed', team: f.team, id: f.id, flagship: !!f.flagship, x: f.x, y: f.y});
+      if(!alive(f)) record(g, {type: 'destroyed', team: f.team, id: f.id, flagship: !!f.flagship, by: f.lastHitBy || null, x: f.x, y: f.y});
     }
 
     refreshIntel();

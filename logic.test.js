@@ -1430,3 +1430,16 @@ test('攻撃命令: 狙いとの間に島があれば、射程の中でも止ま
   L.moveFleet(f, 0.1, intel, [{x: 5000, y: 9850, r: 60}]);
   assert.ok(f.y < 10000, '射程 (450) の中でも動く');
 });
+
+// ---------- 第 4.1 段階 (追加): 撃沈報告 ----------
+
+test('出来事 destroyed: 沈めた艦 (by = 最後にダメージを与えた艦) が入る', () => {
+  const b = ship('battleship', {id: 'b', x: 0, y: 0});
+  const r = ship('destroyer', {id: 'r', team: 'red', x: 300, y: 0, ships: 5});
+  const g = game([b, r]);
+  g.projectiles.push(shot({x: 290, y: 0, fp: 120, range: 650, from: 'b'}));
+  L.step(g, 1 / 60, seq(0.01, 0.5, 0.5));
+  const ev = g.events.find(e => e.type === 'destroyed');
+  assert.ok(ev, '沈んだ');
+  assert.equal(ev.by, 'b');
+});
