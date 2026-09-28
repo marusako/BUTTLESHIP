@@ -235,21 +235,36 @@
 
   // AI の命令を決める (艦種ごと)。profile は AI プロファイル (省略時は標準)。
   // 戦艦 = 旗艦の動き、空母 = 旗艦の後ろ、巡洋艦 = 旗艦の左右で戦う、駆逐艦 = 偵察と見張り (交戦を避ける)。旗艦がいなければ旗艦の動き
-  function aiDecide(f, fleets, intel, rng, profile){
+  // islands: 島 (第 4.1 段階)。移動先が島の中なら島のふちの外へ直す (攻撃命令は、島を回り込む動きをゲームのルールがする)
+  function aiDecide(f, fleets, intel, rng, profile, islands){
     const p = profile || AI_PROFILES.standard;
     const flag = fleets.find(a => a.team === f.team && a.flagship && alive(a));
-    if(f.role === 'destroyer') return speederDecide(f, fleets, intel, rng, p);
-    if(!flag || flag === f || f.role === 'battleship') return flagshipDecide(f, fleets, intel, rng, p);
-    if(f.role === 'carrier') return carrierDecide(f, flag, fleets, intel, p);
-    return attackerDecide(f, flag, fleets, intel, p);
+    let o;
+    if(f.role === 'destroyer') o = speederDecide(f, fleets, intel, rng, p);
+    else if(!flag || flag === f || f.role === 'battleship') o = flagshipDecide(f, fleets, intel, rng, p);
+    else if(f.role === 'carrier') o = carrierDecide(f, flag, fleets, intel, p);
+    else o = attackerDecide(f, flag, fleets, intel, p);
+    return outOfIslands(o, islands);
+  }
+
+  const ISLAND_MARGIN = 100; // 島の中の移動先を、島のふちからこれだけ外へ出す
+  function outOfIslands(o, islands){
+    if(!o || o.type !== 'move') return o;
+    for(const i of islands || []){
+      const d = dist(o, i);
+      if(d >= i.r + ISLAND_MARGIN) continue;
+      const ux = d > 0 ? (o.x - i.x) / d : 0, uy = d > 0 ? (o.y - i.y) / d : 1;
+      return {type: 'move', x: i.x + ux * (i.r + ISLAND_MARGIN), y: i.y + uy * (i.r + ISLAND_MARGIN)};
+    }
+    return o;
   }
 
   // createGame の options.controllers に渡す形の AI (profile 省略時は標準)
   function controller(profile){
-    return (f, fleets, intel, rng) => aiDecide(f, fleets, intel, rng, profile);
+    return (f, fleets, intel, rng, islands) => aiDecide(f, fleets, intel, rng, profile, islands);
   }
 
-  const api = {AI_PROFILES, localForceRatio, aiDecide, controller};
+  const api = {AI_PROFILES, localForceRatio, aiDecide, controller, ISLAND_MARGIN};
   if(typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.SagittariusRuleAI = api;
 })(typeof window !== 'undefined' ? window : globalThis);

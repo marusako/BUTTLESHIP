@@ -26,8 +26,8 @@ function seq(...values){
   return () => values[i++ % values.length];
 }
 
-test('速度: 速力 (低速 65 / 高速 105 / 高速+ 165。試合時間が 3 分前後になるように調整。高速+ は強化中の巡洋艦 (157.5) より速い) で決まる', () => {
-  assert.deepEqual(['slow', 'fast', 'fastPlus'].map(speed => L.maxSpeed({speed})), [65, 105, 165]);
+test('速度: 速力 (低速 55 / 高速 89 / 高速+ 140。第 4.1 段階で全艦 0.85 倍にして試合を長く。高速+ は強化中の巡洋艦 (133.5) より速い) で決まる', () => {
+  assert.deepEqual(['slow', 'fast', 'fastPlus'].map(speed => L.maxSpeed({speed})), [55, 89, 140]);
   assert.ok(L.maxSpeed({speed: 'fastPlus'}) > L.maxSpeed({speed: 'fast'}) * L.BOOST_MULTIPLIER, '駆逐艦は強化中の巡洋艦から逃げきれる (第 3.8 段階)');
 });
 
@@ -111,8 +111,8 @@ test('勝敗: 敵全滅で勝ち、味方全滅で負け、同時なら引き分
   assert.equal(L.checkOutcome([b, r]), 'draw');
 });
 
-test('マップ: 原作のミニマップと同じ縦長 (横 1 : 縦 2) の 13000 × 26000 (第 3.4 段階で広げた)', () => {
-  assert.deepEqual(L.WORLD, {w: 13000, h: 26000});
+test('マップ: 原作のミニマップと同じ縦長 (横 1 : 縦 2) の 16000 × 32000 (第 3.4 段階で 13000 × 26000、第 4.1 段階で試合を長くするため広げた)', () => {
+  assert.deepEqual(L.WORLD, {w: 16000, h: 32000});
 });
 
 test('ゲーム作成: 青は下の端、赤は上の端から、横に並んで出撃する', () => {
@@ -555,35 +555,41 @@ test('ゲーム作成: どの艦隊も透明化していない状態で始まる
 
 // ---------- 第 2.7 段階 (旗艦の位置がばれる・マップの広さ) ----------
 
-test('旗艦の位置がばれる時間: 開始から 60 秒ごとに 5 秒間 (開始直後はばれない)', () => {
-  assert.equal(L.BEACON_INTERVAL, 60);
-  assert.equal(L.BEACON_DURATION, 5);
-  for(const t of [0, 3, 59.9, 65, 100, 125.01]) assert.equal(L.beaconActive(t), false, String(t));
-  for(const t of [60, 62.5, 64.99, 120, 180.1]) assert.equal(L.beaconActive(t), true, String(t));
+test('衛星スキャンの時間: 開始から 60 秒ごとに 5 秒間 (開始直後はない。第 4.1 段階で旗艦の位置がばれるルールを置き換えた)', () => {
+  assert.equal(L.SCAN_INTERVAL, 60);
+  assert.equal(L.SCAN_DURATION, 5);
+  assert.equal(L.beaconActive, undefined, '旗艦の位置がばれるルールはない');
+  for(const t of [0, 3, 59.9, 65, 100, 125.01]) assert.equal(L.scanActive(t), false, String(t));
+  for(const t of [60, 62.5, 64.99, 120, 180.1]) assert.equal(L.scanActive(t), true, String(t));
 });
 
-test('旗艦の位置がばれる: その間は索敵範囲の外でも相手の旗艦が見える。旗艦以外と透明化中の旗艦は見えない', () => {
+test('衛星スキャン: その間は索敵範囲の外でも相手の全艦が見える。透明化中の艦は見えない', () => {
   const me = fleet({id: 'me', x: 100, y: 100});
   const flag = fleet({id: 'rf', team: 'red', x: 9000, y: 9000, flagship: true});
   const other = fleet({id: 'r2', team: 'red', x: 9100, y: 9000});
   const fleets = [me, flag, other];
   assert.deepEqual(L.visibleEnemies(fleets, 'blue', false, false).map(f => f.id), []);
-  assert.deepEqual(L.visibleEnemies(fleets, 'blue', false, true).map(f => f.id), ['rf']);
+  assert.deepEqual(L.visibleEnemies(fleets, 'blue', false, true).map(f => f.id), ['rf', 'r2']);
   flag.stealth = 3;
-  assert.deepEqual(L.visibleEnemies(fleets, 'blue', false, true).map(f => f.id), [], '透明化が優先');
+  assert.deepEqual(L.visibleEnemies(fleets, 'blue', false, true).map(f => f.id), ['r2'], '透明化が優先');
 });
 
-test('旗艦の位置がばれる (試合の中): 60 秒で相手の地図に旗艦が見え、5 秒後はゴーストとして残る', () => {
+test('衛星スキャン (試合の中): 60 秒でお互いの全艦が見え、5 秒後はゴーストとして残る。出来事 scan', () => {
   const bf = fleet({id: 'bf', x: 100, y: 100, flagship: true, isPlayer: true, weapons: {fire: false}});
   const rf = fleet({id: 'rf', team: 'red', x: 9000, y: 9000, flagship: true, weapons: {fire: false}});
-  const g = game([bf, rf]);
+  const r2 = fleet({id: 'r2', team: 'red', x: 9500, y: 9000, weapons: {fire: false}});
+  const g = game([bf, rf, r2]);
   g.time = 59.95;
   L.step(g, 0.1, seq(0.5));
   assert.equal(g.intel.blue.rf.visible, true);
-  assert.equal(g.intel.red.bf.visible, true, 'お互いにばれる');
+  assert.equal(g.intel.blue.r2.visible, true, '旗艦以外も見える');
+  assert.equal(g.intel.red.bf.visible, true, 'お互いに見える');
+  assert.equal(g.events.filter(e => e.type === 'scan').length, 1, 'スキャンの始まりに出来事 scan');
+  L.step(g, 0.1, seq(0.5));
+  assert.equal(g.events.filter(e => e.type === 'scan').length, 0, '始まりだけ');
   for(let i = 0; i < 60; i++) L.step(g, 0.1, seq(0.5));
   assert.equal(g.intel.blue.rf.visible, false);
-  assert.deepEqual([g.intel.blue.rf.x, g.intel.blue.rf.y], [9000, 9000], '最終確認位置が残る');
+  assert.deepEqual([g.intel.blue.r2.x, g.intel.blue.r2.y], [9500, 9000], '最終確認位置が残る');
 });
 
 // ---------- 第 3.1 段階: 艦種・ステータス・攻撃パターン (3.0 の艦種・艦載機・バフを含む) ----------
@@ -613,7 +619,7 @@ test('艦種: ステータス (耐久・火力・装甲・回避・対空・索�
   ]);
   assert.deepEqual(L.RANGES, {short: 300, medium: 450, long: 650, veryLong: 1200});
   assert.deepEqual(Object.values(T).map(t => [t.weapon.kind, t.weapon.interval]), [['gun', 4], ['bomber', 5], ['gun', 2], ['gun', 1.5]]);
-  assert.deepEqual(Object.values(T).map(t => [t.size, t.hitRadius]), [['large', 40], ['large', 40], ['medium', 25], ['small', 15]]);
+  assert.deepEqual(Object.values(T).map(t => [t.size, t.hitRadius]), [['large', 28], ['large', 28], ['medium', 18], ['small', 10]]);
   for(const t of Object.values(T)) assert.ok(t.name && t.description);
 });
 
@@ -643,8 +649,8 @@ test('編成: 戦艦 (旗艦)・空母・巡洋艦・駆逐艦Ⅰ型・駆逐艦
 test('出撃位置: 各チームから見て左から第 4 (駆逐Ⅰ)・第 3 (巡洋)・第 1 (戦艦)・第 2 (空母)・第 5 (駆逐Ⅱ)', () => {
   const g = L.createGame();
   const xs = team => [4, 3, 1, 2, 5].map(n => g.fleets.find(f => f.id === team + n).x);
-  assert.deepEqual(xs('blue'), [4900, 5700, 6500, 7300, 8100]);
-  assert.deepEqual(xs('red'), [8100, 7300, 6500, 5700, 4900]);
+  assert.deepEqual(xs('blue'), [6400, 7200, 8000, 8800, 9600]);
+  assert.deepEqual(xs('red'), [9600, 8800, 8000, 7200, 6400]);
 });
 
 test('自機の選択: 番号で艦種が決まる (省略時は第 1 艦隊 = 戦艦)。名前を指定しなければ艦種の名前', () => {
@@ -909,17 +915,17 @@ test('対空射撃: 全艦種が、400 以内の敵の艦載機を 0.5 秒ごと
   assert.equal(own.aircraft.length, 1, '味方の艦載機は撃たない');
 });
 
-test('NP (特殊攻撃のゲージ): たまる速さは艦種ごと (毎秒 戦艦 +0.3 / 巡洋艦 +2.5 / 駆逐艦 +3、与えたダメージ 1 につき 戦艦 0.02 / 巡洋艦 0.1 / 駆逐艦 0.2。第 4.0 段階: HP 10 倍で最終戦が長くなったので調整)。満タン 100。空母にはない', () => {
+test('NP (特殊攻撃のゲージ): たまる速さは艦種ごと (毎秒 戦艦 +0.23 / 巡洋艦 +2.6 / 駆逐艦 +3.7、与えたダメージ 1 につき 戦艦 0.02 / 巡洋艦 0.1 / 駆逐艦 0.2。第 4.1 段階: マップと速さに合わせて調整)。満タン 100。空母にはない', () => {
   assert.equal(L.CHARGE_MAX, 100);
   assert.deepEqual(Object.values(L.SHIP_TYPES).map(t => t.npPerDamage), [0.02, 0, 0.1, 0.2], '与えたダメージでたまる速さも艦種ごと');
-  assert.deepEqual(Object.values(L.SHIP_TYPES).map(t => t.npPerSecond), [0.3, 0, 2.5, 3]);
+  assert.deepEqual(Object.values(L.SHIP_TYPES).map(t => t.npPerSecond), [0.23, 0, 2.6, 3.7]);
   const b = ship('cruiser', {id: 'b', x: 0, y: 0});
   const r = ship('destroyer', {id: 'r', team: 'red', x: 5000, y: 5000});
   const cv = ship('carrier', {id: 'v', x: 100, y: 0});
   const bb = ship('battleship', {id: 'bb', x: 0, y: 3000});
   const g = game([b, r, cv, bb]);
   L.step(g, 2, seq(0.5));
-  assert.deepEqual([bb.charge, b.charge, r.charge, cv.charge], [0.6, 5, 6, 0]);
+  assert.deepEqual([bb.charge, b.charge, r.charge, cv.charge], [0.46, 5.2, 7.4, 0]);
   b.charge = 98;
   L.step(g, 1, seq(0.5));
   assert.equal(b.charge, 100);
@@ -927,7 +933,7 @@ test('NP (特殊攻撃のゲージ): たまる速さは艦種ごと (毎秒 戦�
   h.projectiles.push(shot({x: 280, y: 0, fp: 55}));
   L.step(h, 0.01, seq(0.01, 0.5, 0.5));
   const dealt = h.events.find(e => e.type === 'hit').damage;
-  assert.ok(Math.abs(h.fleets[0].charge - (0.025 + dealt * 0.1)) < 1e-9, '与えたダメージの分たまる (巡洋艦は 1 につき 0.1。時間の分は毎秒 +2.5)');
+  assert.ok(Math.abs(h.fleets[0].charge - (0.026 + dealt * 0.1)) < 1e-9, '与えたダメージの分たまる (巡洋艦は 1 につき 0.1。時間の分は毎秒 +2.6)');
 });
 
 test('特殊攻撃: ゲージが満たないと使えない。使うと 0 に戻り、出来事 special を記録', () => {
@@ -1118,7 +1124,7 @@ test('マップの広さ (学習用): setWorld で変えると出撃位置と移
   }finally{
     L.setWorld();
   }
-  assert.deepEqual(L.WORLD, {w: 13000, h: 26000});
+  assert.deepEqual(L.WORLD, {w: 16000, h: 32000});
 });
 
 test('移動: 攻撃命令は見えている相手に、自分の射程の内側 (8 割) まで近づいて止まる', () => {
@@ -1322,4 +1328,105 @@ test('HP: 試合の中の HP は艦種の耐久 (出撃準備の画面の値) �
   const byRole = role => g.fleets.find(f => f.team === 'blue' && f.role === role);
   assert.deepEqual(['battleship', 'carrier', 'cruiser', 'destroyer'].map(r => [byRole(r).ships, byRole(r).maxShips]), [[1000, 1000], [700, 700], [500, 500], [300, 300]]);
   assert.equal(L.maxHpOf('carrier'), 700);
+});
+
+// ---------- 第 4.1 段階: 島 (移動と弾をさえぎる) と地図 ----------
+
+// 点対称 (マップの中心について 180° 回すと同じ) か
+function symmetric(islands){
+  return islands.every(i => islands.some(j => Math.abs(j.x - (L.WORLD.w - i.x)) < 1e-6 && Math.abs(j.y - (L.WORLD.h - i.y)) < 1e-6 && Math.abs(j.r - i.r) < 1e-6));
+}
+function checkMap(islands){
+  const g = L.createGame();
+  for(const i of islands){
+    assert.ok(i.x - i.r >= 0 && i.x + i.r <= L.WORLD.w && i.y - i.r >= 0 && i.y + i.r <= L.WORLD.h, 'マップの内側');
+    for(const f of g.fleets) assert.ok(Math.hypot(f.x - i.x, f.y - i.y) >= i.r + L.ISLAND_SPAWN_CLEARANCE, '出撃位置のまわりに置かない');
+    for(const j of islands) if(j !== i) assert.ok(Math.hypot(j.x - i.x, j.y - i.y) >= i.r + j.r + L.ISLAND_GAP, '島どうしは離す');
+  }
+  assert.ok(symmetric(islands), '点対称');
+}
+
+test('地図: 何も指定しなければ島はない。map: fixed は固定の地図 (点対称・出撃位置と重ならない)、map: random はランダムの地図', () => {
+  assert.deepEqual(L.createGame().islands, []);
+  const fixed = L.createGame({map: 'fixed'}).islands;
+  assert.ok(fixed.length >= 6);
+  checkMap(fixed);
+  assert.deepEqual(L.createGame({map: 'fixed'}).islands, fixed, '固定の地図はいつも同じ');
+  const random = L.createGame({map: 'random', mapSeed: 7}).islands;
+  assert.ok(random.length >= 6 && random.length <= 12);
+  checkMap(random);
+  assert.deepEqual(L.createGame({map: 'random', mapSeed: 7}).islands, random, '同じ種なら同じ地図');
+  assert.notDeepEqual(L.createGame({map: 'random', mapSeed: 8}).islands, random, '種が違えば違う地図');
+});
+
+test('地図 (ランダム): どの種でも点対称・出撃位置と重ならない・島どうしが重ならない・半径は 400〜1200', () => {
+  for(let seed = 1; seed <= 30; seed++){
+    const islands = L.randomIslands(seed);
+    checkMap(islands);
+    assert.ok(islands.every(i => i.r >= 400 && i.r <= 1200));
+  }
+});
+
+test('島: 艦は島に入らず、ふちに沿って回り込んで移動先に着く (真正面からでも)', () => {
+  const islands = [{x: 5000, y: 9000, r: 500}];
+  for(const startX of [5000, 5100]){
+    const f = ship('cruiser', {x: startX, y: 10000, order: {type: 'move', x: 5000, y: 8000}});
+    let t = 0;
+    while(f.order && t < 60){
+      L.moveFleet(f, 0.1, {}, islands);
+      assert.ok(Math.hypot(f.x - 5000, f.y - 9000) >= 500 - 1e-6, '島に入らない');
+      t += 0.1;
+    }
+    assert.equal(f.order, null, '着いた');
+    assert.ok(Math.hypot(f.x - 5000, f.y - 8000) < 1e-6);
+  }
+});
+
+test('島: 移動キーの進路でも島に入らない', () => {
+  const f = ship('cruiser', {x: 5000, y: 10000, order: {type: 'course', angle: -Math.PI / 2}});
+  for(let i = 0; i < 100; i++){
+    L.moveFleet(f, 0.1, {}, [{x: 5000, y: 9000, r: 500}]);
+    assert.ok(Math.hypot(f.x - 5000, f.y - 9000) >= 500 - 1e-6);
+  }
+});
+
+test('島: 2 点を結ぶ線が島を通るか (lineBlocked)', () => {
+  const islands = [{x: 1000, y: 1000, r: 300}];
+  assert.equal(L.lineBlocked(islands, {x: 1000, y: 0}, {x: 1000, y: 2000}), true);
+  assert.equal(L.lineBlocked(islands, {x: 1400, y: 0}, {x: 1400, y: 2000}), false);
+  assert.equal(L.lineBlocked([], {x: 0, y: 0}, {x: 1, y: 1}), false);
+});
+
+test('島: 砲弾は島に当たると消える (出来事 blocked)。爆撃機は島の上を飛べる', () => {
+  const b = ship('cruiser', {id: 'b', x: 1000, y: 0});
+  const r = ship('destroyer', {id: 'r', team: 'red', x: 1000, y: 400});
+  const g = Object.assign(game([b, r]), {islands: [{x: 1000, y: 200, r: 50}]});
+  g.projectiles.push(shot({x: 1000, y: 100, targetId: 'r'}));
+  const damage = new Map();
+  for(let i = 0; i < 20; i++) L.moveProjectiles(g, 1 / 60, damage, seq(0.01, 0.5));
+  assert.equal(g.projectiles.length, 0);
+  assert.ok(g.events.some(e => e.type === 'blocked'));
+  assert.equal(damage.get(r), undefined, '当たらない');
+  g.aircraft.push({id: 9, kind: 'bomber', team: 'blue', from: 'b', targetId: 'r', x: 1000, y: 100, heading: Math.PI / 2, life: 8, range: 1200, fp: 50, mult: 1, crit: 0, hitChance: 1, evasionCut: 0});
+  for(let i = 0; i < 120 && g.aircraft.length; i++) L.moveAircraft(g, 1 / 60, damage, seq(0.5));
+  assert.ok(damage.get(r) > 0, '爆撃機は島を越えて届く');
+});
+
+test('島: 艦と狙いの間に島があれば通常攻撃・特殊攻撃を撃たない', () => {
+  const b = ship('destroyer', {id: 'b', x: 1000, y: 0, charge: 100});
+  const r = ship('cruiser', {id: 'r', team: 'red', x: 1000, y: 280});
+  const g = Object.assign(game([b, r]), {islands: [{x: 1000, y: 140, r: 50}]});
+  L.fireWeapons(g, 0, {blue: [r], red: []});
+  assert.equal(g.projectiles.filter(p => p.from === 'b').length, 0, '通常攻撃を撃たない');
+  assert.equal(L.useSpecial(g, b), false, '特殊攻撃も撃たない');
+  g.islands = [];
+  L.fireWeapons(g, 0, {blue: [r], red: []});
+  assert.ok(g.projectiles.some(p => p.from === 'b'), '島がなければ撃つ');
+});
+
+test('攻撃命令: 狙いとの間に島があれば、射程の中でも止まらずに近づく (回り込んで撃てる位置へ)', () => {
+  const f = ship('cruiser', {x: 5000, y: 10000, order: {type: 'attack', targetId: 'e'}});
+  const intel = {e: {x: 5000, y: 9700, visible: true}};
+  L.moveFleet(f, 0.1, intel, [{x: 5000, y: 9850, r: 60}]);
+  assert.ok(f.y < 10000, '射程 (450) の中でも動く');
 });

@@ -207,7 +207,7 @@ function restart(){
   endedAt = 0;
   seed = Math.floor(Math.random() * 2147483647);
   rng = mulberry32(seed);
-  game = L.createGame({controllers: {blue: controllerOf($('blueAi').value, rng), red: controllerOf($('redAi').value, rng)}});
+  game = L.createGame({map: 'fixed', controllers: {blue: controllerOf($('blueAi').value, rng), red: controllerOf($('redAi').value, rng)}}); // 固定の地図 (第 4.1 段階)
   for(const f of game.fleets) f.isPlayer = false;
 }
 
@@ -237,6 +237,8 @@ function draw(){
   ctx.fillStyle = '#03060f'; ctx.fillRect(0, 0, canvas.width, canvas.height);
   const a = toS(0, 0), b = toS(L.WORLD.w, L.WORLD.h);
   ctx.strokeStyle = 'rgba(79, 163, 255, 0.5)'; ctx.strokeRect(a.x, a.y, b.x - a.x, b.y - a.y);
+  ctx.fillStyle = '#3f6b3a'; // 島
+  for(const i of game.islands || []){ const p = toS(i.x, i.y); ctx.beginPath(); ctx.arc(p.x, p.y, i.r * cam.scale, 0, Math.PI * 2); ctx.fill(); }
   const living = game.fleets.filter(f => f.ships > 0);
   if(showSensor){
     for(const f of living){

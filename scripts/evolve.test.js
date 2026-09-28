@@ -40,9 +40,9 @@ test('成績: 勝ち 1、負け 0、時間切れは負けより悪い。残存�
   near(E.matchScore({outcome: 'draw', ships: {blue: 2800, red: 2800}}, 'red'), E.TIMEOUT_SCORE);
 });
 
-test('1 試合: 敵旗艦を見つけたかを記録する (旗艦の位置がばれる時間にも見つかる)', () => {
+test('1 試合: 敵旗艦を見つけたかを記録する (衛星スキャンでも見つかる)', () => {
   const r = E.playMatch(B.controller(stay()), B.controller(stay()), {seed: 2, dt: 1 / 10, maxTime: 70});
-  assert.deepEqual(r.spotted, {blue: true, red: true}, '60 秒で旗艦の位置がばれる');
+  assert.deepEqual(r.spotted, {blue: true, red: true}, '60 秒の衛星スキャンで見つかる');
   const early = E.playMatch(B.controller(stay()), B.controller(stay()), {seed: 2, dt: 1 / 10, maxTime: 30});
   assert.deepEqual(early.spotted, {blue: false, red: false});
 });
@@ -51,11 +51,11 @@ test('1 試合: マップの広さを指定でき、終わったら本番の広�
   const L = require('../logic.js');
   const r = E.playMatch(B.controller(stay()), B.controller(stay()), {seed: 2, dt: 1 / 10, maxTime: 5, world: {w: 2500, h: 5000}});
   assert.equal(r.outcome, 'timeout');
-  assert.deepEqual(L.WORLD, {w: 13000, h: 26000});
+  assert.deepEqual(L.WORLD, {w: 16000, h: 32000});
 });
 
 test('小さいマップから始める: 同じ広さで最低 20 世代。時間切れ 30% 未満かつ端 50% 未満が 5 世代続いたら次の広さへ。最後の広さで止まる', () => {
-  assert.deepEqual(E.WORLD_STAGES, [{w: 3250, h: 6500}, {w: 6500, h: 13000}, {w: 13000, h: 26000}], '最後が本番の広さ (その 1/4・1/2 から)');
+  assert.deepEqual(E.WORLD_STAGES, [{w: 4000, h: 8000}, {w: 8000, h: 16000}, {w: 16000, h: 32000}], '最後が本番の広さ (その 1/4・1/2 から)');
   let c = {stage: 0, streak: 0, gens: 0};
   for(let i = 0; i < 19; i++) c = E.advanceCurriculum(c, 0.1, 0.1);
   assert.deepEqual(c, {stage: 0, streak: 19, gens: 19}, '20 世代まではとどまる');

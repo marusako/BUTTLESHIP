@@ -440,3 +440,16 @@ test('AI (駆逐艦): NP が満タンで敵旗艦が見えていなければ、s
   e.y = 4200 - P.speederFinalEngageRange - 100; s.intel.e.y = e.y;
   assert.equal(R.aiDecide(s.me, s.fleets, s.intel, seq(0.5), P).type, 'move', '遠い敵は追わない');
 });
+
+// ---------- 第 4.1 段階: 島 ----------
+
+test('AI: 移動先が島の中なら、島のふちの外 (ISLAND_MARGIN の余裕) へ直す。島がなければ今までどおり', () => {
+  const flag = fleet({id: 'f', x: 1200, y: 3000, role: 'battleship', flagship: true, heading: -Math.PI / 2});
+  const me = fleet({id: 'a', x: 1200, y: 3200, role: 'carrier'});
+  const plain = R.aiDecide(me, [flag, me], {}, seq(0.5), P);
+  const island = {x: plain.x, y: plain.y + 50, r: 300};
+  const o = R.aiDecide(me, [flag, me], {}, seq(0.5), P, [island]);
+  assert.equal(o.type, 'move');
+  assert.ok(Math.abs(Math.hypot(o.x - island.x, o.y - island.y) - (island.r + R.ISLAND_MARGIN)) < 1e-6, '島のふちの外');
+  assert.deepEqual(R.controller(P)(me, [flag, me], {}, seq(0.5), [island]), o, 'controller も島を受け取る');
+});

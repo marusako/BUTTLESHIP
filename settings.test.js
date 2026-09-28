@@ -185,3 +185,16 @@ test('対戦する AI (第 3.5 段階): 味方と敵を 旧型 AI (rule) / 学�
   assert.deepEqual(S.load(st).ai, {ally: 'rule', enemy: 'learned'});
   assert.deepEqual(S.assignKey(s, 'camUp', 'KeyI').ai, s.ai, 'キーを変えても AI の選択は残る');
 });
+
+test('地図 (第 4.1 段階): 固定 (fixed) / ランダム (random) から選ぶ。初めは固定。おかしな値は固定。保存して読み込める。キーを変えても残る', () => {
+  assert.deepEqual(S.MAP_KINDS.map(m => [m.id, m.label]), [['fixed', '固定'], ['random', 'ランダム']]);
+  assert.equal(S.defaults().map, 'fixed');
+  assert.equal(S.normalize({map: 'random'}).map, 'random');
+  assert.equal(S.normalize({map: 'island'}).map, 'fixed');
+  assert.equal(S.normalize({}).map, 'fixed');
+  const st = memoryStorage();
+  const s = Object.assign(S.defaults(), {map: 'random'});
+  S.save(st, s);
+  assert.equal(S.load(st).map, 'random');
+  assert.equal(S.assignKey(s, 'camUp', 'KeyI').map, 'random');
+});

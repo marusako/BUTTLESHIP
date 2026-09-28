@@ -31,6 +31,9 @@
   // 対戦する AI の種類 (第 3.5 段階): 旧型 AI (人が書いたルール) / 学習型 AI (学習した脳)
   const AI_KINDS = [{id: 'rule', label: '旧型 AI'}, {id: 'learned', label: '学習型 AI'}];
   const aiKind = v => (AI_KINDS.some(a => a.id === v) ? v : 'rule');
+  // 地図 (第 4.1 段階): 固定の地図 / 試合ごとのランダムの地図
+  const MAP_KINDS = [{id: 'fixed', label: '固定'}, {id: 'random', label: 'ランダム'}];
+  const mapKind = v => (MAP_KINDS.some(m => m.id === v) ? v : 'fixed');
 
   // クレジット (原作 → 製作 → 開発支援)
   const CREDITS = [
@@ -47,12 +50,12 @@
   function defaults(){
     const keys = {};
     for(const a of ACTIONS) keys[a.id] = a.key;
-    return {keys, volume: {bgm: 70, sfx: 80}, name: '', ai: {ally: 'rule', enemy: 'rule'}};
+    return {keys, volume: {bgm: 70, sfx: 80}, name: '', ai: {ally: 'rule', enemy: 'rule'}, map: 'fixed'};
   }
 
   // action のキーを code にした新しい設定を返す。ほかの操作が code を使っていれば、その操作と入れ替える
   function assignKey(settings, action, code){
-    const next = {keys: Object.assign({}, settings.keys), volume: Object.assign({}, settings.volume), name: settings.name, ai: Object.assign({}, settings.ai)};
+    const next = {keys: Object.assign({}, settings.keys), volume: Object.assign({}, settings.volume), name: settings.name, ai: Object.assign({}, settings.ai), map: settings.map};
     if(!(action in next.keys) || typeof code !== 'string' || isReservedKey(code)) return next;
     const other = Object.keys(next.keys).find(id => id !== action && next.keys[id] === code);
     if(other) next.keys[other] = next.keys[action];
@@ -77,6 +80,7 @@
     s.name = typeof r.name === 'string' ? [...r.name.trim()].slice(0, NAME_MAX).join('') : '';
     const ai = r.ai && typeof r.ai === 'object' ? r.ai : {};
     s.ai = {ally: aiKind(ai.ally), enemy: aiKind(ai.enemy)};
+    s.map = mapKind(r.map);
     return s;
   }
 
@@ -122,7 +126,7 @@
     return settings.name || (className ? `味方${className}` : DEFAULT_NAME);
   }
 
-  const api = {AI_KINDS, STORAGE_KEY, SETTINGS_VERSION, NAME_MAX, DEFAULT_NAME, ACTIONS, CREDITS, isReservedKey, defaults, assignKey, normalize, load, save, keyLabel, fleetName, volumeStep, volumeFromStep};
+  const api = {AI_KINDS, MAP_KINDS, STORAGE_KEY, SETTINGS_VERSION, NAME_MAX, DEFAULT_NAME, ACTIONS, CREDITS, isReservedKey, defaults, assignKey, normalize, load, save, keyLabel, fleetName, volumeStep, volumeFromStep};
   if(typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.SagittariusSettings = api;
 })(typeof window !== 'undefined' ? window : globalThis);

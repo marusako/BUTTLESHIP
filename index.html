@@ -282,7 +282,6 @@ let wrecks = [];
 let prevVisibleRed = new Set(); // 中立の観戦: 赤が見つけている艦 (発見のログ用)
 let watchSelected = null;        // 中立の観戦: クリックで選んだ艦 (TARGET にその艦の狙いを出す) // 撃沈エフェクト {w: createWreck の結果, t0: 始まった時刻 (実時間の秒)}
 let prevVisible = new Set();
-let prevBeacon = false; // 前のフレームで旗艦の位置がばれていたか
 let prevAlive = new Set();
 let cheatProgress = L.newCheatProgress();
 let consoleOpen = false;
@@ -422,7 +421,25 @@ function renderAiPick(){
   const note = document.createElement('span');
   note.className = 'note';
   note.textContent = learnedBrain ? '旧型 AI: 人が書いたルールで動く / 学習型 AI: AI どうしの試合で学習した脳で動く (学習するたびに新しくなる)' : '学習型 AI の脳 (learned-brain.js) がないので、旧型 AI だけ選べます';
-  $('aiPick').replaceChildren(...row('ally', '味方の AI'), ...row('enemy', '敵の AI'), note);
+  // 地図 (第 4.1 段階): 固定 / ランダム
+  const mapLabel = document.createElement('span');
+  mapLabel.className = 'side';
+  mapLabel.textContent = '地図';
+  const mapButtons = S.MAP_KINDS.map(m => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = m.label;
+    b.classList.toggle('selected', settings.map === m.id);
+    b.onclick = () => {
+      settings = S.normalize(Object.assign({}, settings, {map: m.id}));
+      saveSettings();
+      renderAiPick();
+    };
+    return b;
+  });
+  const breakRow = document.createElement('span');
+  breakRow.className = 'note';
+  $('aiPick').replaceChildren(...row('ally', '味方の AI'), ...row('enemy', '敵の AI'), breakRow, mapLabel, ...mapButtons, note);
 }
 // 使う AI の種類 (学習型 AI の脳がなければ旧型 AI)
 const aiKindOf = side => (settings.ai[side] === 'learned' && learnedBrain ? 'learned' : 'rule');
@@ -447,7 +464,7 @@ renderSetup();
 
 function startBattle(){
   game = L.createGame({
-    playerName: settings.name, playerSlot, spectate: playerSlot === WATCH_SLOT,
+    playerName: settings.name, playerSlot, spectate: playerSlot === WATCH_SLOT, map: settings.map,
     controllers: {blue: aiController('ally'), red: aiController('enemy')}
   });
   dragMove = null;
@@ -461,7 +478,6 @@ function startBattle(){
   prevVisible = new Set();
   prevVisibleRed = new Set();
   watchSelected = null;
-  prevBeacon = false;
   prevAlive = new Set(game.fleets.map(f => f.id));
   cheatProgress = L.newCheatProgress();
   document.body.classList.toggle('watching', neutral());
@@ -828,19 +844,11 @@ function trackEvents(){
     addLog('最終戦 開始。巡洋艦・駆逐艦の特殊攻撃が解禁', COLORS.accent);
     Snd.ping(true);
   }
-  // 旗艦の位置がばれる時間の始まり (60 秒ごと)
-  const beacon = L.beaconActive(game.time);
-  if(beacon && !prevBeacon){
-    const redFlag = game.fleets.find(f => f.team === 'red' && f.flagship && f.ships > 0);
-    const blueFlag = game.fleets.find(f => f.team === 'blue' && f.flagship && f.ships > 0);
-    if(neutral()) addLog('両軍の旗艦の位置が相手に知られた', COLORS.accent);
-    else{
-      if(redFlag && !(redFlag.stealth > 0)) addLog('敵旗艦の位置を捕捉', COLORS.accent);
-      if(blueFlag && !(blueFlag.stealth > 0)) addLog('味方旗艦の位置が敵に知られた', COLORS.red);
-    }
+  // 衛星スキャンの始まり (60 秒ごと。第 4.1 段階)
+  if(game.events.some(ev => ev.type === 'scan')){
+    addLog('衛星スキャン: 両軍の全艦の位置が判明', COLORS.accent);
     Snd.ping(true);
   }
-  prevBeacon = beacon;
   const visible = new Set(Object.entries(game.intel.blue).filter(([, i]) => i.visible).map(([id]) => id));
   for(const id of visible){
     if(prevVisible.has(id)) continue;
@@ -962,6 +970,7 @@ function draw(){
     for(const [id, info] of Object.entries(game.intel.blue)) if(info.visible) drawFleet(fleetById(id));
     drawFog(allies);
   }
+  drawIslands(); // 島は地形なので霧の上に描く (いつも見える)
   drawMapOverlay();
   drawMinimap();
   updateSidePanels(statusFleet());
@@ -995,6 +1004,18 @@ function drawSea(){
 
 function line(a, b){
   ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+}
+
+// 島 (第 4.1 段階): 砂浜のふちと緑の島。移動と弾をさえぎる
+function drawIslands(){
+  for(const i of game.islands || []){
+    const p = toScreen(i.x, i.y), r = i.r * camera.zoom;
+    if(p.x + r < 0 || p.y + r < 0 || p.x - r > canvas.width || p.y - r > canvas.height) continue;
+    ctx.fillStyle = '#c9b27a';
+    ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#3f6b3a';
+    ctx.beginPath(); ctx.arc(p.x, p.y, Math.max(0, r - Math.max(2, r * 0.12)), 0, Math.PI * 2); ctx.fill();
+  }
 }
 
 function drawGrid(){
@@ -1082,7 +1103,7 @@ function drawAircraft(allies){
 }
 
 // ---------- 艦の形 (上から見た 1 隻。x が船首の向き、単位はワールドの長さ) ----------
-const SHIP_MIN_PX = {battleship: 26, carrier: 26, cruiser: 20, destroyer: 14}; // 縮小しても、この長さ (画面 px) より小さくしない
+const SHIP_MIN_PX = {battleship: 18, carrier: 18, cruiser: 14, destroyer: 10}; // 縮小しても、この長さ (画面 px) より小さくしない (第 4.1 段階で約 0.7 倍)
 const hullPaths = {};
 function hullPath(role){
   if(hullPaths[role]) return hullPaths[role];
@@ -1245,6 +1266,12 @@ function drawFog(allies){
 // マップ上に重ねる表示: 左下にログ、自艦が沈んだ・観戦中なら上に「観戦中」
 function drawMapOverlay(){
   const me = player();
+  if(L.scanActive(game.time)){ // 衛星スキャン中
+    ctx.textAlign = 'right';
+    ctx.font = 'bold 14px sans-serif';
+    ctx.fillStyle = COLORS.accent;
+    ctx.fillText('SCAN', canvas.width - 14, 24);
+  }
   if(!me || me.ships <= 0){
     ctx.textAlign = 'center';
     ctx.font = 'bold 16px sans-serif';
@@ -1410,6 +1437,8 @@ function drawMinimap(){
   mctx.strokeRect(r.x + 0.5, r.y + 0.5, r.w - 1, r.h - 1);
   mctx.save();
   mctx.beginPath(); mctx.rect(r.x, r.y, r.w, r.h); mctx.clip();
+  mctx.fillStyle = '#4d7a45'; // 島
+  for(const i of game.islands || []){ mctx.beginPath(); mctx.ellipse(r.x + i.x * sx, r.y + i.y * sy, i.r * sx, i.r * sy, 0, 0, Math.PI * 2); mctx.fill(); }
   // 索敵範囲 (中立の観戦では両軍)
   const watching = neutral();
   for(const team of watching ? ['blue', 'red'] : ['blue']){

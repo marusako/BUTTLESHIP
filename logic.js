@@ -3,11 +3,11 @@
 (function(root){
   'use strict';
 
-  const DEFAULT_WORLD = {w: 13000, h: 26000}; // 原作のミニマップと同じ縦長 (横 1 : 縦 2)。青は下、赤は上に陣取る (第 3.4 段階で 10000 × 20000 から広げた)
+  const DEFAULT_WORLD = {w: 16000, h: 32000}; // 原作のミニマップと同じ縦長 (横 1 : 縦 2)。青は下、赤は上に陣取る (第 3.4 段階で 13000 × 26000、第 4.1 段階で試合を長くするため広げた)
   const WORLD = Object.assign({}, DEFAULT_WORLD); // 今のマップの広さ (学習では setWorld で狭くする。ゲームは常に本番の広さ)
   // ステータスは艦種ごと (SHIP_TYPES)。耐久 = 最大 HP (艦隊の ships は今の HP)
   const RANGES = {short: 300, medium: 450, long: 650, veryLong: 1200}; // 射程 (短・中・長・超長)
-  const SPEEDS = {slow: 65, fast: 105, fastPlus: 165};                 // 速力 (低速・高速・高速+) の速さ (px/秒)。試合時間が 3 分前後になるように調整。高速+ (駆逐艦) は強化中の巡洋艦 (105 × 1.5) より速い
+  const SPEEDS = {slow: 55, fast: 89, fastPlus: 140};                  // 速力 (低速・高速・高速+) の速さ (px/秒)。第 4.1 段階で全艦 0.85 倍 (試合を長く)。高速+ (駆逐艦) は強化中の巡洋艦 (89 × 1.5) より速い
   const ATTACK_BONUS = 5;        // 攻撃の値 = 火力 + ATTACK_BONUS
   const ARMOR_FACTOR = 0.7;      // ダメージ = 攻撃の値 − 装甲 × ARMOR_FACTOR
   const SCRATCH_MIN = 0.05;      // かすり = 今の HP × (SCRATCH_MIN 〜 SCRATCH_MIN + SCRATCH_SPREAD)。最低 1
@@ -54,8 +54,19 @@
   const CHEAT_SEQUENCE = ['KeyY', 'KeyU', 'KeyK', 'KeyI']; // 隠しコマンド入力欄を開くキー列
   const CHEAT_WINDOW = 2;        // キー列を押し切るまでの制限時間 (秒)
   const COMMANDS = ['scan', 'warp', 'repair', 'stealth'];
-  const BEACON_INTERVAL = 60;    // 旗艦の位置が相手にばれる間隔 (秒)。隅に隠れ続ける作戦を防ぐ
-  const BEACON_DURATION = 5;     // 旗艦の位置がばれている時間 (秒)
+  const SCAN_INTERVAL = 60;      // 衛星スキャンの間隔 (秒。第 4.1 段階で旗艦の位置がばれるルールを置き換えた)。隅に隠れ続ける作戦を防ぐ
+  const SCAN_DURATION = 5;       // 衛星スキャンで敵味方の全艦が見えている時間 (秒)
+  const ISLAND_SPAWN_CLEARANCE = 1500; // 島は出撃位置からこれだけ (島のふちまで) 離す
+  const ISLAND_GAP = 300;        // 島どうしのふちの間をこれだけあける (艦が通れるように)
+  const ISLAND_RADIUS = [400, 1200]; // ランダムの地図の島の半径の範囲
+  const ISLAND_PAIRS = [3, 6];   // ランダムの地図の島の組の数の範囲 (点対称なので島は 2 倍)
+  // 固定の地図 (第 4.1 段階): 島の中心と半径をマップの幅・高さに対する割合で持つ (半分だけ。残りは点対称で作る)
+  const FIXED_ISLANDS = [
+    {fx: 0.30, fy: 0.42, fr: 0.07},
+    {fx: 0.75, fy: 0.30, fr: 0.055},
+    {fx: 0.50, fy: 0.20, fr: 0.045},
+    {fx: 0.14, fy: 0.46, fr: 0.04}
+  ];
   const STEALTH_DURATION = 15;   // 隠しコマンド stealth (透明化) の効果時間 (秒)
   const TEAMS = ['blue', 'red'];
 
@@ -63,13 +74,13 @@
   // npPerSecond / npPerDamage: 特殊攻撃のゲージ (NP) が時間でたまる速さ (毎秒) と、与えたダメージでたまる速さ (ダメージ 1 あたり)。通常攻撃は艦種ごとに 1 種類 (weapon.kind: 'gun' = 主砲の二段攻撃 / 'bomber' = 爆撃機)。interval は再装填 (秒)。大きさは当たり判定の半径と見た目に効く
   const SHIP_TYPES = {
     battleship: {name: '戦艦', stats: {hp: 100, firepower: 120, armor: 85, evasion: 15, antiAir: 40, sensor: 500, range: 'long', speed: 'slow'},
-      size: 'large', hitRadius: 40, weapon: {kind: 'gun', interval: 4}, npPerSecond: 0.3, npPerDamage: 0.02, description: '旗艦。重装甲・高火力だが遅く、よけられない。味方の空母・巡洋艦が健在なうちは特殊装甲で被ダメージが最大 50% 減る'},
+      size: 'large', hitRadius: 28, weapon: {kind: 'gun', interval: 4}, npPerSecond: 0.23, npPerDamage: 0.02, description: '旗艦。重装甲・高火力だが遅く、よけられない。味方の空母・巡洋艦が健在なうちは特殊装甲で被ダメージが最大 50% 減る'},
     carrier: {name: '空母', stats: {hp: 70, firepower: 50, armor: 40, evasion: 40, antiAir: 60, sensor: 800, range: 'veryLong', speed: 'fast'},
-      size: 'large', hitRadius: 40, weapon: {kind: 'bomber', interval: 5}, npPerSecond: 0, npPerDamage: 0, description: '制空タイプ。遠くの敵に爆撃機を送り、偵察機で敵を探す。攻撃を受けると大きな被害が出ることがある'},
+      size: 'large', hitRadius: 28, weapon: {kind: 'bomber', interval: 5}, npPerSecond: 0, npPerDamage: 0, description: '制空タイプ。遠くの敵に爆撃機を送り、偵察機で敵を探す。攻撃を受けると大きな被害が出ることがある'},
     cruiser: {name: '巡洋艦', stats: {hp: 50, firepower: 55, armor: 50, evasion: 60, antiAir: 40, sensor: 600, range: 'medium', speed: 'fast'},
-      size: 'medium', hitRadius: 25, weapon: {kind: 'gun', interval: 2}, npPerSecond: 2.5, npPerDamage: 0.1, description: '主砲タイプの主力。攻守のバランスがよい'},
+      size: 'medium', hitRadius: 18, weapon: {kind: 'gun', interval: 2}, npPerSecond: 2.6, npPerDamage: 0.1, description: '主砲タイプの主力。攻守のバランスがよい'},
     destroyer: {name: '駆逐艦', stats: {hp: 30, firepower: 20, armor: 20, evasion: 85, antiAir: 50, sensor: 900, range: 'short', speed: 'fastPlus'},
-      size: 'small', hitRadius: 15, weapon: {kind: 'gun', interval: 1.5}, npPerSecond: 3, npPerDamage: 0.2, description: '最速。当たりにくいが打たれ弱い。索敵が広い偵察役'}
+      size: 'small', hitRadius: 10, weapon: {kind: 'gun', interval: 1.5}, npPerSecond: 3.7, npPerDamage: 0.2, description: '最速。当たりにくいが打たれ弱い。索敵が広い偵察役'}
   };
 
   // 特殊攻撃 (category: 'attack') と特殊行動 ('action')。NP (ゲージ) が満タンのときに使え、使うと 0 に戻る
@@ -235,9 +246,84 @@
     }
   }
 
-  // 旗艦の位置がばれている時間か (開始から BEACON_INTERVAL 秒ごとに BEACON_DURATION 秒間)
-  function beaconActive(time){
-    return time >= BEACON_INTERVAL && time % BEACON_INTERVAL < BEACON_DURATION;
+  // 衛星スキャンの時間か (開始から SCAN_INTERVAL 秒ごとに SCAN_DURATION 秒間。第 4.1 段階)
+  function scanActive(time){
+    return time >= SCAN_INTERVAL && time % SCAN_INTERVAL < SCAN_DURATION;
+  }
+
+  // 同じ種なら同じ列になる乱数 (mulberry32。地図を作るのに使う)
+  function seededRandom(seed){
+    let a = seed >>> 0;
+    return () => {
+      a = (a + 0x6D2B79F5) >>> 0;
+      let t = a;
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  // 出撃位置 (両チーム) の一覧
+  function spawnPoints(){
+    const points = [];
+    for(const team of TEAMS) for(let no = 1; no <= FLEET_CLASSES.length; no++) points.push({x: spawnX(team, no), y: team === 'blue' ? WORLD.h - 300 : 300});
+    return points;
+  }
+
+  // 島 (中心と半径) を置けるか: マップの内側、出撃位置から ISLAND_SPAWN_CLEARANCE、ほかの島から ISLAND_GAP 離れている
+  function islandFits(i, islands, spawns){
+    if(i.x - i.r < 0 || i.x + i.r > WORLD.w || i.y - i.r < 0 || i.y + i.r > WORLD.h) return false;
+    if(spawns.some(p => dist(p, i) < i.r + ISLAND_SPAWN_CLEARANCE)) return false;
+    return islands.every(j => dist(i, j) >= i.r + j.r + ISLAND_GAP);
+  }
+  const mirrorIsland = i => ({x: WORLD.w - i.x, y: WORLD.h - i.y, r: i.r});
+
+  // 固定の地図の島 (今のマップの広さに合わせる。点対称)
+  function fixedIslands(){
+    const half = FIXED_ISLANDS.map(i => ({x: i.fx * WORLD.w, y: i.fy * WORLD.h, r: i.fr * WORLD.w}));
+    return [...half, ...half.map(mirrorIsland)];
+  }
+
+  // ランダムの地図の島 (第 4.1 段階): 種 seed から、半径 ISLAND_RADIUS の島を ISLAND_PAIRS 組、点対称に置く。置けない場所は選び直す
+  function randomIslands(seed){
+    const rng = seededRandom(seed);
+    const spawns = spawnPoints();
+    const pairs = ISLAND_PAIRS[0] + Math.floor(rng() * (ISLAND_PAIRS[1] - ISLAND_PAIRS[0] + 1));
+    const islands = [];
+    for(let k = 0; k < pairs; k++){
+      for(let tries = 0; tries < 200; tries++){
+        const r = ISLAND_RADIUS[0] + rng() * (ISLAND_RADIUS[1] - ISLAND_RADIUS[0]);
+        const i = {x: r + rng() * (WORLD.w - 2 * r), y: r + rng() * (WORLD.h - 2 * r), r};
+        const m = mirrorIsland(i);
+        if(dist(i, m) < 2 * r + ISLAND_GAP || !islandFits(i, islands, spawns) || !islandFits(m, islands, spawns)) continue;
+        islands.push(i, m);
+        break;
+      }
+    }
+    return islands;
+  }
+
+  // 2 点を結ぶ線が島を通るか (島越しには撃てない・弾は島で消える)
+  function lineBlocked(islands, a, b){
+    return !!islands && islands.some(i => segmentDistance(a, b, i) < i.r);
+  }
+
+  // 島を避けて (x, y) へ進む (第 4.1 段階): 行き先が島の中なら、島のふちに沿う向き (進みたい向きに近いほう) へ同じ距離だけ進み、
+  // それでも島に入るなら島のふちへ押し出す。マップの外には出ない
+  function moveAvoiding(f, x, y, islands){
+    let nx = x, ny = y;
+    for(const i of islands || []){
+      if(Math.hypot(nx - i.x, ny - i.y) >= i.r) continue;
+      const vx = nx - f.x, vy = ny - f.y, len = Math.hypot(vx, vy);
+      const d = Math.hypot(f.x - i.x, f.y - i.y) || 1;
+      const ux = (f.x - i.x) / d, uy = (f.y - i.y) / d;
+      const t = (-uy * vx + ux * vy) >= 0 ? [-uy, ux] : [uy, -ux]; // 左回り / 右回りのうち進みたい向きに近いほう (同じなら左)
+      nx = f.x + t[0] * len; ny = f.y + t[1] * len;
+      const e = Math.hypot(nx - i.x, ny - i.y) || 1;
+      if(e < i.r){ nx = i.x + (nx - i.x) / e * i.r; ny = i.y + (ny - i.y) / e * i.r; }
+    }
+    f.x = clamp(nx, 0, WORLD.w);
+    f.y = clamp(ny, 0, WORLD.h);
   }
 
   // マップの広さを変える (学習用)。引数なしなら本番の広さに戻す
@@ -253,19 +339,19 @@
   }
 
   // team から見えている生存中の敵。味方の艦の索敵範囲 (sensorRange) か、味方の偵察機の索敵範囲 (sensor) の中。reveal なら全部見える
-  // 透明化中 (stealth) の艦隊は敵から見えない。beacon: 旗艦の位置がばれている時間なら、敵の旗艦は索敵範囲の外でも見える
-  function visibleEnemies(fleets, team, reveal, beacon, aircraft){
+  // 透明化中 (stealth) の艦隊は敵から見えない。scan: 衛星スキャンの時間なら、敵の全艦が索敵範囲の外でも見える
+  function visibleEnemies(fleets, team, reveal, scan, aircraft){
     const eyes = fleets.filter(f => f.team === team && alive(f));
     const planes = (aircraft || []).filter(a => a.team === team && a.kind === 'recon');
-    return fleets.filter(f => f.team !== team && alive(f) && !(f.stealth > 0) && (reveal || (beacon && f.flagship) ||
+    return fleets.filter(f => f.team !== team && alive(f) && !(f.stealth > 0) && (reveal || scan ||
       eyes.some(e => dist(e, f) <= sensorRange(e)) || planes.some(p => dist(p, f) <= p.sensor)));
   }
 
   // 敵の位置情報 (intel: 敵 id → {x, y, visible}) を更新する。
   // 見失った敵は最終確認位置を残し、味方がその近くまで行って確かめたら消す
-  function updateIntel(intel, fleets, team, reveal, beacon, aircraft){
+  function updateIntel(intel, fleets, team, reveal, scan, aircraft){
     const eyes = fleets.filter(f => f.team === team && alive(f));
-    const seen = new Set(visibleEnemies(fleets, team, reveal, beacon, aircraft).map(f => f.id));
+    const seen = new Set(visibleEnemies(fleets, team, reveal, scan, aircraft).map(f => f.id));
     for(const f of fleets){
       if(f.team === team) continue;
       if(!alive(f)){ delete intel[f.id]; continue; }
@@ -293,7 +379,8 @@
   }
 
   // 命令に従って dt 秒ぶん、今の速さで移動する。移動した方向を向く
-  function moveFleet(f, dt, intel){
+  // islands: 島 (第 4.1 段階。艦は島に入らず、ふちに沿って回り込む)
+  function moveFleet(f, dt, intel, islands){
     const o = f.order;
     if(!o) return;
     const step = speedOf(f) * dt;
@@ -304,10 +391,9 @@
       const ux = Math.abs(Math.cos(o.angle)) < 1e-9 ? 0 : Math.cos(o.angle);
       const uy = Math.abs(Math.sin(o.angle)) < 1e-9 ? 0 : Math.sin(o.angle);
       const nx = f.x + ux * step, ny = f.y + uy * step;
-      f.x = clamp(nx, 0, WORLD.w);
-      f.y = clamp(ny, 0, WORLD.h);
+      moveAvoiding(f, nx, ny, islands);
       f.heading = o.angle;
-      if(f.x !== nx || f.y !== ny) f.order = null;
+      if(nx < 0 || nx > WORLD.w || ny < 0 || ny > WORLD.h) f.order = null; // マップの端に着いた
       return;
     }
 
@@ -319,7 +405,8 @@
       const info = intel[o.targetId];
       if(!info){ f.order = null; return; }
       dest = info;
-      stopAt = info.visible ? attackRange(f) * ATTACK_STOP_RATIO : 0;
+      // 狙いとの間に島があれば止まらずに近づく (回り込んで撃てる位置へ)
+      stopAt = info.visible && !lineBlocked(islands, f, info) ? attackRange(f) * ATTACK_STOP_RATIO : 0;
     }
     // 行き先はマップの内側に収める (外なら最も近い端へ向かう)
     dest = {x: clamp(dest.x, 0, WORLD.w), y: clamp(dest.y, 0, WORLD.h)};
@@ -328,15 +415,13 @@
     if(d - stopAt <= step){
       if(d > stopAt){
         const k = (d - stopAt) / d;
-        f.x += (dest.x - f.x) * k;
-        f.y += (dest.y - f.y) * k;
+        moveAvoiding(f, f.x + (dest.x - f.x) * k, f.y + (dest.y - f.y) * k, islands);
       }
       // 移動先に着いた / 見失った相手の最終確認位置に着いた
       if(o.type === 'move' || !intel[o.targetId].visible) f.order = null;
       return;
     }
-    f.x = clamp(f.x + (dest.x - f.x) / d * step, 0, WORLD.w);
-    f.y = clamp(f.y + (dest.y - f.y) / d * step, 0, WORLD.h);
+    moveAvoiding(f, f.x + (dest.x - f.x) / d * step, f.y + (dest.y - f.y) / d * step, islands);
   }
 
   // 勝敗を返す (青チーム視点)。決着前は null。旗艦がいれば大将戦のルールで判定する
@@ -360,8 +445,11 @@
   //   渡さないチームの AI 艦隊は何もしない (プレイヤー艦隊には使わない)
   // options.playerName: 自艦隊の名前 (省略・空なら「味方」+ 艦種の名前)
   // options.spectate: true なら観戦 (プレイヤーの艦はなく、10 隻すべてを AI が動かす)
+  // options.map: 'fixed' (固定の地図) / 'random' (ランダムの地図。options.mapSeed が種、なければ乱数) / 省略 (島なし)
   function createGame(options){
     const opts = options || {};
+    const islands = opts.map === 'fixed' ? fixedIslands()
+      : opts.map === 'random' ? randomIslands(Number.isFinite(opts.mapSeed) ? opts.mapSeed : Math.floor(Math.random() * 2 ** 31)) : [];
     const controllers = Object.assign({blue: null, red: null}, opts.controllers);
     const playerSlot = Number.isInteger(opts.playerSlot) && opts.playerSlot >= 1 && opts.playerSlot <= FORMATION.length ? opts.playerSlot : 1;
     const fleets = [];
@@ -404,7 +492,7 @@
       });
     }
     return {
-      time: 0, mode: 'modern', controllers, fleets, intel: {blue: {}, red: {}}, locks: [],
+      time: 0, mode: 'modern', controllers, fleets, islands, intel: {blue: {}, red: {}}, locks: [],
       projectiles: [], aircraft: [], pending: [], nextProjectileId: 1, events: [], reveal: false, warpArmed: false, outcome: null, finalBattle: false
     };
   }
@@ -418,8 +506,8 @@
   }
 
   const visibleByTeam = g => {
-    const beacon = beaconActive(g.time);
-    return {blue: visibleEnemies(g.fleets, 'blue', revealFor(g, 'blue'), beacon, g.aircraft), red: visibleEnemies(g.fleets, 'red', false, beacon, g.aircraft)};
+    const scan = scanActive(g.time);
+    return {blue: visibleEnemies(g.fleets, 'blue', revealFor(g, 'blue'), scan, g.aircraft), red: visibleEnemies(g.fleets, 'red', false, scan, g.aircraft)};
   };
 
   // 1 回の攻撃を出す。kind: 'shot' (主砲) / 'torpedo' (魚雷) / 'bomber' (爆撃機。回避できない)。fp は火力 (特殊攻撃は 100)、hitChance は命中率 (null なら相手の回避で決まる)
@@ -447,7 +535,8 @@
       if(p.delay > EPS){ left.push(p); continue; }
       const f = byId.get(p.from), t = byId.get(p.targetId);
       const range = p.range || weaponRange(f);
-      if(f && t && alive(f) && alive(t) && dist(f, t) <= range) launchAttack(g, f, t, p.kind, p.fp, p.hitChance, p.range);
+      const clear = p.kind === 'bomber' || !lineBlocked(g.islands, f, t);
+      if(f && t && alive(f) && alive(t) && dist(f, t) <= range && clear) launchAttack(g, f, t, p.kind, p.fp, p.hitChance, p.range);
     }
     g.pending = left;
   }
@@ -465,7 +554,8 @@
       f.cooldown = Math.max(0, (f.cooldown || 0) - dt);
       const t = lockTarget(f, vis[f.team]);
       if(!t) continue;
-      const firing = dist(f, t) <= weaponRange(f);
+      // 砲は島越しには撃たない (爆撃機は島の上を飛べる。第 4.1 段階)
+      const firing = dist(f, t) <= weaponRange(f) && (weaponOf(f).kind === 'bomber' || !lineBlocked(g.islands, f, t));
       g.locks.push({from: f.id, to: t.id, team: f.team, firing});
       if(!firing || !f.weapons.fire || f.cooldown > EPS) continue;
       const w = weaponOf(f);
@@ -481,6 +571,8 @@
 
   // ロックオンしている敵が射程 (省略時は通常攻撃の射程) の中にいるか
   const targetInRange = (f, range) => !!f.lockRef && f.lockRef.id === f.lockId && alive(f.lockRef) && dist(f, f.lockRef) <= (range || weaponRange(f));
+  // 砲・魚雷で撃てるか: 射程の中で、間に島がない (爆撃機は島の上を飛べる)
+  const clearShot = (g, f, range) => targetInRange(f, range) && (weaponOf(f).kind === 'bomber' || !lineBlocked(g.islands, f, f.lockRef));
 
   // 特殊攻撃を使う。ゲージが満タンで、使える状況なら使ってゲージを 0 に戻し true を返す
   function useSpecial(g, f){
@@ -489,15 +581,15 @@
     if(f.special === 'boost'){
       f.boost = BOOST_DURATION;
     }else if(f.special === 'precision'){
-      if(!targetInRange(f, specialRange(f))) return false;
+      if(!clearShot(g, f, specialRange(f))) return false;
       launchAttack(g, f, f.lockRef, 'shot', SPECIAL_FIREPOWER, 1, specialRange(f));
     }else if(f.special === 'torpedo'){
       const range = specialRange(f);
-      if(!targetInRange(f, range)) return false;
+      if(!clearShot(g, f, range)) return false;
       launchAttack(g, f, f.lockRef, 'torpedo', SPECIAL_FIREPOWER, TORPEDO_HIT, range);
       for(let k = 1; k < TORPEDO_SHOTS; k++) schedule(g, f, f.lockRef, 'torpedo', SPECIAL_FIREPOWER, TORPEDO_HIT, k * DOUBLE_SHOT_DELAY, range);
     }else if(f.special === 'salvo'){
-      const shooters = g.fleets.filter(a => a.team === f.team && alive(a) && targetInRange(a));
+      const shooters = g.fleets.filter(a => a.team === f.team && alive(a) && clearShot(g, a));
       if(!shooters.length) return false;
       for(const a of shooters){
         const kind = weaponOf(a).kind === 'bomber' ? 'bomber' : 'shot';
@@ -608,10 +700,12 @@
       if(outOfRange(byId, p, t)){ record(g, {type: 'fizzle', kind: p.kind, team: p.team, x: p.x, y: p.y}); return false; }
       const step = SHOT_SPEED * dt;
       const d = dist(p, t);
+      const next = d <= step + SHOT_HIT_RADIUS ? {x: t.x, y: t.y} : {x: p.x + (t.x - p.x) / d * step, y: p.y + (t.y - p.y) / d * step};
+      if(lineBlocked(g.islands, p, next)){ record(g, {type: 'blocked', kind: p.kind, team: p.team, x: p.x, y: p.y}); return false; } // 島に当たって消える (第 4.1 段階)
       if(d <= step + SHOT_HIT_RADIUS){ applyHit(g, damage, p, t, p.kind === 'torpedo' ? 'torpedo' : 'shot', rng); return false; }
       p.heading = Math.atan2(t.y - p.y, t.x - p.x);
-      p.x += (t.x - p.x) / d * step;
-      p.y += (t.y - p.y) / d * step;
+      p.x = next.x;
+      p.y = next.y;
       p.life -= dt;
       return p.life > 0;
     });
@@ -695,10 +789,10 @@
 
   // 上から見た艦の形の大きさ (ワールドの長さ)。length は船首から船尾、beam は幅
   const SHIP_SHAPES = {
-    battleship: {length: 96, beam: 22},
-    carrier: {length: 96, beam: 26},
-    cruiser: {length: 64, beam: 15},
-    destroyer: {length: 42, beam: 10}
+    battleship: {length: 67, beam: 15}, // 第 4.1 段階で約 0.7 倍 (戦闘エリアの混雑を減らす)
+    carrier: {length: 67, beam: 18},
+    cruiser: {length: 45, beam: 11},
+    destroyer: {length: 29, beam: 7}
   };
 
   // 撃沈エフェクト: 船体を長さの方向に割った破片が、離れながら回り、薄く小さくなって (沈んで) 消える
@@ -786,18 +880,20 @@
     }
     const living = g.fleets.filter(alive);
     if(!g.aircraft) g.aircraft = [];
-    const refreshIntel = () => { for(const team of TEAMS) updateIntel(g.intel[team], g.fleets, team, revealFor(g, team), beaconActive(g.time), g.aircraft); };
+    const refreshIntel = () => { for(const team of TEAMS) updateIntel(g.intel[team], g.fleets, team, revealFor(g, team), scanActive(g.time), g.aircraft); };
 
     refreshIntel();
+    // 衛星スキャンの始まり (第 4.1 段階)
+    if(scanActive(g.time) && !scanActive(g.time - dt)) record(g, {type: 'scan'});
 
     for(const f of living){
       const decide = g.controllers && g.controllers[f.team];
       if(f.isPlayer || !decide || g.time < f.ai.nextThink) continue;
-      f.order = decide(f, g.fleets, g.intel[f.team], rng);
+      f.order = decide(f, g.fleets, g.intel[f.team], rng, g.islands || []);
       f.ai.nextThink = g.time + AI_THINK_INTERVAL;
     }
 
-    for(const f of living) moveFleet(f, dt, g.intel[f.team]);
+    for(const f of living) moveFleet(f, dt, g.intel[f.team], g.islands || []);
     updateBuffs(g);
     updateFinalBattle(g);
     launchRecon(g, rng);
@@ -826,7 +922,7 @@
   }
 
   const api = {
-    WORLD, DEFAULT_WORLD, setWorld, BEACON_INTERVAL, BEACON_DURATION, beaconActive, RANGES, SPEEDS, weaponRange, specialRange, FLAG_ARMOR_MAX, flagArmorOf, sensorRange, hpRatio, damageState,
+    WORLD, DEFAULT_WORLD, setWorld, SCAN_INTERVAL, SCAN_DURATION, scanActive, ISLAND_SPAWN_CLEARANCE, ISLAND_GAP, randomIslands, fixedIslands, lineBlocked, RANGES, SPEEDS, weaponRange, specialRange, FLAG_ARMOR_MAX, flagArmorOf, sensorRange, hpRatio, damageState,
     attackMultiplier, hitChance, expectedDamage, antiAirChance, resolveHit, speedOf, firepowerOf, armorOf, critChanceOf, GHOST_CLEAR_RANGE,
     CHARGE_MAX, evasionCutOf, BOOST_DURATION, BOOST_MULTIPLIER, SPECIALS, FLEET_CLASSES, useSpecial,
     STEALTH_DURATION, SHOT_LIFE, BOMBER_LIFE, BOMBER_TURN_RATE, RECON_SPEED, RECON_LIFE, AA_RANGE,
