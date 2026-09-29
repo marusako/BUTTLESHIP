@@ -104,20 +104,31 @@ test('次の世代: 成績の上位 (elite) はそのまま残り、数は変わ
   assert.deepEqual(next.map(B.toPlain), again.map(B.toPlain), '決まった乱数なら決まった結果');
 });
 
-test('対戦表: 各個体が決まった数だけ戦い、相手は自分以外。青と赤を交互に受け持つ', () => {
-  const s = E.schedule(6, 4, 2, E.mulberry32(9), 0.25);
+test('対戦表: 各個体が決まった数だけ戦う。担当 (青 / 赤) と処理順 (青が先 / 赤が先) を入れ替える', () => {
+  const s = E.schedule(6, 4, 2, E.mulberry32(9), 0.75);
   assert.equal(s.length, 6 * 4);
   for(let i = 0; i < 6; i++){
     const mine = s.filter(m => m.subject === i);
     assert.equal(mine.length, 4);
     assert.deepEqual(mine.map(m => m.side), ['blue', 'red', 'blue', 'red']);
+    assert.deepEqual(mine.map(m => m.redFirst), [false, false, true, true]);
     for(const m of mine){
-      if(m.opponent.kind === 'pop') assert.ok(m.opponent.index !== i && m.opponent.index >= 0 && m.opponent.index < 6);
-      else assert.ok(m.opponent.kind === 'hall' && m.opponent.index >= 0 && m.opponent.index < 2);
+      if(m.opponent.kind === 'hall') assert.ok(m.opponent.index >= 0 && m.opponent.index < 2);
+      else assert.equal(m.opponent.kind, 'rule');
       assert.ok(Number.isInteger(m.seed));
     }
   }
-  assert.ok(E.schedule(6, 4, 0, E.mulberry32(9), 0.9).every(m => m.opponent.kind === 'pop'), '殿堂入りがいなければ集団からだけ');
+});
+
+test('対戦表: 相手は旧型 AI が ruleProb、残りは殿堂入り (いなければ集団の自分以外)。集団どうしは殿堂入りがいないときだけ', () => {
+  const s = E.schedule(48, 6, 5, E.mulberry32(3), 0.75);
+  const rule = s.filter(m => m.opponent.kind === 'rule').length / s.length;
+  assert.ok(rule > 0.68 && rule < 0.82, `旧型 AI の割合 ${rule}`);
+  assert.equal(s.filter(m => m.opponent.kind === 'pop').length, 0, '殿堂入りがいれば集団どうしは戦わない');
+  const noHall = E.schedule(6, 40, 0, E.mulberry32(9), 0.75);
+  assert.ok(noHall.every(m => m.opponent.kind === 'rule' || (m.opponent.kind === 'pop' && m.opponent.index !== m.subject)), '殿堂入りがいなければ残りは集団の自分以外');
+  assert.ok(noHall.some(m => m.opponent.kind === 'pop'));
+  assert.ok(E.schedule(6, 4, 3, E.mulberry32(9), 1).every(m => m.opponent.kind === 'rule'), 'ruleProb 1 なら全部旧型 AI');
 });
 
 test('1 試合: 決まった種なら同じ結果。動かないチーム同士は時間切れになる', () => {

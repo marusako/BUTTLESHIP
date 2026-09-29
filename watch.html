@@ -40,7 +40,7 @@
     <label>試合</label><div class="row"><button id="restart">新しい試合</button><button id="pause">一時停止</button><button id="autoNext" class="on">自動で次の試合</button></div>
     <label>表示</label><div class="row"><button id="showSensor" class="on">索敵範囲</button><button id="showOrders" class="on">命令</button></div>
     <div class="stat" id="stat"></div>
-    <div class="hint" id="hint">ホイール: 拡大縮小 / ドラッグ: 視点移動 / ダブルクリック: 全体表示<br>試合の制限時間は 600 秒 (学習と同じ)。「自動で次の試合」がオンなら、決着の 3 秒後に最新の脳を読み込み直して次の試合を始める</div>
+    <div class="hint" id="hint">ホイール: 拡大縮小 / ドラッグ: 視点移動 / ダブルクリック: 全体表示<br>試合の制限時間は 900 秒 (学習と同じ)。最初は 学習型 AI 対 旧型 AI (学習の試合の主な組み合わせ)。「自動で次の試合」がオンなら、決着の 3 秒後に最新の脳を読み込み直し、青と赤の AI を入れ替えて次の試合を始める</div>
     <h2>学習の記録</h2>
     <div id="progress" class="stat" style="margin-top: 0"></div>
     <div id="logSummary" class="stat" style="margin-top: 0"></div>
@@ -65,7 +65,7 @@ const $ = id => document.getElementById(id);
 const COLORS = {blue: '#4fa3ff', red: '#ff5a5a', accent: '#ffd34f'};
 const ROLE_MARK = {battleship: '戦', carrier: '空', cruiser: '巡', destroyer: '駆'};
 const DT = 1 / 60;
-const MAX_TIME = 600;     // 制限時間 (秒)。学習の試合と同じ。過ぎたら時間切れ
+const MAX_TIME = 900;     // 制限時間 (秒)。学習の試合と同じ。過ぎたら時間切れ
 const NEXT_DELAY = 3000;  // 試合が終わってから次の試合を始めるまで (ミリ秒)
 
 // mulberry32 (種が近くてもばらつく乱数)
@@ -79,7 +79,8 @@ function renderAiOptions(){
   for(const id of ['blueAi', 'redAi']){
     const prev = $(id).value;
     $(id).replaceChildren(...Object.entries(AIS).map(([k, v]) => { const o = document.createElement('option'); o.value = k; o.textContent = v; return o; }));
-    $(id).value = prev && prev in AIS ? prev : (trained ? 'trained' : 'rule');
+    // 最初は 学習型 AI (青) 対 旧型 AI (赤)。学習の試合の相手は主に旧型 AI なので
+    $(id).value = prev && prev in AIS ? prev : (trained && id === 'blueAi' ? 'trained' : 'rule');
   }
   $('noBrain').style.display = trained ? 'none' : '';
 }
@@ -195,6 +196,13 @@ $('showSensor').onclick = () => { showSensor = !showSensor; renderButtons(); };
 $('showOrders').onclick = () => { showOrders = !showOrders; renderButtons(); };
 $('restart').onclick = restart;
 
+// 青と赤の AI を入れ替える (自動で次の試合に進むとき。担当の偏りを見ないように)
+function swapSides(){
+  const blue = $('blueAi').value;
+  $('blueAi').value = $('redAi').value;
+  $('redAi').value = blue;
+}
+
 function controllerOf(kind, rng){
   if(kind === 'trained') return Br.controller(Br.fromPlain(trained.brains));
   if(kind === 'random') return Br.controller(Br.randomBrainSet(rng));
@@ -300,7 +308,7 @@ function frame(now){
   if(autoNext && !paused && endedAt && now - endedAt >= NEXT_DELAY && !reloading){
     reloading = true;
     reloadLog();
-    reloadBrains().then(() => { reloading = false; restart(); });
+    reloadBrains().then(() => { reloading = false; swapSides(); restart(); });
   }
   draw();
   renderStat();

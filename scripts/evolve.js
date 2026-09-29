@@ -141,19 +141,21 @@ function nextGeneration(pop, fitness, rng, opts){
   return next;
 }
 
-// 対戦表: 各個体 (subject) が games 試合ずつ。相手は確率 hallProb で殿堂入り (過去の強い脳)、それ以外は集団の自分以外。青・赤を交互に受け持つ
-function schedule(popSize, games, hallSize, rng, hallProb){
+// 対戦表: 各個体 (subject) が games 試合ずつ。相手は確率 ruleProb で旧型 AI、それ以外は殿堂入り (過去の強い脳。まだいなければ集団の自分以外)。
+// 青・赤を交互に受け持ち、処理順 (青が先 / 赤が先) も 2 試合ごとに入れ替える
+function schedule(popSize, games, hallSize, rng, ruleProb){
   const list = [];
   for(let i = 0; i < popSize; i++){
     for(let k = 0; k < games; k++){
       let opponent;
-      if(hallSize > 0 && rng() < hallProb) opponent = {kind: 'hall', index: Math.floor(rng() * hallSize)};
+      if(rng() < ruleProb) opponent = {kind: 'rule'};
+      else if(hallSize > 0) opponent = {kind: 'hall', index: Math.floor(rng() * hallSize)};
       else{
         let j = Math.floor(rng() * (popSize - 1));
         if(j >= i) j++;
         opponent = {kind: 'pop', index: j};
       }
-      list.push({subject: i, opponent, side: k % 2 === 0 ? 'blue' : 'red', seed: Math.floor(rng() * 2147483647)});
+      list.push({subject: i, opponent, side: k % 2 === 0 ? 'blue' : 'red', redFirst: k % 4 >= 2, seed: Math.floor(rng() * 2147483647)});
     }
   }
   return list;
