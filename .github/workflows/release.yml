@@ -1,0 +1,36 @@
+# バージョンのタグ (vX.Y / vX.Y.Z) を push すると、配布用 zip を作って GitHub Releases に置く。
+# すでにあるタグは Actions の画面の「Run workflow」でタグ名を入れて実行できる (リリースがあれば zip を差し替える)
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'リリースするタグ (例: v2.3.2)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: リリースを作って zip を添付する
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          git fetch --force --tags
+          node scripts/package.js "$TAG"
+          git tag -l --format='%(contents)' "$TAG" > notes.txt
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            gh release upload "$TAG" dist/*.zip --clobber
+          else
+            gh release create "$TAG" dist/*.zip --title "$TAG" --notes-file notes.txt
+          fi
