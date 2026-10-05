@@ -73,13 +73,13 @@
   // 艦種。stats: 耐久 (hp = 最大 HP)・火力・装甲・回避 (%)・対空 (%)・索敵 (索敵距離)・射程 (RANGES のキー)・速力 (SPEEDS のキー)
   // npPerSecond / npPerDamage: 特殊攻撃のゲージ (NP) が時間でたまる速さ (毎秒) と、与えたダメージでたまる速さ (ダメージ 1 あたり)。通常攻撃は艦種ごとに 1 種類 (weapon.kind: 'gun' = 主砲の二段攻撃 / 'bomber' = 爆撃機)。interval は再装填 (秒)。大きさは当たり判定の半径と見た目に効く
   const SHIP_TYPES = {
-    battleship: {name: '戦艦', stats: {hp: 100, firepower: 120, armor: 85, evasion: 15, antiAir: 40, sensor: 500, range: 'long', speed: 'slow'},
+    battleship: {name: '戦艦', stats: {hp: 100, firepower: 120, armor: 85, evasion: 15, antiAir: 75, sensor: 500, range: 'long', speed: 'slow'},
       size: 'large', hitRadius: 28, weapon: {kind: 'gun', interval: 4}, npPerSecond: 0.21, npPerDamage: 0.02, description: '旗艦。重装甲・高火力だが遅く、よけられない。味方の空母 (副艦) が健在なうちは特殊装甲で被ダメージが最大 50% 減る'},
-    carrier: {name: '空母', stats: {hp: 70, firepower: 50, armor: 40, evasion: 40, antiAir: 60, sensor: 800, range: 'veryLong', speed: 'fast'},
-      size: 'large', hitRadius: 28, weapon: {kind: 'bomber', interval: 5}, npPerSecond: 1.3, npPerDamage: 0.1, description: '副艦。遠くの敵に爆撃機を送る。健在なうちは旗艦の特殊装甲が効き、敵の爆撃機群は戦闘機で迎え撃つ。攻撃を受けると大きな被害が出ることがある'},
-    cruiser: {name: '巡洋艦', stats: {hp: 50, firepower: 55, armor: 50, evasion: 60, antiAir: 40, sensor: 600, range: 'medium', speed: 'fast'},
+    carrier: {name: '空母', stats: {hp: 70, firepower: 50, armor: 40, evasion: 40, antiAir: 80, sensor: 800, range: 'veryLong', speed: 'fast'},
+      size: 'large', hitRadius: 28, weapon: {kind: 'bomber', interval: 15}, npPerSecond: 1.3, npPerDamage: 0.1, description: '副艦。遠くの敵に爆撃機を送る。健在なうちは旗艦の特殊装甲が効き、敵の爆撃機群は戦闘機で迎え撃つ。攻撃を受けると大きな被害が出ることがある'},
+    cruiser: {name: '巡洋艦', stats: {hp: 50, firepower: 55, armor: 50, evasion: 60, antiAir: 60, sensor: 600, range: 'medium', speed: 'fast'},
       size: 'medium', hitRadius: 18, weapon: {kind: 'gun', interval: 2}, npPerSecond: 2.4, npPerDamage: 0.1, description: '主砲タイプの主力。攻守のバランスがよい'},
-    destroyer: {name: '駆逐艦', stats: {hp: 30, firepower: 20, armor: 20, evasion: 85, antiAir: 50, sensor: 900, range: 'short', speed: 'fastPlus'},
+    destroyer: {name: '駆逐艦', stats: {hp: 30, firepower: 20, armor: 20, evasion: 85, antiAir: 85, sensor: 900, range: 'short', speed: 'fastPlus'},
       size: 'small', hitRadius: 10, weapon: {kind: 'gun', interval: 1.5}, npPerSecond: 2.3, npPerDamage: 0.2, description: '最速。当たりにくいが打たれ弱い。索敵が広い偵察役'}
   };
 
