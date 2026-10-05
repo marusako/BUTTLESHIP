@@ -6,7 +6,7 @@
   const DEFAULT_WORLD = {w: 16000, h: 32000}; // 原作のミニマップと同じ縦長 (横 1 : 縦 2)。青は下、赤は上に陣取る (第 3.4 段階で 13000 × 26000、第 4.1 段階で試合を長くするため広げた)
   const WORLD = Object.assign({}, DEFAULT_WORLD); // 今のマップの広さ (学習では setWorld で狭くする。ゲームは常に本番の広さ)
   // ステータスは艦種ごと (SHIP_TYPES)。耐久 = 最大 HP (艦隊の ships は今の HP)
-  const RANGES = {short: 300, medium: 450, long: 650, veryLong: 1200}; // 射程 (短・中・長・超長)
+  const RANGES = {short: 300, medium: 450, long: 650, veryLong: DEFAULT_WORLD.h / 2}; // 射程 (短・中・長・超長)。超長 (空母) はマップの縦の半分 (ユーザーの指定。setWorld で合わせる)
   const SPEEDS = {slow: 55, fast: 89, fastPlus: 140};                  // 速力 (低速・高速・高速+) の速さ (px/秒)。第 4.1 段階で全艦 0.85 倍 (試合を長く)。高速+ (駆逐艦) は強化中の巡洋艦 (89 × 1.5) より速い
   const ATTACK_BONUS = 5;        // 攻撃の値 = 火力 + ATTACK_BONUS
   const ARMOR_FACTOR = 0.7;      // ダメージ = 攻撃の値 − 装甲 × ARMOR_FACTOR
@@ -34,11 +34,10 @@
   const SHOT_LIFE = 3;           // 砲弾が消えるまでの時間 (秒。念のための上限)
   const BOMBER_SPEED = 250;      // 爆撃機の速さ (px/秒)
   const BOMBER_TURN_RATE = 2.5;  // 爆撃機が 1 秒に曲がれる角度 (ラジアン)。よけられることがある
-  const BOMBER_LIFE = 8;         // 爆撃機が目標に届かずに消えるまでの時間 (秒)
+  const BOMBER_LIFE_MARGIN = 1.5; // 爆撃機の寿命 = 射程を飛ぶ時間 × これ (動く目標を追うぶんの余裕)
   const AIRSTRIKE_BOMBERS = 6;   // 空母の特殊攻撃 (爆撃機群) の機数 (第 4.2 段階)
   const AIRSTRIKE_SPREAD = Math.PI / 3; // 爆撃機群を出す扇の幅 (60°。敵旗艦の方向が真ん中)
   const AIRSTRIKE_CONE = Math.PI / 6;   // 爆撃機群の各機が狙う敵の向きの幅 (自分の向きから左右 30°)
-  const AIRSTRIKE_LIFE = 12;     // 爆撃機群の各機が消えるまでの時間 (秒。空母の射程では消えない)
   const FIGHTER_COOLDOWN = 10;   // 空母の特殊対空 (戦闘機) を一度出したら、次に出せるまでの秒数
   const AA_RANGE = 400;          // 対空射撃の範囲
   const AA_INTERVAL = 0.5;       // 対空射撃の間隔 (秒)
@@ -332,7 +331,13 @@
   function setWorld(w, h){
     WORLD.w = w || DEFAULT_WORLD.w;
     WORLD.h = h || DEFAULT_WORLD.h;
+    RANGES.veryLong = WORLD.h / 2;
   }
+
+  // 爆撃機群が届く距離 (マップの横の半分。ユーザーの指定)。各機はこの距離を飛ぶ時間で消える
+  const airstrikeRange = () => WORLD.w / 2;
+  // 通常攻撃の爆撃機の寿命 (秒): 射程 range を飛ぶ時間の BOMBER_LIFE_MARGIN 倍
+  const bomberLife = range => range / BOMBER_SPEED * BOMBER_LIFE_MARGIN;
 
   // 出撃位置の x (各チームから見て左から SPAWN_ORDER の順。赤は南 (敵陣) を向くので東から並ぶ)
   function spawnX(team, no){
@@ -515,7 +520,7 @@
   function launchAttack(g, f, t, kind, fp, hitChance, range){
     const attack = {id: g.nextProjectileId++, kind, team: f.team, from: f.id, targetId: t.id, x: f.x, y: f.y, heading: Math.atan2(t.y - f.y, t.x - f.x),
       range: range || weaponRange(f), fp, mult: attackMultiplier(f), crit: critChanceOf(f), hitChance: kind === 'bomber' ? 1 : hitChance, evasionCut: evasionCutOf(f)};
-    if(kind === 'bomber') g.aircraft.push(Object.assign(attack, {life: BOMBER_LIFE}));
+    if(kind === 'bomber') g.aircraft.push(Object.assign(attack, {life: bomberLife(attack.range)}));
     else g.projectiles.push(Object.assign(attack, {life: SHOT_LIFE}));
     record(g, {type: 'fire', kind: kind === 'shot' ? 'gun' : kind, size: SHIP_TYPES[f.role].size, team: f.team, from: f.id, x: f.x, y: f.y});
   }
@@ -641,7 +646,7 @@
     for(let k = 0; k < AIRSTRIKE_BOMBERS; k++){
       const heading = center - AIRSTRIKE_SPREAD / 2 + AIRSTRIKE_SPREAD * k / (AIRSTRIKE_BOMBERS - 1);
       g.aircraft.push({id: g.nextProjectileId++, kind: 'bomber', group: true, team: f.team, from: f.id, targetId: null, x: f.x, y: f.y, heading,
-        life: AIRSTRIKE_LIFE, fp: firepowerOf(f), mult: attackMultiplier(f), crit: critChanceOf(f), hitChance: 1, evasionCut: 0});
+        life: airstrikeRange() / BOMBER_SPEED, fp: firepowerOf(f), mult: attackMultiplier(f), crit: critChanceOf(f), hitChance: 1, evasionCut: 0});
     }
     record(g, {type: 'fire', kind: 'bomber', size: SHIP_TYPES[f.role].size, team: f.team, from: f.id, x: f.x, y: f.y});
   }
@@ -738,7 +743,7 @@
   }
 
   // 艦載機を進める。爆撃機は目標へ向かい (1 ステップで BOMBER_TURN_RATE × dt まで向きを変える)、目標の当たり判定に触れたら爆撃して (回避で抽選) 消える。
-  // 通常攻撃の爆撃機は、目標が空母の射程の外に出たら消える。BOMBER_LIFE 秒で消える。
+  // 通常攻撃の爆撃機は、目標が空母の射程の外に出たら消える。寿命 (bomberLife) で消える。
   // 爆撃機群 (group) は、狙いがなければ自分の向きから左右 AIRSTRIKE_CONE 以内で最も近い見えている敵を狙い、いなければまっすぐ飛ぶ。射程では消えず、寿命で消える
   function moveAircraft(g, dt, damage, rng){
     const byId = new Map(g.fleets.map(f => [f.id, f]));
@@ -961,7 +966,7 @@
     WORLD, DEFAULT_WORLD, setWorld, SCAN_INTERVAL, SCAN_DURATION, scanActive, ISLAND_SPAWN_CLEARANCE, ISLAND_GAP, randomIslands, fixedIslands, lineBlocked, RANGES, SPEEDS, weaponRange, specialRange, FLAG_ARMOR_MAX, flagArmorOf, sensorRange, hpRatio, damageState,
     attackMultiplier, hitChance, expectedDamage, antiAirChance, resolveHit, speedOf, firepowerOf, armorOf, critChanceOf, GHOST_CLEAR_RANGE,
     CHARGE_MAX, evasionCutOf, BOOST_DURATION, BOOST_MULTIPLIER, SPECIALS, FLEET_CLASSES, useSpecial,
-    STEALTH_DURATION, SHOT_LIFE, BOMBER_LIFE, BOMBER_TURN_RATE, AIRSTRIKE_BOMBERS, AIRSTRIKE_LIFE, FIGHTER_COOLDOWN, AA_RANGE,
+    STEALTH_DURATION, SHOT_LIFE, BOMBER_SPEED, BOMBER_LIFE_MARGIN, bomberLife, BOMBER_TURN_RATE, AIRSTRIKE_BOMBERS, airstrikeRange, FIGHTER_COOLDOWN, AA_RANGE,
     BUFF_RANGE, isBuffed, updateBuffs, SHIP_TYPES, FORMATION, AI_THINK_INTERVAL, maxSpeed, lockRange, visibleEnemies, updateIntel,
     lockTarget, moveFleet, checkOutcome, createGame, step, HP_SCALE, maxHpOf, applyHit, FINAL_BATTLE_DISTANCE, specialLocked,
     fireWeapons, launchFighters, autoSpecial, antiAir, moveProjectiles, moveAircraft, keyCourse, battleStats,

@@ -617,7 +617,7 @@ test('艦種: ステータス (耐久・火力・装甲・回避・対空・索�
     {hp: 50, firepower: 55, armor: 50, evasion: 60, antiAir: 40, sensor: 600, range: 'medium', speed: 'fast'},
     {hp: 30, firepower: 20, armor: 20, evasion: 85, antiAir: 50, sensor: 900, range: 'short', speed: 'fastPlus'}
   ]);
-  assert.deepEqual(L.RANGES, {short: 300, medium: 450, long: 650, veryLong: 1200});
+  assert.deepEqual(L.RANGES, {short: 300, medium: 450, long: 650, veryLong: L.WORLD.h / 2}, '超長 (空母) はマップの縦の半分');
   assert.deepEqual(Object.values(T).map(t => [t.weapon.kind, t.weapon.interval]), [['gun', 4], ['bomber', 5], ['gun', 2], ['gun', 1.5]]);
   assert.deepEqual(Object.values(T).map(t => [t.size, t.hitRadius]), [['large', 28], ['large', 28], ['medium', 18], ['small', 10]]);
   for(const t of Object.values(T)) assert.ok(t.name && t.description);
@@ -682,13 +682,13 @@ test('ロックオン: 見えている敵に狙いを定め (攻撃命令の相�
   assert.equal(cr.lockId, 'n');
   assert.equal(L.lockTarget(Object.assign(cr, {lockId: null, order: {type: 'attack', targetId: 'f'}}), [near, far, out]).id, 'f');
   assert.equal(L.lockTarget(ship('cruiser'), [out]), null);
-  // 空母 (射程 1200 > 索敵 800): 一度ロックオンした敵は、見えなくなっても射程 1200 の外に出るまで狙い続ける
+  // 空母 (射程 16000 > 索敵 800): 一度ロックオンした敵は、見えなくなっても射程 16000 の外に出るまで狙い続ける
   const cv = ship('carrier', {id: 'v'});
   const e = ship('cruiser', {id: 'e', team: 'red', x: 700, y: 0});
   assert.equal(L.lockTarget(cv, [e]).id, 'e');
-  e.x = 1150;
+  e.x = 15900;
   assert.equal(L.lockTarget(cv, []).id, 'e', '見えていなくても射程の中なら続ける');
-  e.x = 1201;
+  e.x = 16001;
   assert.equal(L.lockTarget(cv, []), null, '射程の外に出たら解除');
   assert.equal(cv.lockId, null);
   const hidden = ship('cruiser', {id: 'h', team: 'red', x: 700, y: 0});
@@ -822,14 +822,15 @@ test('空母の弱点: 攻撃を受けたとき 15% の確率でダメージが 
   assert.equal(L.resolveHit(shot({fp: 100}), ship('cruiser'), seq(0, 0.5, 0)).weakness, false);
 });
 
-test('爆撃機: 空母は射程 1200 以内のロックオンした敵に、5 秒ごとに爆撃機を 1 機出す', () => {
-  const cv = ship('carrier', {id: 'v', x: 1000, y: 3000});
-  const e = ship('cruiser', {id: 'e', team: 'red', x: 1000, y: 2000}); // 距離 1000 (空母の索敵 800 の外。味方が見つけた敵)
+test('爆撃機: 空母は射程 (マップの縦の半分 16000) 以内のロックオンした敵に、5 秒ごとに爆撃機を 1 機出す。寿命は射程を飛ぶ時間の 1.5 倍', () => {
+  const cv = ship('carrier', {id: 'v', x: 1000, y: 18000});
+  const e = ship('cruiser', {id: 'e', team: 'red', x: 1000, y: 3000}); // 距離 15000 (空母の索敵 800 の外。味方が見つけた敵)
   const g = game([cv, e]);
   L.fireWeapons(g, 0.1, {blue: [e], red: []});
   assert.equal(g.aircraft.length, 1);
   const a = g.aircraft[0];
-  assert.deepEqual([a.kind, a.team, a.from, a.targetId, a.life, a.fp, a.range, a.hitChance], ['bomber', 'blue', 'v', 'e', L.BOMBER_LIFE, 50, 1200, 1]);
+  assert.equal(L.bomberLife(16000), 16000 / L.BOMBER_SPEED * 1.5);
+  assert.deepEqual([a.kind, a.team, a.from, a.targetId, a.life, a.fp, a.range, a.hitChance], ['bomber', 'blue', 'v', 'e', L.bomberLife(16000), 50, 16000, 1]);
   assert.equal(g.projectiles.length, 0, '空母は弾を撃たない');
   L.fireWeapons(g, 4.8, {blue: [e], red: []});
   assert.equal(g.aircraft.length, 1, '二段攻撃ではない');
@@ -837,21 +838,21 @@ test('爆撃機: 空母は射程 1200 以内のロックオンした敵に、5 �
   assert.equal(g.aircraft.length, 2);
 });
 
-test('爆撃機: 目標へ向かい、届いたら爆撃して (回避できない) 消える。曲がる速さに限りがあり、BOMBER_LIFE 秒で消える。目標が射程の外に出たら消える', () => {
+test('爆撃機: 目標へ向かい、届いたら爆撃して (回避できない) 消える。曲がる速さに限りがあり、寿命で消える。目標が射程の外に出たら消える', () => {
   const cv = ship('carrier', {id: 'v'});
   const e = ship('cruiser', {id: 'e', team: 'red', x: 300, y: 0});
   const g = game([cv, e]);
-  g.aircraft.push({id: 5, kind: 'bomber', team: 'blue', from: 'v', targetId: 'e', x: 0, y: 0, heading: 0, life: L.BOMBER_LIFE, fp: 50, mult: 1, crit: 0.05, hitChance: null, range: 1200});
+  g.aircraft.push({id: 5, kind: 'bomber', team: 'blue', from: 'v', targetId: 'e', x: 0, y: 0, heading: 0, life: 8, fp: 50, mult: 1, crit: 0.05, hitChance: null, range: 1200});
   const damage = new Map();
   for(let i = 0; i < 120 && g.aircraft.length; i++) L.moveAircraft(g, 1 / 60, damage, seq(0.01));
   assert.equal(g.aircraft.length, 0);
   assert.ok(damage.get(e) > 0);
   const back = game([cv, ship('cruiser', {id: 'e', team: 'red', x: -300, y: 0})]);
-  back.aircraft.push({id: 6, kind: 'bomber', team: 'blue', from: 'v', targetId: 'e', x: 0, y: 0, heading: 0, life: L.BOMBER_LIFE, fp: 50, mult: 1, crit: 0.05, hitChance: null, range: 1200});
+  back.aircraft.push({id: 6, kind: 'bomber', team: 'blue', from: 'v', targetId: 'e', x: 0, y: 0, heading: 0, life: 8, fp: 50, mult: 1, crit: 0.05, hitChance: null, range: 1200});
   L.moveAircraft(back, 0.1, new Map(), seq(0.9));
   assert.ok(Math.abs(back.aircraft[0].heading) <= L.BOMBER_TURN_RATE * 0.1 + 1e-9, '一度に曲がれる角度に限りがある');
   const gone = game([cv, ship('cruiser', {id: 'e', team: 'red', x: 1300, y: 0})]);
-  gone.aircraft.push({id: 7, kind: 'bomber', team: 'blue', from: 'v', targetId: 'e', x: 0, y: 0, heading: 0, life: L.BOMBER_LIFE, fp: 50, mult: 1, crit: 0.05, hitChance: null, range: 1200});
+  gone.aircraft.push({id: 7, kind: 'bomber', team: 'blue', from: 'v', targetId: 'e', x: 0, y: 0, heading: 0, life: 8, fp: 50, mult: 1, crit: 0.05, hitChance: null, range: 1200});
   L.moveAircraft(gone, 0.1, new Map(), seq(0.9));
   assert.equal(gone.aircraft.length, 0, '射程の外');
 });
@@ -1444,8 +1445,10 @@ function airstrikeGame(){
   return {g, cv, rf};
 }
 
-test('爆撃機群: 敵旗艦の方向の幅 60° に 6 機を扇形に出す (左右 30°、12° おき)。火力は空母の火力、回避できない、寿命 12 秒', () => {
-  assert.deepEqual([L.AIRSTRIKE_BOMBERS, L.AIRSTRIKE_LIFE], [6, 12]);
+test('爆撃機群: 敵旗艦の方向の幅 60° に 6 機を扇形に出す (左右 30°、12° おき)。火力は空母の火力、回避できない、寿命はマップの横の半分 (8000) を飛ぶ 32 秒', () => {
+  assert.equal(L.AIRSTRIKE_BOMBERS, 6);
+  assert.equal(L.airstrikeRange(), L.WORLD.w / 2);
+  assert.equal(L.airstrikeRange() / L.BOMBER_SPEED, 32);
   const {g, cv} = airstrikeGame();
   assert.equal(L.useSpecial(g, cv), true);
   assert.equal(cv.charge, 0);
@@ -1453,7 +1456,21 @@ test('爆撃機群: 敵旗艦の方向の幅 60° に 6 機を扇形に出す (�
   assert.equal(group.length, 6);
   const deg = group.map(a => Math.round((a.heading + Math.PI / 2) * 180 / Math.PI)).sort((a, b) => a - b);
   assert.deepEqual(deg, [-30, -18, -6, 6, 18, 30], '北 (敵旗艦の方向) を中心に');
-  assert.ok(group.every(a => a.kind === 'bomber' && a.fp === 50 && a.hitChance === 1 && a.life === 12 && a.targetId === null));
+  assert.ok(group.every(a => a.kind === 'bomber' && a.fp === 50 && a.hitChance === 1 && a.life === 32 && a.targetId === null));
+});
+
+test('空母の射程と爆撃機群の届く距離はマップの広さに合わせる (学習の小さいマップでも縦の半分・横の半分)', () => {
+  const cv = ship('carrier');
+  L.setWorld(4000, 8000);
+  try{
+    assert.equal(L.weaponRange(cv), 4000);
+    assert.equal(L.RANGES.veryLong, 4000);
+    assert.equal(L.airstrikeRange(), 2000);
+  }finally{
+    L.setWorld();
+  }
+  assert.equal(L.weaponRange(cv), 16000, '本番の広さに戻る');
+  assert.equal(L.airstrikeRange(), 8000);
 });
 
 test('爆撃機群: 敵旗艦の位置が分からなければ、プレイヤーは進む向きに出せる', () => {
@@ -1489,7 +1506,7 @@ test('爆撃機群: 各機は自分の向きから左右 30° 以内で最も近
   g.aircraft = [lone];
   L.moveAircraft(g, 1, new Map(), seq(0.5));
   assert.equal(lone.targetId, null);
-  assert.ok(g.aircraft.includes(lone), '射程 1200 の外でも寿命までは飛ぶ');
+  assert.ok(g.aircraft.includes(lone), '狙いがなくても寿命までは飛ぶ');
 });
 
 test('戦闘機 (特殊対空): 敵の爆撃機群が空母の索敵範囲に入ると出し、対空の値で 1 機ずつ撃ち落とす。撃ち落とせなくても免疫は付かない。10 秒あける', () => {
