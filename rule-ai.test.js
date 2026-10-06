@@ -225,7 +225,7 @@ test('AI (巡洋艦): 周りの戦力比が不利なら、旗艦のもとへ下�
   assert.deepEqual(R.aiDecide(me, [flag, me, e], intel, seq(0.5), P), {type: 'move', x: 1200, y: 4800});
 });
 
-test('AI (駆逐艦): 最終戦でなければ、再装填が終わっていても近くの敵を攻撃せず離れる (偵察に専念。第 3.8 段階)', () => {
+test('AI (駆逐艦): 味方の旗艦の近くで戦っていなければ、最終戦でなくても近くの敵を攻撃せず離れる (偵察。第 3.8 段階)', () => {
   const flag = fleet({id: 'f', x: 1200, y: 4000, role: 'battleship', flagship: true});
   const me = fleet({id: 's', x: 1200, y: 2000, role: 'destroyer', cooldown: 0});
   const e = fleet({id: 'e', team: 'red', x: 1200, y: 2000 - P.speederSafeDistance + 50, flagship: true});
@@ -476,14 +476,39 @@ test('AI (旗艦): 駆逐艦の最終確認位置は追わない (ほかにな�
   assert.notDeepEqual([o.x, o.y], [1500, 2500]);
 });
 
-test('AI (巡洋艦): 味方の旗艦から interceptRange (1500) 以内の敵の駆逐艦を、ほかの敵より優先して迎え撃つ', () => {
-  assert.equal(P.interceptRange, 1500);
+test('AI (巡洋艦): 敵の駆逐艦を優先して迎え撃たない (interceptRange 0。駆逐艦に火力を吸われないように)', () => {
+  assert.equal(P.interceptRange, 0);
   const flag = fleet({id: 'f', x: 1200, y: 3000, role: 'battleship', flagship: true, heading: -Math.PI / 2});
   const me = fleet({id: 'a', x: 2000, y: 3000, role: 'cruiser'});
   const cr = fleet({id: 'c', team: 'red', x: 2300, y: 3000, ships: 5});
   const dd = fleet({id: 'dd', team: 'red', x: 1200, y: 3000 - 1400, role: 'destroyer', ships: 300, maxShips: 300});
   const intel = {c: {x: cr.x, y: cr.y, visible: true}, dd: {x: dd.x, y: dd.y, visible: true}};
-  assert.deepEqual(R.aiDecide(me, [flag, me, cr, dd], intel, seq(0.5), P), {type: 'attack', targetId: 'dd'});
-  dd.y = 3000 - 1600; intel.dd.y = dd.y;
-  assert.deepEqual(R.aiDecide(me, [flag, me, cr, dd], intel, seq(0.5), P), {type: 'attack', targetId: 'c'}, '遠い駆逐艦は今までどおり');
+  assert.deepEqual(R.aiDecide(me, [flag, me, cr, dd], intel, seq(0.5), P), {type: 'attack', targetId: 'c'});
+});
+
+// 駆逐艦も戦う場面: 味方の旗艦 (5000, 5000) から 1500 以内 (guardRadius 900 の外) に、
+// 敵の駆逐艦 (HP 5、自分から 600) と敵の巡洋艦 (HP 500、自分から 400)。自分は駆逐艦 (6200, 5000)
+function fightScene(){
+  const flag = fleet({id: 'f', x: 5000, y: 5000, role: 'battleship', flagship: true});
+  const me = fleet({id: 's', x: 6200, y: 5000, role: 'destroyer', stats: Object.assign({}, L.SHIP_TYPES.destroyer.stats), ships: 300, maxShips: 300});
+  const dd = fleet({id: 'dd', team: 'red', x: 6200, y: 4400, role: 'destroyer', stats: Object.assign({}, L.SHIP_TYPES.destroyer.stats), ships: 5, maxShips: 300});
+  const cr = fleet({id: 'cr', team: 'red', x: 6200, y: 5400, ships: 500, maxShips: 500});
+  const intel = {dd: {x: dd.x, y: dd.y, visible: true}, cr: {x: cr.x, y: cr.y, visible: true}};
+  return {fleets: [flag, me, dd, cr], me, dd, cr, intel};
+}
+
+test('AI (駆逐艦): 味方の旗艦から speederFightRadius (1500) 以内に敵がいれば、偵察をやめてその中の敵を通常攻撃する (駆逐艦も戦う)', () => {
+  assert.equal(P.speederFightRadius, 1500);
+  const s = fightScene();
+  assert.equal(R.aiDecide(s.me, s.fleets, s.intel, seq(0.5), P).type, 'attack');
+  for(const e of [s.dd, s.cr]){ e.x += 2000; s.intel[e.id].x = e.x; } // 旗艦から 1500 より遠い
+  assert.equal(R.aiDecide(s.me, s.fleets, s.intel, seq(0.5), P).type, 'move', '遠ければ今までどおり偵察');
+});
+
+test('AI: 狙いの点数で、敵の駆逐艦の効きめは destroyerValue (0.3) 倍 (戦艦・巡洋艦を優先)', () => {
+  assert.equal(P.destroyerValue, 0.3);
+  const s = fightScene();
+  assert.deepEqual(R.aiDecide(s.me, s.fleets, s.intel, seq(0.5), P), {type: 'attack', targetId: 'cr'});
+  const full = Object.assign({}, P, {destroyerValue: 1});
+  assert.deepEqual(R.aiDecide(s.me, s.fleets, s.intel, seq(0.5), full), {type: 'attack', targetId: 'dd'}, '1 倍なら弱った駆逐艦を狙う');
 });

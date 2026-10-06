@@ -12,6 +12,7 @@
       localRadius: 1200,         // 局地的な戦力比を数える半径
       targetWeight: 10,          // 狙いの点数で、期待ダメージの割合 (1 で頭打ち) に掛ける重み (距離 100 が 1 点)
       flagshipWeight: 2.5,       // 敵旗艦の期待ダメージの割合に、さらに掛ける倍率 (旗艦を倒せば勝ちなので優先する)
+      destroyerValue: 0.3,       // 敵の駆逐艦の期待ダメージの割合に掛ける倍率 (駆逐艦に火力を吸われず、戦艦・巡洋艦を優先する)
       flagshipHoldHp: 0.5,       // 旗艦は HP の割合がこれ以下で、見えている敵旗艦より弱ければ粘る (撃ち合いを避けて下がる)
       flagshipHoldDistance: 800, // 粘るときに敵旗艦から保つ距離 (戦艦の射程 650 の外)
       guardRadius: 900,          // 味方の旗艦からこの距離以内の敵を「旗艦への脅威」とする (第 3.6 段階)
@@ -30,8 +31,9 @@
       speederBoostAvoidDistance: 700, // 駆逐艦は、強化中の敵巡洋艦がこれより近ければ NP が満タンでも離れる (巡洋艦の射程 450 の外)
       speederRetreatHp: 0.5,     // 駆逐艦は HP の割合がこれ以下なら、味方の旗艦のもとへ下がる
       speederFinalEngageRange: 1500, // 最終戦で NP が満タンの駆逐艦は、敵旗艦が見えていなければこれより近い見えている敵に特殊攻撃をしに行く (第 3.9 段階)
-      interceptRange: 1500,      // 巡洋艦は、味方の旗艦からこれ以内に見えている敵の駆逐艦を優先して迎え撃つ (第 4.3 段階)
-      speederCarrierDistance: 1300 // 駆逐艦は、見えている敵空母とこれだけ離れる (爆撃機の射程 1200 の外。NP が満タンなら攻める)
+      interceptRange: 0,         // 巡洋艦は、味方の旗艦からこれ以内に見えている敵の駆逐艦を優先して迎え撃つ (第 4.3 段階で 1500。駆逐艦に火力を吸われるので 0 にした)
+      speederCarrierDistance: 1300, // 駆逐艦は、見えている敵空母とこれだけ離れる (爆撃機の射程 1200 の頃の値。NP が満タンなら攻める)
+      speederFightRadius: 1500   // 駆逐艦は、味方の旗艦からこれ以内に見えている敵がいれば、偵察をやめてその中の敵を通常攻撃する (駆逐艦も戦う)
     }
   };
   // 巡洋艦の隊列位置の方向 (旗艦から見て [前方, 右方向] の単位ベクトル)。1 隻目は左、2 隻目は右。
@@ -53,7 +55,7 @@
     for(const [id, info] of Object.entries(intel)){
       const e = byId.get(id);
       if(!info.visible || !e || !alive(e) || (accept && !accept(info, e))) continue;
-      const effect = Math.min(1, expectedDamage(f, e) / e.ships) * (e.flagship ? p.flagshipWeight : 1);
+      const effect = Math.min(1, expectedDamage(f, e) / e.ships) * (e.flagship ? p.flagshipWeight : 1) * (e.role === 'destroyer' ? p.destroyerValue : 1);
       const threat = flag && dist(flag, info) <= p.guardRadius ? p.guardWeight : 0;
       const score = dist(f, info) / 100 - p.targetWeight * effect - threat;
       if(score < bestScore){ best = id; bestScore = score; }
@@ -176,7 +178,7 @@
     return best;
   }
 
-  // 駆逐艦 (第 3.8 段階): 役割は索敵・偵察が約 8 割、最終戦の特殊攻撃が約 2 割。通常攻撃では戦わない。
+  // 駆逐艦 (第 3.8 段階): 役割は索敵・偵察が約 8 割、最終戦の特殊攻撃が約 2 割。味方の旗艦の近く (speederFightRadius) で戦いが始まれば、通常攻撃で加わる。
   // まず身を守る (第 3.4 段階): HP が speederRetreatHp 以下なら味方の旗艦のもとへ下がり、強化中の敵巡洋艦が近ければ離れる。
   // 最終戦 (NP が満タン。NP は最終戦の間だけたまる (第 3.9 段階)) なら特殊攻撃 (射程に入ると自動で使う) をしに行く: 旗艦への脅威 (第 3.6 段階)
   // → 見えている敵旗艦 → speederFinalEngageRange 以内の見えている敵 → 敵旗艦の最終確認位置へ移動。
@@ -199,6 +201,11 @@
     if(flag && hpRatio(f) <= p.speederRetreatHp) return moveTo(flag);
     const boosted = nearestVisibleEnemy(f, fleets, intel, p.speederBoostAvoidDistance, e => e.role === 'cruiser' && e.boost > 0);
     if(boosted) return moveTo(pointToward(boosted.info, f, p.speederBoostAvoidDistance + 150));
+    // 駆逐艦も戦う: 味方の旗艦の近くで戦いが始まっていれば、その中の敵を撃つ (撃ち合いの数で負けないように)
+    if(flag && nearestVisibleEnemy(flag, fleets, intel, p.speederFightRadius, () => true)){
+      const target = bestVisibleTarget(f, fleets, intel, p, info => dist(flag, info) <= p.speederFightRadius);
+      if(target) return {type: 'attack', targetId: target};
+    }
     const final = finalBattleOrder(f, flag, fleets, intel, p);
     if(final) return final;
     const carrier = nearestVisibleEnemy(f, fleets, intel, p.speederCarrierDistance, e => e.role === 'carrier');
@@ -239,7 +246,7 @@
   }
 
   // AI の命令を決める (艦種ごと)。profile は AI プロファイル (省略時は標準)。
-  // 戦艦 = 旗艦の動き、空母 = 旗艦の後ろ、巡洋艦 = 旗艦の左右で戦う、駆逐艦 = 偵察と見張り (交戦を避ける)。旗艦がいなければ旗艦の動き
+  // 戦艦 = 旗艦の動き、空母 = 旗艦の後ろ、巡洋艦 = 旗艦の左右で戦う、駆逐艦 = 偵察と見張り (旗艦の近くで戦いが始まれば加わる)。旗艦がいなければ旗艦の動き
   // islands: 島 (第 4.1 段階)。移動先が島の中なら島のふちの外へ直す (攻撃命令は、島を回り込む動きをゲームのルールがする)
   function aiDecide(f, fleets, intel, rng, profile, islands){
     const p = profile || AI_PROFILES.standard;
