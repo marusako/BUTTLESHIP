@@ -618,7 +618,7 @@ test('艦種: ステータス (耐久・火力・装甲・回避・対空・索�
     {hp: 30, firepower: 20, armor: 20, evasion: 85, antiAir: 85, sensor: 900, range: 'short', speed: 'fastPlus'}
   ]);
   assert.deepEqual(L.RANGES, {short: 300, medium: 450, long: 650, veryLong: L.WORLD.h / 2}, '超長 (空母) はマップの縦の半分');
-  assert.deepEqual(Object.values(T).map(t => [t.weapon.kind, t.weapon.interval]), [['gun', 4], ['bomber', 15], ['gun', 2], ['gun', 1.5]]);
+  assert.deepEqual(Object.values(T).map(t => [t.weapon.kind, t.weapon.interval]), [['gun', 4], ['bomber', 60], ['gun', 2], ['gun', 1.5]]);
   assert.deepEqual(Object.values(T).map(t => [t.size, t.hitRadius]), [['large', 28], ['large', 28], ['medium', 18], ['small', 10]]);
   for(const t of Object.values(T)) assert.ok(t.name && t.description);
 });
@@ -822,20 +822,37 @@ test('空母の弱点: 攻撃を受けたとき 15% の確率でダメージが 
   assert.equal(L.resolveHit(shot({fp: 100}), ship('cruiser'), seq(0, 0.5, 0)).weakness, false);
 });
 
-test('爆撃機: 空母は射程 (マップの縦の半分 16000) 以内のロックオンした敵に、15 秒ごとに爆撃機を 1 機出す。寿命は射程を飛ぶ時間の 1.5 倍', () => {
+test('爆撃機 (攻撃隊): 空母は射程 (マップの縦の半分 16000) 以内のロックオンした敵に、60 秒ごとに爆撃機を 4 機まとめて出す。寿命は射程を飛ぶ時間の 1.5 倍', () => {
+  assert.equal(L.BOMBER_WAVE, 4);
   const cv = ship('carrier', {id: 'v', x: 1000, y: 18000});
   const e = ship('cruiser', {id: 'e', team: 'red', x: 1000, y: 3000}); // 距離 15000 (空母の索敵 800 の外。味方が見つけた敵)
   const g = game([cv, e]);
   L.fireWeapons(g, 0.1, {blue: [e], red: []});
-  assert.equal(g.aircraft.length, 1);
+  assert.equal(g.aircraft.length, 4);
   const a = g.aircraft[0];
   assert.equal(L.bomberLife(16000), 16000 / L.BOMBER_SPEED * 1.5);
   assert.deepEqual([a.kind, a.team, a.from, a.targetId, a.life, a.fp, a.range, a.hitChance], ['bomber', 'blue', 'v', 'e', L.bomberLife(16000), 50, 16000, 1]);
+  assert.ok(g.aircraft.every(b => b.targetId === 'e'), '4 機とも同じ敵へ');
+  assert.equal(new Set(g.aircraft.map(b => b.id)).size, 4, '別々の機体');
+  assert.equal(g.events.filter(ev => ev.type === 'fire' && ev.kind === 'bomber').length, 1, '発進の出来事 (音) は 1 回');
   assert.equal(g.projectiles.length, 0, '空母は弾を撃たない');
-  L.fireWeapons(g, 14.8, {blue: [e], red: []});
-  assert.equal(g.aircraft.length, 1, '二段攻撃ではない');
+  L.fireWeapons(g, 59.8, {blue: [e], red: []});
+  assert.equal(g.aircraft.length, 4, '60 秒たつまで次を出さない');
   L.fireWeapons(g, 0.2, {blue: [e], red: []});
-  assert.equal(g.aircraft.length, 2);
+  assert.equal(g.aircraft.length, 8);
+});
+
+test('損傷で遅くなる: 速さ = 最大の速さ × (0.5 + 0.5 × HP の割合)。HP 満タンで変わらず、0 に近づくと半分', () => {
+  assert.equal(L.DAMAGE_SLOW_MIN, 0.5);
+  const c = ship('cruiser');
+  assert.equal(L.speedOf(c), L.maxSpeed(c.stats));
+  c.ships = c.maxShips / 2;
+  assert.equal(L.speedOf(c), L.maxSpeed(c.stats) * 0.75);
+  c.ships = 0;
+  assert.equal(L.speedOf(c), L.maxSpeed(c.stats) * 0.5);
+  c.ships = c.maxShips / 2;
+  c.boost = 5;
+  assert.equal(L.speedOf(c), L.maxSpeed(c.stats) * 1.5 * 0.75, '強化の倍率と掛け合わせる');
 });
 
 test('爆撃機: 目標へ向かい、届いたら爆撃して (回避できない) 消える。曲がる速さに限りがあり、寿命で消える。目標が射程の外に出たら消える', () => {

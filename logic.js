@@ -35,6 +35,8 @@
   const BOMBER_SPEED = 250;      // 爆撃機の速さ (px/秒)
   const BOMBER_TURN_RATE = 2.5;  // 爆撃機が 1 秒に曲がれる角度 (ラジアン)。よけられることがある
   const BOMBER_LIFE_MARGIN = 1.5; // 爆撃機の寿命 = 射程を飛ぶ時間 × これ (動く目標を追うぶんの余裕)
+  const BOMBER_WAVE = 4;          // 空母の通常攻撃 (攻撃隊) で一度に出す爆撃機の数 (再装填 60 秒ごと。ユーザーの選択)
+  const DAMAGE_SLOW_MIN = 0.5;   // 損傷で遅くなる: 速さ × (これ + (1 − これ) × HP の割合)。HP 0 に近づくと半分 (ユーザーの選択)
   const AIRSTRIKE_BOMBERS = 6;   // 空母の特殊攻撃 (爆撃機群) の機数 (第 4.2 段階)
   const AIRSTRIKE_SPREAD = Math.PI / 3; // 爆撃機群を出す扇の幅 (60°。敵旗艦の方向が真ん中)
   const AIRSTRIKE_CONE = Math.PI / 6;   // 爆撃機群の各機が狙う敵の向きの幅 (自分の向きから左右 30°)
@@ -76,7 +78,7 @@
     battleship: {name: '戦艦', stats: {hp: 100, firepower: 120, armor: 85, evasion: 15, antiAir: 75, sensor: 500, range: 'long', speed: 'slow'},
       size: 'large', hitRadius: 28, weapon: {kind: 'gun', interval: 4}, npPerSecond: 0.21, npPerDamage: 0.02, description: '旗艦。重装甲・高火力だが遅く、よけられない。味方の空母 (副艦) が健在なうちは特殊装甲で被ダメージが最大 50% 減る'},
     carrier: {name: '空母', stats: {hp: 70, firepower: 50, armor: 40, evasion: 40, antiAir: 80, sensor: 800, range: 'veryLong', speed: 'fast'},
-      size: 'large', hitRadius: 28, weapon: {kind: 'bomber', interval: 15}, npPerSecond: 1.3, npPerDamage: 0.1, description: '副艦。遠くの敵に爆撃機を送る。健在なうちは旗艦の特殊装甲が効き、敵の爆撃機群は戦闘機で迎え撃つ。攻撃を受けると大きな被害が出ることがある'},
+      size: 'large', hitRadius: 28, weapon: {kind: 'bomber', interval: 60}, npPerSecond: 1.3, npPerDamage: 0.1, description: '副艦。遠くの敵に爆撃機を送る。健在なうちは旗艦の特殊装甲が効き、敵の爆撃機群は戦闘機で迎え撃つ。攻撃を受けると大きな被害が出ることがある'},
     cruiser: {name: '巡洋艦', stats: {hp: 50, firepower: 55, armor: 50, evasion: 60, antiAir: 60, sensor: 600, range: 'medium', speed: 'fast'},
       size: 'medium', hitRadius: 18, weapon: {kind: 'gun', interval: 2}, npPerSecond: 2.4, npPerDamage: 0.1, description: '主砲タイプの主力。攻守のバランスがよい'},
     destroyer: {name: '駆逐艦', stats: {hp: 30, firepower: 20, armor: 20, evasion: 85, antiAir: 85, sensor: 900, range: 'short', speed: 'fastPlus'},
@@ -122,7 +124,7 @@
 
   // 今の速さ・火力・装甲・会心率 (巡洋艦の強化中は 1.5 倍・会心率 20%)
   function speedOf(f){
-    return maxSpeed(f.stats) * (boosted(f) ? BOOST_MULTIPLIER : 1);
+    return maxSpeed(f.stats) * (boosted(f) ? BOOST_MULTIPLIER : 1) * (DAMAGE_SLOW_MIN + (1 - DAMAGE_SLOW_MIN) * Math.max(0, f.ships / f.maxShips));
   }
   function firepowerOf(f){
     return f.stats.firepower * (boosted(f) ? BOOST_MULTIPLIER : 1);
@@ -517,12 +519,12 @@
   // 1 回の攻撃を出す。kind: 'shot' (主砲) / 'torpedo' (魚雷) / 'bomber' (爆撃機。回避できない)。fp は火力 (特殊攻撃は 100)、hitChance は命中率 (null なら相手の回避で決まる)
   // 攻撃の倍率 (損傷・バフ) と会心率は撃った瞬間の値
   // range: 目標がこれより離れると弾が消える距離 (省略時は通常攻撃の射程。駆逐艦の特殊攻撃は特殊攻撃の射程)
-  function launchAttack(g, f, t, kind, fp, hitChance, range){
+  function launchAttack(g, f, t, kind, fp, hitChance, range, quiet){
     const attack = {id: g.nextProjectileId++, kind, team: f.team, from: f.id, targetId: t.id, x: f.x, y: f.y, heading: Math.atan2(t.y - f.y, t.x - f.x),
       range: range || weaponRange(f), fp, mult: attackMultiplier(f), crit: critChanceOf(f), hitChance: kind === 'bomber' ? 1 : hitChance, evasionCut: evasionCutOf(f)};
     if(kind === 'bomber') g.aircraft.push(Object.assign(attack, {life: bomberLife(attack.range)}));
     else g.projectiles.push(Object.assign(attack, {life: SHOT_LIFE}));
-    record(g, {type: 'fire', kind: kind === 'shot' ? 'gun' : kind, size: SHIP_TYPES[f.role].size, team: f.team, from: f.id, x: f.x, y: f.y});
+    if(!quiet) record(g, {type: 'fire', kind: kind === 'shot' ? 'gun' : kind, size: SHIP_TYPES[f.role].size, team: f.team, from: f.id, x: f.x, y: f.y});
   }
 
   // あとで出す攻撃 (二段攻撃の 2 発目・連続攻撃) を予約する。delay 秒後に、撃つ艦と目標が生きていて目標が射程の中なら出す
@@ -546,7 +548,7 @@
   }
 
   // 各艦隊がロックオンし (g.locks)、射程の中にいて、再装填が済んでいて FIRE がオンなら通常攻撃をする
-  // (主砲は二段攻撃、空母は爆撃機 1 機)。予約した攻撃もここで出す。visible: チームごとの見えている敵 (省略時はその場で計算)
+  // (主砲は二段攻撃、空母は爆撃機 BOMBER_WAVE 機の攻撃隊)。予約した攻撃もここで出す。visible: チームごとの見えている敵 (省略時はその場で計算)
   function fireWeapons(g, dt, visible){
     const vis = visible || visibleByTeam(g);
     g.locks = [];
@@ -564,7 +566,7 @@
       if(!firing || !f.weapons.fire || f.cooldown > EPS) continue;
       const w = weaponOf(f);
       if(w.kind === 'bomber'){
-        launchAttack(g, f, t, 'bomber', firepowerOf(f), null);
+        for(let k = 0; k < BOMBER_WAVE; k++) launchAttack(g, f, t, 'bomber', firepowerOf(f), null, undefined, k > 0); // 発進の出来事 (音) は 1 回
       }else{
         launchAttack(g, f, t, 'shot', firepowerOf(f), null);
         schedule(g, f, t, 'shot', firepowerOf(f), null, DOUBLE_SHOT_DELAY);
@@ -966,7 +968,7 @@
     WORLD, DEFAULT_WORLD, setWorld, SCAN_INTERVAL, SCAN_DURATION, scanActive, ISLAND_SPAWN_CLEARANCE, ISLAND_GAP, randomIslands, fixedIslands, lineBlocked, RANGES, SPEEDS, weaponRange, specialRange, FLAG_ARMOR_MAX, flagArmorOf, sensorRange, hpRatio, damageState,
     attackMultiplier, hitChance, expectedDamage, antiAirChance, resolveHit, speedOf, firepowerOf, armorOf, critChanceOf, GHOST_CLEAR_RANGE,
     CHARGE_MAX, evasionCutOf, BOOST_DURATION, BOOST_MULTIPLIER, SPECIALS, FLEET_CLASSES, useSpecial,
-    STEALTH_DURATION, SHOT_LIFE, BOMBER_SPEED, BOMBER_LIFE_MARGIN, bomberLife, BOMBER_TURN_RATE, AIRSTRIKE_BOMBERS, airstrikeRange, FIGHTER_COOLDOWN, AA_RANGE,
+    STEALTH_DURATION, SHOT_LIFE, BOMBER_SPEED, BOMBER_LIFE_MARGIN, BOMBER_WAVE, DAMAGE_SLOW_MIN, bomberLife, BOMBER_TURN_RATE, AIRSTRIKE_BOMBERS, airstrikeRange, FIGHTER_COOLDOWN, AA_RANGE,
     BUFF_RANGE, isBuffed, updateBuffs, SHIP_TYPES, FORMATION, AI_THINK_INTERVAL, maxSpeed, lockRange, visibleEnemies, updateIntel,
     lockTarget, moveFleet, checkOutcome, createGame, step, HP_SCALE, maxHpOf, applyHit, FINAL_BATTLE_DISTANCE, specialLocked,
     fireWeapons, launchFighters, autoSpecial, antiAir, moveProjectiles, moveAircraft, keyCourse, battleStats,

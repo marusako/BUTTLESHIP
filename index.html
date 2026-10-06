@@ -363,7 +363,7 @@ const SIZE_NAMES = {large: '大', medium: '中', small: '小'};
 function attackTexts(no){
   const cls = classOf(no);
   const w = L.SHIP_TYPES[cls.role].weapon;
-  const normal = w.kind === 'bomber' ? `爆撃機 (再装填 ${w.interval} 秒。回避できない)` : `主砲の二段攻撃 (再装填 ${w.interval} 秒)`;
+  const normal = w.kind === 'bomber' ? `爆撃機 ${L.BOMBER_WAVE} 機の攻撃隊 (再装填 ${w.interval} 秒。回避できない)` : `主砲の二段攻撃 (再装填 ${w.interval} 秒)`;
   const sp = L.SPECIALS[cls.special];
   return {normal, special: `${sp.category === 'action' ? '特殊行動' : '特殊攻撃'}: ${sp.name} (${sp.description})`};
 }
