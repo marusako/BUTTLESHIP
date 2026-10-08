@@ -38,8 +38,8 @@ test('パラメータ配分: 合計 100・各 0 以上・整数だけ有効 (原
 
 test('パラメータ配分の極端な値: 速度 0 でも動け (最低の速さ 40)、攻撃 0 ならビームのダメージは 0、防御 0 なら軽減なし', () => {
   assert.equal(L.maxSpeed({speed: 0, defense: 50, attack: 50}), 40);
-  const a = {ships: L.INITIAL_SHIPS, params: {speed: 50, defense: 50, attack: 0}};
-  const t = {ships: L.INITIAL_SHIPS, params: {speed: 50, defense: 0, attack: 50}};
+  const a = {x: 0, y: 0, ships: L.INITIAL_SHIPS, params: {speed: 50, defense: 50, attack: 0}};
+  const t = {x: 200, y: 0, ships: L.INITIAL_SHIPS, params: {speed: 50, defense: 0, attack: 50}};
   assert.equal(L.beamDps(a, t), 0);
   assert.equal(L.mitigation(t.params), 1);
 });
@@ -148,6 +148,37 @@ test('移動: 攻撃命令は見えている相手の射程内まで近づいて
   assert.deepEqual(f.order, {type: 'attack', targetId: 'e'});
 });
 
+test('最適距離 (第 7 段階): ビームは射程の 60% 以上で倍率 1、それより近いと直線で下がり、距離 0 で 0.3', () => {
+  const near = L.BEAM_RANGE * L.BEAM_OPTIMAL_RATIO;
+  assert.equal(L.BEAM_OPTIMAL_RATIO, 0.6);
+  assert.equal(L.BEAM_CLOSE_FACTOR, 0.3);
+  assert.equal(L.beamRangeFactor(0), 0.3);
+  assert.ok(Math.abs(L.beamRangeFactor(near / 2) - 0.65) < 1e-12);
+  assert.equal(L.beamRangeFactor(near), 1);
+  assert.equal(L.beamRangeFactor(L.BEAM_RANGE), 1);
+  const t = fleet({id: 't', team: 'red', x: 0, y: 0});
+  const far = L.beamDps(fleet({x: L.BEAM_RANGE, y: 0}), t), close = L.beamDps(fleet({x: 0, y: 0}), t);
+  assert.ok(Math.abs(close / far - 0.3) < 1e-12, '密着すると 0.3 倍');
+});
+
+test('移動 (第 7 段階): 攻撃命令で相手に近すぎる (射程の 60% より近い) と、相手から離れて止まる距離まで下がる。向きは相手のまま', () => {
+  const f = fleet({x: 1000, y: 1000, order: {type: 'attack', targetId: 'e'}});
+  const intel = {e: {x: 1050, y: 1000, visible: true}};
+  for(let i = 0; i < 100; i++) L.moveFleet(f, 0.1, intel);
+  const d = 1050 - f.x;
+  assert.ok(d >= L.BEAM_RANGE * L.BEAM_OPTIMAL_RATIO && d <= L.BEAM_RANGE, 'd=' + d);
+  assert.equal(f.y, 1000);
+  assert.equal(f.heading, 0, '相手を向いたまま');
+  assert.deepEqual(f.order, {type: 'attack', targetId: 'e'});
+});
+
+test('移動 (第 7 段階): 攻撃命令の相手でなくても、見えている敵が近すぎれば、その敵から下がる', () => {
+  const f = fleet({x: 1000, y: 1000, order: {type: 'attack', targetId: 'e'}});
+  const intel = {e: {x: 1000, y: 800, visible: true}, o: {x: 1040, y: 1000, visible: true}};
+  L.moveFleet(f, 0.1, intel);
+  assert.ok(f.x < 1000, '横の敵から離れる x=' + f.x);
+});
+
 test('移動: 攻撃相手を見失ったら最終確認位置へ向かい、着いても見えなければ命令が消える', () => {
   const f = fleet({x: 0, order: {type: 'attack', targetId: 'e'}});
   const intel = {e: {x: 100, y: 0, visible: false}};
@@ -226,8 +257,12 @@ test('AI (隊長): 手がかりがなければ敵陣の方向 (青は上・赤�
   }
 });
 
-test('マップ: 原作のミニマップと同じ縦長 (横 1 : 縦 2) の 2400 × 4800', () => {
-  assert.deepEqual(L.WORLD, {w: 2400, h: 4800});
+test('マップ: 原作のミニマップと同じ縦長 (横 1 : 縦 2) の 4800 × 9600 (第 7 段階で 2 倍に)', () => {
+  assert.deepEqual(L.WORLD, {w: 4800, h: 9600});
+});
+
+test('出撃位置: 横一列は 400 おきで、真ん中がマップの中央 (第 7 段階)', () => {
+  assert.deepEqual(L.SPAWN_XS, [1600, 2000, 2400, 2800, 3200]);
 });
 
 test('ゲーム作成: 青は下の端、赤は上の端から、横に並んで出撃する', () => {
@@ -646,11 +681,11 @@ test('TORPID オフ: ミサイルは撃たないが、迎撃はする', () => {
 // ---------- 第 2.6 段階 ----------
 
 test('AI (隊長): すでに敵陣側にいて手がかりがなければ、マップ全体から索敵先を選ぶ (すれ違い対策)', () => {
-  const blue = fleet({id: 'b', x: 1200, y: 500, leader: true}); // 青にとって敵陣側 (上半分)
+  const blue = fleet({id: 'b', x: L.WORLD.w / 2, y: 500, leader: true}); // 青にとって敵陣側 (上半分)
   const o = L.aiDecide(blue, [blue], {}, seq(0.5, 0.9));
   assert.equal(o.type, 'move');
   assert.ok(o.y > L.WORLD.h / 2, '自陣側に戻ることもある y=' + o.y);
-  const red = fleet({id: 'r', team: 'red', x: 1200, y: 4300, leader: true}); // 赤にとって敵陣側 (下半分)
+  const red = fleet({id: 'r', team: 'red', x: L.WORLD.w / 2, y: L.WORLD.h - 500, leader: true}); // 赤にとって敵陣側 (下半分)
   const or = L.aiDecide(red, [red], {}, seq(0.5, 0.1));
   assert.ok(or.y < L.WORLD.h / 2, 'y=' + or.y);
 });

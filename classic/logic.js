@@ -4,7 +4,7 @@
 (function(root){
   'use strict';
 
-  const WORLD = {w: 2400, h: 4800}; // 原作のミニマップと同じ縦長 (横 1 : 縦 2)。青は下、赤は上に陣取る
+  const WORLD = {w: 4800, h: 9600}; // 原作のミニマップと同じ縦長 (横 1 : 縦 2)。青は下、赤は上に陣取る (第 7 段階で 2 倍に。索敵・射程・速さはそのまま)
   const INITIAL_SHIPS = 15000;   // 原作の画面に合わせた初期艦艇数
   const MAX_THROTTLE = 4;        // SPEED の段階の最大 (0〜4)
   const PARAM_TOTAL = 100;
@@ -13,6 +13,8 @@
   const BEAM_RANGE = 260;        // ビーム射程 (索敵半径より短い)
   const GHOST_CLEAR_RANGE = 150; // 最終確認位置にこの距離まで近づいて敵がいなければ記録を消す
   const ATTACK_STOP_RATIO = 0.8; // 攻撃命令では射程のこの割合まで近づいて止まる
+  const BEAM_OPTIMAL_RATIO = 0.6; // 最適距離 (第 7 段階): ビームは射程のこの割合より遠ければ倍率 1。近いほど弱まる (全艦が 1 か所に集まって削り合わないように)
+  const BEAM_CLOSE_FACTOR = 0.3; // 距離 0 のときのビームの倍率
   const ATTACK_COEF = 0.002;     // 1 隻・攻撃 1 あたりの毎秒ダメージ (艦艇数)
   const DEFENSE_HALF = 50;       // 防御がこの値のとき受けるダメージが半分になる
   const FIREPOWER_FLOOR = 0.3;   // 火力計算に使う艦艇数の下限 (初期艦艇数に対する割合)
@@ -60,7 +62,7 @@
   const ESCORT_SLOTS = [[200, -170], [200, 170], [20, -280], [20, 280]];
   const FORMATION_SPEED_RATIO = 0.85; // AI の隊長は、一番遅い護衛の最大の速さのこの割合より速く進まない (隊形が伸びないように。第 5 段階)
   const DEFEND_RADIUS = 600;     // 護衛は隊長からこの距離以内の敵を迎え撃つ
-  const SPAWN_XS = [400, 800, 1200, 1600, 2000]; // 横一列の出撃位置。真ん中 (1200) は隊長
+  const SPAWN_XS = [-2, -1, 0, 1, 2].map(k => WORLD.w / 2 + k * 400); // 横一列の出撃位置 (400 おき)。真ん中 (マップの中央) は隊長
 
   const alive = f => f.ships > 0;
   const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
@@ -86,9 +88,15 @@
     return Math.max(f.ships, INITIAL_SHIPS * FIREPOWER_FLOOR);
   }
 
-  // attacker が target に与える毎秒ダメージ (艦艇数)
+  // 距離 d でのビームの倍率 (最適距離。第 7 段階): 射程の BEAM_OPTIMAL_RATIO 以上で 1、それより近いと直線で下がり、0 で BEAM_CLOSE_FACTOR
+  function beamRangeFactor(d){
+    const near = BEAM_RANGE * BEAM_OPTIMAL_RATIO;
+    return d >= near ? 1 : BEAM_CLOSE_FACTOR + (1 - BEAM_CLOSE_FACTOR) * d / near;
+  }
+
+  // attacker が target に与える毎秒ダメージ (艦艇数)。近すぎると弱まる
   function beamDps(attacker, target){
-    return firepower(attacker) * ATTACK_COEF * attacker.params.attack * mitigation(target.params);
+    return firepower(attacker) * ATTACK_COEF * attacker.params.attack * mitigation(target.params) * beamRangeFactor(dist(attacker, target));
   }
 
   // ミサイル 1 発の威力 (防御による軽減前)
@@ -170,6 +178,24 @@
     // 行き先はマップの内側に収める (外なら最も近い端へ向かう)
     dest = {x: clamp(dest.x, 0, WORLD.w), y: clamp(dest.y, 0, WORLD.h)};
     const d = dist(f, dest);
+    // 攻撃命令の相手が見えているとき、見えている敵 (相手でなくても) のどれかに近すぎれば (最適距離より近い)、
+    // いちばん近いその敵を向いたまま、止まる距離まで下がる (第 7 段階)
+    if(o.type === 'attack' && stopAt > 0){
+      let near = null, nd = BEAM_RANGE * BEAM_OPTIMAL_RATIO;
+      for(const info of Object.values(intel)){
+        if(!info.visible) continue;
+        const di = dist(f, info);
+        if(di < nd){ near = info; nd = di; }
+      }
+      if(near){
+        const back = Math.min(step, stopAt - nd);
+        const ux = nd > 0 ? (f.x - near.x) / nd : -Math.cos(f.heading), uy = nd > 0 ? (f.y - near.y) / nd : -Math.sin(f.heading);
+        if(nd > 0) f.heading = Math.atan2(near.y - f.y, near.x - f.x);
+        f.x = clamp(f.x + ux * back, 0, WORLD.w);
+        f.y = clamp(f.y + uy * back, 0, WORLD.h);
+        return;
+      }
+    }
     if(d > stopAt) f.heading = Math.atan2(dest.y - f.y, dest.x - f.x);
     if(d - stopAt <= step){
       if(d > stopAt){
@@ -664,7 +690,7 @@
     return {cx: fit(cx, hw, WORLD.w), cy: fit(cy, hh, WORLD.h)};
   }
 
-  const api = {clampCameraCenter, 
+  const api = {clampCameraCenter, SPAWN_XS, BEAM_OPTIMAL_RATIO, BEAM_CLOSE_FACTOR, beamRangeFactor, 
     WORLD, INITIAL_SHIPS, MAX_THROTTLE, PARAM_TOTAL, PARAM_MIN, MISSILE_AMMO, MISSILE_STRAIGHT_SPEED, segmentDistance, DODGE_LOOKAHEAD, DODGE_MARGIN, DODGE_TIME, dodgeOrder, FORMATION_SPEED_RATIO, formationSpeedCap, CHEAT_WARP_INTERVAL, CHEAT_WARP_DISTANCE, enemyCheatWarp, SUBFLEET_MAX, MERGE_RANGE, splitFleet, mergeFleets, SCOUT_COUNT, SCOUT_SHIPS, SCOUT_WATCH_DISTANCE, SCOUT_SAFE_DISTANCE, launchScouts, SENSOR_RANGE, BEAM_RANGE, GHOST_CLEAR_RANGE, FIREPOWER_FLOOR,
     MISSILE_RANGE, MISSILE_INTERVAL, MISSILE_SPEED, MISSILE_LIFE, MISSILE_HIT_RADIUS, INTERCEPT_RANGE, INTERCEPT_INTERVAL,
     AI_PRESETS, validateParams, updateLeaders, maxSpeed, mitigation, beamDps, missileDamage, visibleEnemies, updateIntel,
