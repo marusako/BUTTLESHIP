@@ -90,6 +90,10 @@
     align-items: center; gap: 8px; padding: 8px 12px; background: rgba(0, 0, 0, 0.85);
     border: 1px solid #3a3a3a; font-family: Consolas, "MS Gothic", monospace; color: #c8c8c8; }
   #console.open{ display: flex; }
+  #splitBox{ position: fixed; left: 50%; bottom: 64px; transform: translateX(-50%); display: none; align-items: center; gap: 6px;
+    padding: 8px 12px; background: rgba(0, 0, 0, 0.88); border: 1px solid #ff7a3c; color: #ffb48a; font-size: 13px; }
+  #splitBox.open{ display: flex; }
+  #splitBox input{ width: 70px; }
   #console input{ width: 260px; background: transparent; border: none; outline: none; color: #e8e8e8;
     font: inherit; caret-color: #e8e8e8; }
 </style>
@@ -128,6 +132,11 @@
           <button class="cmdBtn" data-weapon="laser">LASER</button>
           <button class="cmdBtn" data-weapon="torpid">TORPID</button>
           <button class="cmdBtn" data-missilemode title="ミサイルの誘導 / 直進を切り替える (誘導は追尾して相手は迎撃が必要、直進は速いがよけられる)">GUIDED</button>
+        </div>
+        <div class="cmdGroup">
+          <div class="cmdHead">FLEET</div>
+          <button class="cmdBtn" data-split title="操作中の艦隊から分艦隊を切り出す (F)">SPLIT</button>
+          <button class="cmdBtn" data-merge title="合流先の自分の艦隊をクリックして合流する (G)">MERGE</button>
         </div>
         <div class="cmdGroup">
           <div class="cmdHead">MOVE</div>
@@ -216,6 +225,10 @@
 </div>
 
 <div id="console"><span>&gt;</span><input id="consoleInput" autocomplete="off" spellcheck="false"></div>
+<div id="splitBox"><span>分艦隊に切り出す隻数</span>
+  <button class="cmdBtn" data-split-n="1000">1000</button><button class="cmdBtn" data-split-n="3000">3000</button><button class="cmdBtn" data-split-n="5000">5000</button><button class="cmdBtn" data-split-n="half">半分</button>
+  <input id="splitInput" type="number" min="1" step="1"><button class="cmdBtn" id="splitOk">OK</button><button class="cmdBtn" id="splitCancel">やめる</button>
+</div>
 
 <script src="logic.js"></script>
 <script>
@@ -335,6 +348,9 @@ for(const r of document.querySelectorAll('input[name="mode"]')){
 
 function startBattle(){
   game = L.createGame(Object.assign({}, playerParams), Math.random, ruleMode, {enemyCheat: $('enemyCheat').checked});
+  game.controlId = game.fleets.find(f => f.isPlayer).id;
+  mergePick = false;
+  closeSplit();
   warpsLogged = 0;
   dragMove = null;
   const me = player();
@@ -403,6 +419,9 @@ window.addEventListener('keydown', e => {
   }
   if(mode === 'battle'){
     if(e.code === 'KeyC') centerOnPlayer();
+    if(e.code === 'KeyF' && !e.repeat) openSplit();
+    if(e.code === 'KeyG' && !e.repeat) startMerge();
+    if(e.code === 'Tab'){ cycleFleet(); e.preventDefault(); }
     if(e.code === 'KeyR') camera.angle = 0;
     const digit = /^(?:Digit|Numpad)([0-4])$/.exec(e.code);
     if(digit) setThrottle(Number(digit[1]));
@@ -412,6 +431,54 @@ window.addEventListener('keydown', e => {
 });
 window.addEventListener('keyup', e => keys.delete(e.code));
 window.addEventListener('blur', () => keys.clear());
+
+// ---------- 分艦隊 (第 5 段階 ④) ----------
+let mergePick = false; // MERGE を押して、合流先のクリックを待っている
+function openSplit(){
+  const me = commandable();
+  if(!me) return;
+  $('splitInput').value = Math.floor(me.ships / 2);
+  $('splitBox').classList.add('open');
+}
+function closeSplit(){ $('splitBox').classList.remove('open'); }
+function doSplit(n){
+  const me = commandable();
+  closeSplit();
+  if(!me) return;
+  const ships = n === 'half' ? Math.floor(me.ships / 2) : Math.floor(Number(n));
+  const sub = L.splitFleet(game, me, ships);
+  if(!sub){
+    addLog(ownFleets().length >= L.SUBFLEET_MAX ? `分艦隊はこれ以上作れない (最大 ${L.SUBFLEET_MAX})` : '切り出せない (1 隻以上、元の艦隊に 1 隻以上残す)', COLORS.muted);
+    return;
+  }
+  buildAllyRows();
+  addLog(`${sub.name} (${sub.ships} 隻) を切り出した。Tab かクリックで操作を切り替え`, COLORS.accent);
+}
+for(const b of document.querySelectorAll('[data-split-n]')){
+  b.addEventListener('mousedown', e => e.preventDefault());
+  b.addEventListener('click', () => doSplit(b.dataset.splitN));
+}
+$('splitOk').onclick = () => doSplit($('splitInput').value);
+$('splitCancel').onclick = closeSplit;
+$('splitInput').addEventListener('keydown', e => {
+  e.stopPropagation(); // 入力中の数字キーで SPEED が変わらないように
+  if(e.code === 'Enter') doSplit($('splitInput').value);
+  if(e.code === 'Escape') closeSplit();
+});
+function startMerge(){
+  if(!commandable()) return;
+  if(ownFleets().length < 2){ addLog('合流できる自分の艦隊がない', COLORS.muted); return; }
+  mergePick = true;
+  addLog('合流先の自分の艦隊をクリック (ほかの場所なら取り消し)', COLORS.accent);
+}
+// 操作する自分の艦隊を順に切り替える
+function cycleFleet(){
+  const own = ownFleets();
+  if(own.length < 2) return;
+  const i = own.indexOf(player());
+  game.controlId = own[(i + 1) % own.length].id;
+  mergePick = false;
+}
 
 // ---------- COMMAND パネル ----------
 function commandable(){
@@ -431,6 +498,8 @@ for(const b of document.querySelectorAll('.cmdBtn')){
     if(!me) return;
     if(b.dataset.weapon) me.weapons[b.dataset.weapon] = !me.weapons[b.dataset.weapon];
     if(b.dataset.missilemode !== undefined) me.missileMode = me.missileMode === 'straight' ? 'guided' : 'straight';
+    if(b.dataset.split !== undefined) openSplit();
+    if(b.dataset.merge !== undefined) startMerge();
     if(b.dataset.speed) setThrottle(Number(b.dataset.speed));
     if(b.dataset.way) me.order = {type: 'course', angle: WAY_ANGLES[b.dataset.way] + camera.angle};
   });
@@ -456,6 +525,19 @@ canvas.addEventListener('mousedown', e => {
   if(!me || me.ships <= 0) return;
   const p = local(e, canvas);
   const w = toWorld(p.x, p.y);
+  const own = ownFleetAt(w, CLICK_RADIUS / camera.zoom);
+  if(mergePick){
+    mergePick = false;
+    if(own && own !== me){
+      me.order = {type: 'merge', targetId: own.id};
+      addLog(`${me.name} → ${own.name} へ合流に向かう`, COLORS.accent);
+    }
+    return;
+  }
+  if(own && own !== me && !game.warpArmed){
+    game.controlId = own.id; // 自分の艦隊をクリックすると、その艦隊を操作する
+    return;
+  }
   if(game.warpArmed){
     L.warpFleet(game, me, w.x, w.y);
     return;
@@ -526,7 +608,25 @@ function centerOnPlayer(){
   camera.cy = me.y;
 }
 
-function player(){ return game && game.fleets.find(f => f.isPlayer); }
+// 操作中の艦隊 (分艦隊のうち 1 つ。第 5 段階 ④)。全滅・合流したら残っている自分の艦隊へ移る。全部沈んだら元の艦隊
+function player(){
+  if(!game) return null;
+  let me = fleetById(game.controlId);
+  if(!me || me.ships <= 0){
+    const next = game.fleets.find(f => f.isPlayer && f.ships > 0);
+    if(next){ game.controlId = next.id; me = next; }
+  }
+  return me || rootFleet();
+}
+// プレイヤーの元の艦隊 (第 1 艦隊)
+function rootFleet(){ return game && game.fleets.find(f => f.isPlayer && !f.root); }
+const ownFleets = () => game.fleets.filter(f => f.isPlayer && f.ships > 0);
+// 画面上のその位置にいる自分の艦隊
+function ownFleetAt(w, r){
+  let best = null;
+  for(const f of ownFleets()){ const d = Math.hypot(f.x - w.x, f.y - w.y); if(d <= r && (!best || d < best.d)) best = {f, d}; }
+  return best && best.f;
+}
 function fleetById(id){ return game.fleets.find(f => f.id === id); }
 function visibleEnemyAt(w, radius){
   let best = null, bestD = radius;
@@ -574,7 +674,8 @@ function trackEvents(){
   for(const f of game.fleets){
     if(f.ships <= 0 && prevAlive.has(f.id)){
       prevAlive.delete(f.id);
-      if(f.isPlayer) addLog('我が艦隊は全滅した… 味方の戦いを見届けよう', COLORS.accent);
+      if(f.merged) continue;
+      if(f.isPlayer && !ownFleets().length) addLog('我が艦隊は全滅した… 味方の戦いを見届けよう', COLORS.accent);
       else addLog(`${displayName(f)} 全滅`, f.team === 'blue' ? COLORS.blue : COLORS.red);
     }
   }
@@ -601,7 +702,7 @@ function finish(){
   const titles = {win: '勝利', lose: '敗北', draw: '引き分け'};
   $('resultTitle').textContent = titles[game.outcome];
   $('resultTitle').style.color = game.outcome === 'win' ? COLORS.blue : game.outcome === 'lose' ? COLORS.red : COLORS.text;
-  const me = player();
+  const me = rootFleet();
   const survivors = game.fleets.filter(f => f.team === 'blue' && f.ships > 0).length;
   const parts = [MODE_NAMES[game.mode], `戦闘時間 ${formatTime(game.time)}`];
   if(game.mode === 'flagship'){
@@ -763,9 +864,11 @@ function drawFleet(f){
   const hx = Math.cos(h), hy = Math.sin(h);
   if(f.isPlayer){
     ctx.strokeStyle = COLORS.accent;
-    ctx.lineWidth = 2;
+    ctx.lineWidth = f === player() ? 2 : 1;
+    if(f !== player()) ctx.setLineDash([3, 3]);
     ctx.beginPath(); ctx.arc(p.x, p.y, size + 8, 0, Math.PI * 2); ctx.stroke();
     ctx.lineWidth = 1;
+    ctx.setLineDash([]);
   }
   if(flagshipKnown(f)){
     ctx.strokeStyle = COLORS.accent;
@@ -826,7 +929,7 @@ function drawMapOverlay(){
   ctx.globalAlpha = 1;
   ctx.fillStyle = COLORS.muted;
   ctx.font = '12px sans-serif';
-  ctx.fillText('左クリック: 移動 / 敵をクリック: 攻撃   0〜4: SPEED   Space・Esc: 一時停止', 14, canvas.height - 30);
+  ctx.fillText('左クリック: 移動 / 敵: 攻撃 / 自分の艦隊・Tab: 操作切り替え   F: 分艦隊   G: 合流   0〜4: SPEED   Space・Esc: 一時停止', 14, canvas.height - 30);
   ctx.fillText('WASD・矢印: 視点移動   Q・E: 回転   R: 北を上に   ホイール: 拡大縮小   C: 自艦隊へ', 14, canvas.height - 12);
 }
 
@@ -843,7 +946,7 @@ function setText(id, text){
 }
 // 味方 4 艦隊の行を作る (戦闘開始時)
 function buildAllyRows(){
-  $('allies').replaceChildren(...game.fleets.filter(f => f.team === 'blue' && !f.isPlayer).map(f => {
+  $('allies').replaceChildren(...game.fleets.filter(f => (f.team === 'blue' && !f.isPlayer) || (f => f.team === 'blue' && !f.merged && f.ships > 0 && (!f.isPlayer || ownFleets().length > 1))(f)).map(f => {
     const row = document.createElement('div');
     row.className = 'allyRow';
     row.dataset.id = f.id;
@@ -853,6 +956,8 @@ function buildAllyRows(){
   }));
 }
 function updateSidePanels(me){
+  const rowsWanted = game.fleets.filter(f => (f.team === 'blue' && !f.isPlayer) || (f => f.team === 'blue' && !f.merged && f.ships > 0 && (!f.isPlayer || ownFleets().length > 1))(f)).length;
+  if($('allies').children.length !== rowsWanted) buildAllyRows();
   $('mapTitle').textContent = `Map (×${camera.zoom.toFixed(1)})`;
   const alive = me.ships > 0;
   setText('stName', displayName(me));

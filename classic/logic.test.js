@@ -819,3 +819,77 @@ test('敵のワープ: ズルがなければワープしない', () => {
   L.step(g, 1 / 30, seq(0.5));
   assert.equal((g.enemyWarps || []).length, 0);
 });
+
+// ---------- 第 5 段階 ④: 分艦隊 (プレイヤー) ----------
+
+// プレイヤーの艦隊 (旗艦) と AI の味方・敵がいる試合
+function splitGame(){
+  const g = L.createGame({speed: 34, defense: 33, attack: 33}, seq(0.5), 'flagship');
+  for(const f of g.fleets) f.ai.nextThink = 999;
+  return {g, me: g.fleets.find(f => f.isPlayer)};
+}
+
+test('分艦隊: splitFleet で隻数を指定して切り出す。同じ場所に出て、ミサイルは隻数の割合で分ける。旗艦は元の艦隊に残る', () => {
+  assert.equal(L.SUBFLEET_MAX, 20);
+  const {g, me} = splitGame();
+  const sub = L.splitFleet(g, me, 3000);
+  assert.ok(sub);
+  assert.equal(me.ships, L.INITIAL_SHIPS - 3000);
+  assert.equal(sub.ships, 3000);
+  assert.equal(sub.missiles, Math.floor(L.MISSILE_AMMO * 3000 / L.INITIAL_SHIPS));
+  assert.equal(me.missiles + sub.missiles, L.MISSILE_AMMO, '弾の合計は変わらない');
+  assert.ok(Math.hypot(sub.x - me.x, sub.y - me.y) <= 60, 'そばに出る');
+  assert.deepEqual([sub.team, sub.isPlayer, sub.flagship, sub.leader], ['blue', true, false, false]);
+  assert.deepEqual(sub.params, me.params);
+  assert.ok(me.flagship, '旗艦は元の艦隊');
+  assert.ok(g.fleets.includes(sub));
+  assert.notEqual(sub.id, me.id);
+  assert.ok(sub.name.includes('分艦隊'));
+});
+
+test('分艦隊: 1 隻以上残さないといけない (0 隻・全部・小数は切り出せない)。自分の艦隊は合計 SUBFLEET_MAX まで。敵や AI の艦隊は分けられない', () => {
+  const {g, me} = splitGame();
+  assert.equal(L.splitFleet(g, me, 0), null);
+  assert.equal(L.splitFleet(g, me, L.INITIAL_SHIPS), null);
+  assert.equal(L.splitFleet(g, me, 10.5), null);
+  assert.equal(L.splitFleet(g, g.fleets.find(f => f.team === 'blue' && !f.isPlayer), 100), null, 'AI の味方');
+  for(let i = 0; i < 19; i++) assert.ok(L.splitFleet(g, me, 10), String(i));
+  assert.equal(g.fleets.filter(f => f.isPlayer && f.ships > 0).length, 20);
+  assert.equal(L.splitFleet(g, me, 10), null, '21 個目は作れない');
+});
+
+test('合流: merge 命令で合流先へ近づき、MERGE_RANGE 以内で 1 つになる (隻数と弾を足す)。旗艦が絡むときは旗艦の側に残る', () => {
+  assert.equal(L.MERGE_RANGE, 40);
+  const {g, me} = splitGame();
+  const sub = L.splitFleet(g, me, 3000);
+  sub.x += 500;
+  sub.order = {type: 'merge', targetId: me.id};
+  for(let i = 0; i < 30 * 10 && sub.ships > 0; i++) L.step(g, 1 / 30, seq(0.5));
+  assert.equal(sub.ships, 0);
+  assert.ok(sub.merged);
+  assert.equal(me.ships, L.INITIAL_SHIPS);
+  assert.equal(me.missiles, L.MISSILE_AMMO);
+  // 旗艦の側から分艦隊へ合流しても、旗艦が残る
+  const sub2 = L.splitFleet(g, me, 2000);
+  L.mergeFleets(g, me, sub2);
+  assert.ok(me.flagship && me.ships === L.INITIAL_SHIPS && sub2.merged);
+});
+
+test('合流: 合流先が全滅・合流済みなら merge 命令は消える', () => {
+  const {g, me} = splitGame();
+  const a = L.splitFleet(g, me, 3000), b = L.splitFleet(g, me, 3000);
+  b.x += 800;
+  b.order = {type: 'merge', targetId: a.id};
+  a.ships = 0;
+  L.step(g, 1 / 30, seq(0.5));
+  assert.equal(b.order, null);
+});
+
+test('分艦隊: AI の味方の護衛は、プレイヤーの分艦隊を数えずに隊列の位置を決める', () => {
+  const {g, me} = splitGame();
+  const escort = g.fleets.find(f => f.team === 'blue' && !f.isPlayer);
+  const before = L.aiDecide(escort, g.fleets, g.intel.blue, seq(0.5));
+  L.splitFleet(g, me, 3000);
+  const after = L.aiDecide(escort, g.fleets, g.intel.blue, seq(0.5));
+  assert.deepEqual(after, before);
+});
