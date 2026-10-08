@@ -1024,3 +1024,28 @@ test('視点: 画面にマップの外が写らないように中心を寄せる
   assert.ok(Math.abs(r.cx - 300) < 1e-9 && Math.abs(r.cy - 400) < 1e-9, '90° 回すと縦横が入れ替わる');
   assert.equal(L.clampCameraCenter(0, 0, w * 2, 600, 1, 0).cx, w / 2, '画面のほうが広ければ真ん中');
 });
+
+test('重なれない (第 7 段階): 艦隊どうし (敵味方とも) が 60 より近ければ、真ん中を保ったまま半分ずつ押し合って 60 離れる', () => {
+  assert.equal(L.FLEET_RADIUS, 30);
+  const a = fleet({id: 'a', x: 1000, y: 1000}), b = fleet({id: 'b', team: 'red', x: 1020, y: 1000});
+  L.separateFleets([a, b]);
+  assert.ok(Math.abs((b.x - a.x) - 60) < 1e-9);
+  assert.ok(Math.abs((a.x + b.x) / 2 - 1010) < 1e-9);
+  const c = fleet({id: 'c', x: 500, y: 500}), d = fleet({id: 'd', x: 500, y: 500});
+  L.separateFleets([c, d]);
+  assert.ok(Math.abs(Math.hypot(c.x - d.x, c.y - d.y) - 60) < 1e-9, '同じ位置でも離れる');
+  const e = fleet({id: 'e', x: 0, y: 0}), f = fleet({id: 'f', x: 10, y: 0});
+  L.separateFleets([e, f]);
+  assert.ok(e.x >= 0 && Math.abs(f.x - e.x - 60) < 1e-9, 'マップの外へは出ない');
+});
+
+test('重なれない: 移動中 (move / merge / course 命令) の艦隊は押し合わずに通り抜ける (行き先で詰まらないように)。沈んだ艦隊も押し合わない', () => {
+  for(const order of [{type: 'merge', targetId: 'b'}, {type: 'move', x: 0, y: 0}, {type: 'course', angle: 0}]){
+    const a = fleet({id: 'a', x: 1000, y: 1000, order}), b = fleet({id: 'b', x: 1030, y: 1000, order: {type: 'attack', targetId: 'x'}});
+    L.separateFleets([a, b]);
+    assert.deepEqual([a.x, b.x], [1000, 1030], order.type);
+  }
+  const c = fleet({id: 'c', x: 1000, y: 1000}), d = fleet({id: 'd', x: 1010, y: 1000, ships: 0});
+  L.separateFleets([c, d]);
+  assert.deepEqual([c.x, d.x], [1000, 1010]);
+});

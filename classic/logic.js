@@ -40,6 +40,7 @@
   const COMMANDS = ['scan', 'warp'];
   const CHEAT_WARP_INTERVAL = 30; // 敵のズル (原作のコンピ研役。第 5 段階): 赤の護衛 1 つがこの秒数ごとに青の隊長のそばへワープする
   const SUBFLEET_MAX = 20;       // 分艦隊 (第 5 段階 ④。原作どおり): プレイヤーの艦隊は、元の艦隊と分艦隊を合わせてこの数まで
+  const FLEET_RADIUS = 30;       // 重なれない (第 7 段階): 艦隊の大きさ。2 つの艦隊はこの 2 倍より近づけず、押し合って離れる
   const MERGE_RANGE = 40;        // 合流: merge 命令の艦隊が合流先からこの距離以内に来たら 1 つになる
   const SUBFLEET_OFFSET = 40;    // 切り出した分艦隊は、元の艦隊の右へこの距離ずらして出す
   const SCOUT_COUNT = 2;         // 偵察 (AI。第 5 段階 ⑤): 出撃してすぐ、各チームの AI の護衛のうち左右の端のこの数が分艦隊を出す
@@ -209,6 +210,31 @@
     }
     f.x = clamp(f.x + (dest.x - f.x) / d * step, 0, WORLD.w);
     f.y = clamp(f.y + (dest.y - f.y) / d * step, 0, WORLD.h);
+  }
+
+  // 重なれない (第 7 段階): 生きている艦隊どうし (敵味方とも) が FLEET_RADIUS × 2 より近ければ、真ん中を保って半分ずつ押し合う。
+  // 同じ位置なら x の向きに離す。押し合うのは戦っている・待っている艦隊 (攻撃命令か命令なし) だけで、
+  // 移動中 (move / merge / course) の艦隊は通り抜ける (押し合うと行き先や合流先の手前で詰まるため)
+  function separateFleets(fleets){
+    const min = FLEET_RADIUS * 2;
+    const list = fleets.filter(f => alive(f) && !f.merged && (!f.order || f.order.type === 'attack'));
+    for(let i = 0; i < list.length; i++){
+      for(let j = i + 1; j < list.length; j++){
+        const a = list[i], b = list[j];
+        let dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy);
+        if(d >= min) continue;
+        if(d === 0){ dx = 1; dy = 0; d = 1; b.x = a.x + 1; }
+        const push = (min - d) / 2, ux = dx / d, uy = dy / d;
+        a.x -= ux * push; a.y -= uy * push;
+        b.x += ux * push; b.y += uy * push;
+        // マップの端では、はみ出した分を相手に回す
+        for(const [p, q, s] of [[a, b, 1], [b, a, -1]]){
+          const cx = clamp(p.x, 0, WORLD.w), cy = clamp(p.y, 0, WORLD.h);
+          q.x = clamp(q.x + (cx - p.x), 0, WORLD.w); q.y = clamp(q.y + (cy - p.y), 0, WORLD.h);
+          p.x = cx; p.y = cy;
+        }
+      }
+    }
   }
 
   // 勝敗を返す (青チーム視点)。決着前は null。旗艦がいれば大将戦のルールで判定する
@@ -654,6 +680,7 @@
     }
     for(const f of living) f.speedCap = formationSpeedCap(f, g.fleets);
     for(const f of living) moveFleet(f, dt, g.intel[f.team]);
+    separateFleets(g.fleets);
     for(const f of living){
       if(!f.order || f.order.type !== 'merge' || !alive(f)) continue;
       const t = byIdNow.get(f.order.targetId);
@@ -690,7 +717,7 @@
     return {cx: fit(cx, hw, WORLD.w), cy: fit(cy, hh, WORLD.h)};
   }
 
-  const api = {clampCameraCenter, SPAWN_XS, BEAM_OPTIMAL_RATIO, BEAM_CLOSE_FACTOR, beamRangeFactor, 
+  const api = {clampCameraCenter, FLEET_RADIUS, separateFleets, SPAWN_XS, BEAM_OPTIMAL_RATIO, BEAM_CLOSE_FACTOR, beamRangeFactor, 
     WORLD, INITIAL_SHIPS, MAX_THROTTLE, PARAM_TOTAL, PARAM_MIN, MISSILE_AMMO, MISSILE_STRAIGHT_SPEED, segmentDistance, DODGE_LOOKAHEAD, DODGE_MARGIN, DODGE_TIME, dodgeOrder, FORMATION_SPEED_RATIO, formationSpeedCap, CHEAT_WARP_INTERVAL, CHEAT_WARP_DISTANCE, enemyCheatWarp, SUBFLEET_MAX, MERGE_RANGE, splitFleet, mergeFleets, SCOUT_COUNT, SCOUT_SHIPS, SCOUT_WATCH_DISTANCE, SCOUT_SAFE_DISTANCE, launchScouts, SENSOR_RANGE, BEAM_RANGE, GHOST_CLEAR_RANGE, FIREPOWER_FLOOR,
     MISSILE_RANGE, MISSILE_INTERVAL, MISSILE_SPEED, MISSILE_LIFE, MISSILE_HIT_RADIUS, INTERCEPT_RANGE, INTERCEPT_INTERVAL,
     AI_PRESETS, validateParams, updateLeaders, maxSpeed, mitigation, beamDps, missileDamage, visibleEnemies, updateIntel,
