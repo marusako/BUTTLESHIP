@@ -111,6 +111,7 @@
           <div class="kv"><span>DEFENSIVE POWER</span><span id="stDefense"></span></div>
           <div class="kv"><span>OFFENSIVE POWER</span><span id="stAttack"></span></div>
         </div>
+        <div class="kv"><span>MISSILES</span><span id="stMissiles"></span></div>
         <div class="kv"><span>ORDER</span><span id="stOrder"></span></div>
       </div>
     </section>
@@ -126,6 +127,7 @@
           <div class="cmdHead">ATTACK</div>
           <button class="cmdBtn" data-weapon="laser">LASER</button>
           <button class="cmdBtn" data-weapon="torpid">TORPID</button>
+          <button class="cmdBtn" data-missilemode title="ミサイルの誘導 / 直進を切り替える (誘導は追尾して相手は迎撃が必要、直進は速いがよけられる)">GUIDED</button>
         </div>
         <div class="cmdGroup">
           <div class="cmdHead">MOVE</div>
@@ -158,7 +160,7 @@
     <ul class="rules">
       <li>あなたは味方の<strong>第 1 艦隊</strong>を指揮する。残りの味方 4 艦隊と敵 5 艦隊は AI</li>
       <li>見えるのは味方の索敵範囲の中だけ。見つけた敵は味方全員に共有される</li>
-      <li>ビームは射程内の敵を自動で攻撃する (必中)。ミサイルは射程が長く追尾するが、迎撃されることがある</li>
+      <li>ビームは射程内の敵を自動で攻撃する (必中)。ミサイルは射程が長く、1 艦隊 30 発まで。誘導 (追尾するが迎撃されることがある) と直進 (速いがよけられる) を COMMAND の GUIDED / STRAIGHT で切り替える</li>
       <li>全滅戦: 敵 5 艦隊をすべて全滅させたら勝利</li>
       <li>大将戦: 敵の旗艦を倒したら勝利。あなたの艦隊が味方の旗艦</li>
       <li>味方の 4 艦隊は、隊長 (あなた) の周りに付いてきて守る。敵も隊長を中心に隊列を組む</li>
@@ -423,6 +425,7 @@ for(const b of document.querySelectorAll('.cmdBtn')){
     const me = commandable();
     if(!me) return;
     if(b.dataset.weapon) me.weapons[b.dataset.weapon] = !me.weapons[b.dataset.weapon];
+    if(b.dataset.missilemode !== undefined) me.missileMode = me.missileMode === 'straight' ? 'guided' : 'straight';
     if(b.dataset.speed) setThrottle(Number(b.dataset.speed));
     if(b.dataset.way) me.order = {type: 'course', angle: WAY_ANGLES[b.dataset.way] + camera.angle};
   });
@@ -730,8 +733,9 @@ function drawMissiles(allies){
     if(!seenByBlue(m.x, m.y, allies)) continue;
     const t = fleetById(m.targetId);
     const p = toScreen(m.x, m.y);
-    const d = Math.hypot(t.x - m.x, t.y - m.y) || 1;
-    const tail = toScreen(m.x - (t.x - m.x) / d * 18, m.y - (t.y - m.y) / d * 18);
+    // 尾の向き: 誘導は目標への向き、直進は飛んでいる向き
+    const ang = m.guided === false ? m.heading : Math.atan2(t.y - m.y, t.x - m.x);
+    const tail = toScreen(m.x - Math.cos(ang) * 18, m.y - Math.sin(ang) * 18);
     const color = m.team === 'blue' ? '160, 210, 255' : '255, 160, 120';
     ctx.strokeStyle = `rgba(${color}, 0.5)`;
     ctx.lineWidth = 2;
@@ -848,6 +852,7 @@ function updateSidePanels(me){
   setText('stSpeed', String(me.params.speed));
   setText('stDefense', String(me.params.defense));
   setText('stAttack', String(me.params.attack));
+  setText('stMissiles', `${me.missiles} / ${L.MISSILE_AMMO} (${me.missileMode === 'straight' ? '直進' : '誘導'})`);
   setText('stOrder', alive ? orderText(me) : '観戦中');
   for(const row of $('allies').children){
     const f = fleetById(row.dataset.id);
@@ -862,6 +867,11 @@ function updateSidePanels(me){
   for(const b of document.querySelectorAll('.cmdBtn')){
     let on = false;
     if(b.dataset.weapon) on = me.weapons[b.dataset.weapon];
+    if(b.dataset.missilemode !== undefined){
+      const label = me.missileMode === 'straight' ? 'STRAIGHT' : 'GUIDED';
+      if(b.textContent !== label) b.textContent = label;
+      on = true;
+    }
     if(b.dataset.speed) on = me.throttle === Number(b.dataset.speed);
     if(b.dataset.way) on = !!me.order && me.order.type === 'course' && Math.abs(Math.cos(me.order.angle - WAY_ANGLES[b.dataset.way] - camera.angle) - 1) < 1e-6;
     b.classList.toggle('on', on);

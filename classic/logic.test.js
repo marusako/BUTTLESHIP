@@ -9,7 +9,7 @@ function fleet(over){
     ships: L.INITIAL_SHIPS, params: {speed: 34, defense: 33, attack: 33},
     order: null, isPlayer: false, ai: {nextThink: 0},
     heading: 0, flagship: false, missileCooldown: 0, interceptCooldown: 0,
-    throttle: 4, weapons: {laser: true, torpid: true}
+    throttle: 4, weapons: {laser: true, torpid: true}, missiles: L.MISSILE_AMMO, missileMode: 'guided'
   }, over);
 }
 
@@ -466,6 +466,100 @@ test('迎撃: 迎撃範囲内の最も近い敵ミサイルを確率で撃ち落
   assert.deepEqual(ids(), [1, 3]);
   L.interceptMissiles(g, 0.01, seq(0)); // 失敗後も待ち時間がある
   assert.deepEqual(ids(), [1, 3]);
+});
+
+// ---------- 第 5 段階 ②: ミサイルの弾数と誘導 / 直進 ----------
+
+test('ミサイルの弾数: 1 艦隊 30 発で出撃し、撃つたびに 1 減り、0 になったら撃たない', () => {
+  assert.equal(L.MISSILE_AMMO, 30);
+  const g0 = L.createGame({speed: 34, defense: 33, attack: 33}, seq(0.5), 'flagship');
+  assert.ok(g0.fleets.every(f => f.missiles === 30 && f.missileMode === 'guided'), '全艦隊 30 発・誘導で出撃');
+  const b = fleet({id: 'b', missiles: 2});
+  const r = fleet({id: 'r', team: 'red', x: 400, y: 0});
+  const g = game([b, r]);
+  L.launchMissiles(g, 0.1);
+  assert.equal(b.missiles, 1);
+  L.launchMissiles(g, L.MISSILE_INTERVAL);
+  assert.equal(b.missiles, 0);
+  L.launchMissiles(g, L.MISSILE_INTERVAL);
+  assert.equal(g.missiles.filter(m => m.from === 'b').length, 2, '弾がなければ撃たない');
+});
+
+test('ミサイル (直進): 撃った時の目標の位置へまっすぐ速く飛ぶ (MISSILE_STRAIGHT_SPEED)。目標がよければ外れて燃え尽きる', () => {
+  assert.equal(L.MISSILE_STRAIGHT_SPEED, L.MISSILE_SPEED * 1.5);
+  const b = fleet({id: 'b', x: 0, y: 0, missileMode: 'straight'});
+  const r = fleet({id: 'r', team: 'red', x: 400, y: 0});
+  const g = game([b, r]);
+  L.launchMissiles(g, 0.1);
+  const m = g.missiles.find(x => x.from === 'b');
+  assert.equal(m.guided, false);
+  r.y = 300; // 目標がよける
+  const dmg = new Map();
+  L.moveMissiles(g, 0.5, dmg);
+  assert.ok(Math.abs(m.y) < 1e-9 && Math.abs(m.x - L.MISSILE_STRAIGHT_SPEED * 0.5) < 1e-9, '曲がらずにまっすぐ');
+  for(let i = 0; i < 100 && g.missiles.includes(m); i++) L.moveMissiles(g, 0.1, dmg);
+  assert.ok(!g.missiles.includes(m), '燃え尽きる');
+  assert.equal(dmg.get(r), undefined, '当たらない');
+});
+
+test('ミサイル (直進): 飛ぶ道の上 (命中の距離の中) に来た敵艦隊に当たる。狙った目標でなくても当たる', () => {
+  const b = fleet({id: 'b', x: 0, y: 0, missileMode: 'straight'});
+  const r = fleet({id: 'r', team: 'red', x: 400, y: 0});
+  const other = fleet({id: 'o', team: 'red', x: 200, y: 5});
+  const g = game([b, r, other]);
+  g.missiles.push({id: 9, team: 'blue', from: 'b', targetId: 'r', x: 0, y: 0, life: 5, power: 1000, guided: false, heading: 0});
+  const dmg = new Map();
+  for(let i = 0; i < 30 && g.missiles.length; i++) L.moveMissiles(g, 1 / 30, dmg);
+  assert.equal(g.missiles.length, 0);
+  assert.ok(Math.abs(dmg.get(other) - 1000 * L.mitigation(other.params)) < 1e-9, '途中の敵に当たる');
+  assert.equal(dmg.get(r), undefined);
+});
+
+test('迎撃: 誘導のミサイルだけを撃ち落とす (直進のミサイルは迎撃しない。よけるもの)', () => {
+  const r = fleet({id: 'r', team: 'red', x: 0, y: 0});
+  const g = game([r]);
+  g.missiles.push({id: 1, team: 'blue', from: 'b', targetId: 'r', x: 50, y: 0, life: 5, power: 1, guided: false, heading: Math.PI});
+  L.interceptMissiles(g, 0.1, seq(0));
+  assert.equal(g.missiles.length, 1, '直進は撃たない');
+  g.missiles.push({id: 2, team: 'blue', from: 'b', targetId: 'r', x: 60, y: 0, life: 5, power: 1});
+  L.interceptMissiles(g, L.INTERCEPT_INTERVAL, seq(0));
+  assert.deepEqual(g.missiles.map(m => m.id), [1], '誘導は撃ち落とす');
+});
+
+// 直進ミサイルの場面: 赤のミサイルが (0, 0) から東 (向き 0) へ飛ぶ
+const straight = over => Object.assign({id: 1, team: 'red', from: 'r', targetId: 'b', x: 0, y: 0, life: 5, power: 1, guided: false, heading: 0}, over);
+
+test('よける (AI): 敵の直進ミサイルが DODGE_LOOKAHEAD 秒以内に当たる距離を通るなら、ミサイルの道から離れる向きへ横にずれる', () => {
+  assert.equal(L.DODGE_LOOKAHEAD, 2);
+  const b = fleet({id: 'b', x: 300, y: 10}); // ミサイルの道の少し南 (y が大きい側)
+  const o = L.dodgeOrder(b, [straight()]);
+  assert.equal(o.type, 'course');
+  assert.ok(Math.abs(o.angle - Math.PI / 2) < 1e-9, '南へ (道から離れる向き)');
+  const n = fleet({id: 'n', x: 300, y: -10});
+  assert.ok(Math.abs(L.dodgeOrder(n, [straight()]).angle + Math.PI / 2) < 1e-9, '北側にいれば北へ');
+});
+
+test('よける (AI): 誘導・味方・遠ざかる・遠く (索敵の外や DODGE_LOOKAHEAD より先)・道から離れたミサイルはよけない', () => {
+  const b = fleet({id: 'b', x: 300, y: 0});
+  assert.equal(L.dodgeOrder(b, [straight({guided: undefined})]), null, '誘導');
+  assert.equal(L.dodgeOrder(b, [straight({team: 'blue'})]), null, '味方');
+  assert.equal(L.dodgeOrder(b, [straight({heading: Math.PI})]), null, '遠ざかる');
+  assert.equal(L.dodgeOrder(fleet({id: 'b', x: L.MISSILE_STRAIGHT_SPEED * 2.5, y: 0}), [straight()]), null, '2 秒より先');
+  assert.equal(L.dodgeOrder(fleet({id: 'b', x: 300, y: 200}), [straight()]), null, '道から離れている');
+  assert.equal(L.dodgeOrder(fleet({id: 'b', x: 300, y: 0}), [straight({x: -L.SENSOR_RANGE - 10})]), null, '索敵の外');
+});
+
+test('よける (AI): 試合の中で、AI の艦隊は直進ミサイルをよける (プレイヤーの艦隊は自動ではよけない)', () => {
+  const run = isPlayer => {
+    const b = fleet({id: 'b', x: 300, y: 0, isPlayer, order: null, ai: {nextThink: 99}});
+    const r = fleet({id: 'r', team: 'red', x: 0, y: -2000, weapons: {laser: false, torpid: false}, ai: {nextThink: 99}});
+    const g = Object.assign(game([b, r]), {mode: 'annihilation'});
+    g.missiles.push(straight({power: 1000}));
+    for(let i = 0; i < 60; i++) L.step(g, 1 / 30, seq(0.5));
+    return b.ships;
+  };
+  assert.equal(run(false), L.INITIAL_SHIPS, 'AI はよけて無傷');
+  assert.ok(run(true) < L.INITIAL_SHIPS, 'プレイヤーは当たる');
 });
 
 test('迎撃: 迎撃範囲の外のミサイルは撃たない', () => {

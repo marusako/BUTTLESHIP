@@ -25,6 +25,11 @@
   const MISSILE_LIFE = 6;        // ミサイルが燃え尽きるまでの時間 (秒)
   const MISSILE_HIT_RADIUS = 20; // この距離まで近づいたら命中
   const MISSILE_COEF = 0.002;    // ミサイル 1 発の火力係数
+  const MISSILE_AMMO = 30;       // 1 艦隊が出撃時に持つミサイルの数 (原作どおり弾数に限りがある。第 5 段階)
+  const MISSILE_STRAIGHT_SPEED = MISSILE_SPEED * 1.5; // 直進モードのミサイルの速さ (誘導しないぶん速い。よけられる)
+  const DODGE_LOOKAHEAD = 2;     // AI は、この秒数以内に当たる距離を通る敵の直進ミサイルをよける
+  const DODGE_MARGIN = 30;       // 命中の距離にこれを足した距離より道に近ければ「当たる」とみなす
+  const DODGE_TIME = 0.5;        // よけ始めたら、この秒数は横へ進んでから考え直す
   const INTERCEPT_RANGE = 150;   // 迎撃範囲
   const INTERCEPT_INTERVAL = 0.5; // 迎撃を試みる間隔 (秒)
   const INTERCEPT_CHANCE = 0.35; // 迎撃の成功率
@@ -257,6 +262,24 @@
     return {type: 'move', x: slot.x, y: slot.y};
   }
 
+  // よける (AI の反射。第 5 段階): 索敵範囲の中の敵の直進ミサイルが DODGE_LOOKAHEAD 秒以内に当たる距離を通るなら、
+  // ミサイルの道から離れる向き (真横) へ進む命令を返す。いちばん早く来るものをよける。なければ null
+  function dodgeOrder(f, missiles){
+    let best = null;
+    for(const m of missiles){
+      if(m.guided !== false || m.team === f.team || dist(f, m) > SENSOR_RANGE) continue;
+      const ux = Math.cos(m.heading), uy = Math.sin(m.heading);
+      const dx = f.x - m.x, dy = f.y - m.y;
+      const along = dx * ux + dy * uy;
+      const time = along / MISSILE_STRAIGHT_SPEED;
+      if(along <= 0 || time > DODGE_LOOKAHEAD) continue;
+      const cross = ux * dy - uy * dx; // 道からの横のずれ (正なら道の右側)
+      if(Math.abs(cross) > MISSILE_HIT_RADIUS + DODGE_MARGIN) continue;
+      if(!best || time < best.time) best = {time, angle: m.heading + (cross >= 0 ? 1 : -1) * Math.PI / 2};
+    }
+    return best ? {type: 'course', angle: best.angle, dodge: true} : null;
+  }
+
   // mode: 'annihilation' (全滅戦) / 'flagship' (大将戦)
   function createGame(playerParams, rng, mode){
     const fleets = [];
@@ -279,6 +302,8 @@
           flagship: false,
           leader: false,
           missileCooldown: 0,
+          missiles: MISSILE_AMMO,  // 残りのミサイル
+          missileMode: 'guided',   // 'guided' (誘導: 追尾し、相手は迎撃が必要) / 'straight' (直進: 速いがよけられる)
           throttle: MAX_THROTTLE,
           weapons: {laser: true, torpid: true},
           interceptCooldown: 0,
@@ -313,21 +338,24 @@
     for(const f of g.fleets){
       if(!alive(f)) continue;
       f.missileCooldown = Math.max(0, f.missileCooldown - dt);
-      if(f.missileCooldown > 0 || !f.weapons.torpid) continue;
+      if(f.missileCooldown > 0 || !f.weapons.torpid || !(f.missiles > 0)) continue;
       let target = null;
       for(const e of visible[f.team]){
         if(dist(f, e) <= MISSILE_RANGE && (!target || dist(f, e) < dist(f, target))) target = e;
       }
       if(!target) continue;
+      const guided = f.missileMode !== 'straight';
       g.missiles.push({
         id: g.nextMissileId++, team: f.team, from: f.id, targetId: target.id,
-        x: f.x, y: f.y, life: MISSILE_LIFE, power: missilePower(f)
+        x: f.x, y: f.y, life: MISSILE_LIFE, power: missilePower(f),
+        guided, heading: Math.atan2(target.y - f.y, target.x - f.x) // 直進は撃った時の目標の位置へ
       });
+      f.missiles--;
       f.missileCooldown = MISSILE_INTERVAL;
     }
   }
 
-  // 迎撃範囲内の最も近い敵ミサイルを撃ち落とそうとする。試したら成否にかかわらず待ち時間に入る
+  // 迎撃範囲内の最も近い敵の誘導ミサイルを撃ち落とそうとする (直進のミサイルは迎撃しない。よけるもの)。試したら成否にかかわらず待ち時間に入る
   function interceptMissiles(g, dt, rng){
     for(const f of g.fleets){
       if(!alive(f)) continue;
@@ -335,6 +363,7 @@
       if(f.interceptCooldown > 0) continue;
       let target = null;
       for(const m of g.missiles){
+        if(m.guided === false) continue;
         if(m.team !== f.team && dist(f, m) <= INTERCEPT_RANGE && (!target || dist(f, m) < dist(f, target))) target = m;
       }
       if(!target) continue;
@@ -343,10 +372,37 @@
     }
   }
 
-  // ミサイルを目標の現在位置へ進める。命中したダメージは damage (Map: 艦隊 → ダメージ) に足す
+  // 点 c と線分 a→b の最短距離 (1 ステップで進む間に艦隊をかすめたかの判定に使う)
+  function segmentDistance(a, b, c){
+    const vx = b.x - a.x, vy = b.y - a.y;
+    const len2 = vx * vx + vy * vy;
+    const k = len2 > 0 ? clamp(((c.x - a.x) * vx + (c.y - a.y) * vy) / len2, 0, 1) : 0;
+    return Math.hypot(a.x + vx * k - c.x, a.y + vy * k - c.y);
+  }
+
+  // ミサイルを進める。誘導は目標の現在位置へ追尾し、直進は撃った向きにまっすぐ飛んで、道の上に来た敵艦隊 (最も手前) に当たる。
+  // 命中したダメージは damage (Map: 艦隊 → ダメージ) に足す
   function moveMissiles(g, dt, damage){
     const byId = new Map(g.fleets.map(f => [f.id, f]));
     g.missiles = g.missiles.filter(m => {
+      if(m.guided === false){
+        const from = {x: m.x, y: m.y};
+        const step = MISSILE_STRAIGHT_SPEED * dt;
+        const to = {x: m.x + Math.cos(m.heading) * step, y: m.y + Math.sin(m.heading) * step};
+        let hit = null;
+        for(const e of g.fleets){
+          if(e.team === m.team || !alive(e) || segmentDistance(from, to, e) > MISSILE_HIT_RADIUS) continue;
+          if(!hit || dist(from, e) < dist(from, hit)) hit = e;
+        }
+        if(hit){
+          damage.set(hit, (damage.get(hit) || 0) + m.power * mitigation(hit.params));
+          return false;
+        }
+        m.x = to.x;
+        m.y = to.y;
+        m.life -= dt;
+        return m.life > 0;
+      }
       const t = byId.get(m.targetId);
       if(!t || !alive(t)) return false;
       m.life -= dt;
@@ -417,6 +473,14 @@
       f.order = aiDecide(f, g.fleets, g.intel[f.team], rng);
       f.ai.nextThink = g.time + AI_THINK_INTERVAL;
     }
+    // AI は直進ミサイルを毎ステップ見て、当たりそうならよける (プレイヤーは自分でよける)
+    for(const f of living){
+      if(f.isPlayer) continue;
+      const d = dodgeOrder(f, g.missiles);
+      if(!d) continue;
+      f.order = d;
+      f.ai.nextThink = g.time + DODGE_TIME;
+    }
 
     for(const f of living) moveFleet(f, dt, g.intel[f.team]);
     refreshIntel();
@@ -442,8 +506,8 @@
   }
 
   const api = {
-    WORLD, INITIAL_SHIPS, MAX_THROTTLE, PARAM_TOTAL, PARAM_MIN, SENSOR_RANGE, BEAM_RANGE, GHOST_CLEAR_RANGE, FIREPOWER_FLOOR,
-    MISSILE_RANGE, MISSILE_INTERVAL, INTERCEPT_RANGE, INTERCEPT_INTERVAL,
+    WORLD, INITIAL_SHIPS, MAX_THROTTLE, PARAM_TOTAL, PARAM_MIN, MISSILE_AMMO, MISSILE_STRAIGHT_SPEED, segmentDistance, DODGE_LOOKAHEAD, DODGE_MARGIN, DODGE_TIME, dodgeOrder, SENSOR_RANGE, BEAM_RANGE, GHOST_CLEAR_RANGE, FIREPOWER_FLOOR,
+    MISSILE_RANGE, MISSILE_INTERVAL, MISSILE_SPEED, MISSILE_LIFE, MISSILE_HIT_RADIUS, INTERCEPT_RANGE, INTERCEPT_INTERVAL,
     AI_PRESETS, validateParams, updateLeaders, maxSpeed, mitigation, beamDps, missileDamage, visibleEnemies, updateIntel,
     chooseTarget, moveFleet, checkOutcome, aiDecide, createGame, step,
     launchMissiles, interceptMissiles, moveMissiles,
