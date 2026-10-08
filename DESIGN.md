@@ -399,6 +399,8 @@
   - ミサイル (第 5 段階 ②): 1 艦隊 30 発 (`MISSILE_AMMO`。撃つたびに 1 減り、0 なら撃たない)。誘導 / 直進を COMMAND の GUIDED / STRAIGHT で切り替える (`missileMode`。初めは誘導、AI はいつも誘導)。誘導は今までどおり目標を追尾し、相手の迎撃 (35%) で落とされる。直進は撃った時の目標の位置へまっすぐ 1.5 倍の速さ (`MISSILE_STRAIGHT_SPEED` 330) で飛び、道の上 (命中の距離 20 の中) に来た最も手前の敵艦隊に当たる。迎撃されない。STATUS の MISSILES に残りと誘導 / 直進を出す
   - 分艦隊 (第 5 段階 ④。原作どおり): COMMAND の SPLIT (キー F) で、操作中の艦隊から隻数 (1000 / 3000 / 5000 / 半分 / 数字) を切り出す (`splitFleet`。1 隻以上、元に 1 隻以上残す整数。自分の艦隊は元と分艦隊で合計 20 まで (`SUBFLEET_MAX`))。分艦隊は元の艦隊の右 40 に出て、性能・速さの段階・武器の設定は同じ、ミサイルは隻数の割合で分ける (切り捨て)。名前は「味方第1艦隊・分艦隊N」。旗艦・隊長は元の艦隊に残る。操作できるのは 1 つずつで、自分の艦隊をクリックするか Tab で切り替える (操作していない分艦隊は最後の命令を続ける)。MERGE (キー G) を押して合流先の自分の艦隊をクリックすると、そこへ向かい (`merge` 命令)、40 以内 (`MERGE_RANGE`) で 1 つになる (`mergeFleets`。隻数とミサイルを足し、旗艦・隊長の側に残る。もう片方は `merged`)。操作中の艦隊が全滅・合流したら、残っている自分の艦隊へ操作が移る。自分の艦隊はすべてプレイヤーの艦隊 (`isPlayer`) で、AI の護衛の隊列と隊形の速さには数えない。結果画面は元の第 1 艦隊で判定する
   - AI の差し替え (第 6 段階): `createGame` の `options.controllers` = {blue, red} を渡すと、そのチームの AI の艦隊 (偵察の分艦隊を除く) は、その関数 (f, fleets, intel, rng) → 命令 で考える (学習型 AI のため)。渡さないチームは今の AI (旧型 AI)
+  - AI の選択 (第 6 段階 5): 出撃準備の「味方の AI」「敵の AI」で、それぞれ 旧型 AI / 学習型 AI (第 N 世代) を選ぶ (初めは旧型 AI。選んだものはブラウザに覚える (`localStorage` の `sagittarius.classic.ai`。使えなければ覚えないだけ))。学習型 AI は `classic/brain.js` と `classic/learned-brain.js` (`npm run classic-train` の終わりか `npm run classic-export-brain` で書き出す。手で書き換えない) を読み、`SagittariusBrain.controller` を `options.controllers` に渡す。脳が読めなければ旧型 AI だけになる。偵察の分艦隊はどちらでも今のルールで動く
+  - 学習型 AI (第 6 段階): 脳は `classic/brain.js` (中間層 24 の tanh。隊長用と護衛用。入力 50・出力 7 (移動の向き x・y、攻撃の相手 (なし / 近い見えている敵 3 つ)、ミサイルの直進)。赤は盤面を 180° 回して見る)。学習は `npm run classic-train -- --minutes N` (大将戦だけ、300 秒で時間切れ、1 世代 48 個体 × 6 試合、相手は旧型 AI 75%・殿堂入り 25%。途中経過は `training/classic/`)、評価は `npm run classic-evaluate` (旧型 AI と 200 試合)、出発点は `npm run classic-imitate` (旧型 AI の真似。`training/classic/imitation.json`)。観戦は開発用の `classic/watch.html` (配らない)
   - 偵察 (AI。第 5 段階 ⑤): 出撃してすぐ (最初の `step`)、各チームの AI の護衛 (プレイヤー・隊長・偵察でない) のうち左右の端の 2 艦隊が、500 隻ずつ (`SCOUT_SHIPS`) 偵察の分艦隊を切り出す (`launchScouts`。「味方第2艦隊・偵察N」。沈んでも出し直さない)。偵察の分艦隊 (`scout`) は、近すぎる敵 (360 以内。`SCOUT_SAFE_DISTANCE`) から離れ、見えている敵 (敵旗艦を優先) を 400 (`SCOUT_WATCH_DISTANCE`) の距離で見張り、見失えば最終確認位置へ、手がかりがなければ敵陣側の自分の担当 (左右の半分) を探して回る (`scoutDecide`)。自分からは攻撃に行かない。護衛の隊列と隊形の速さには数えない。今は偵察にだけ使い、ユーザーが指示したら自由に使えるようにして学習型 AI に覚えさせる
   - 敵のズル (第 5 段階 ③。原作のコンピ研役): 出撃準備の「敵がズルをする」(初めはオフ) を選ぶと (`createGame` の `options.enemyCheat`)、赤は最初から全部見え (索敵モードのオフ)、30 秒ごと (`CHEAT_WARP_INTERVAL`) に赤の一番艦艇の多い護衛が青の隊長の後ろ 200 (`CHEAT_WARP_DISTANCE`) へワープして隊長を攻撃する (15 秒は考え直さない。`enemyCheatWarp`、記録は `g.enemyWarps`)。ログに「〜がワープしてきた ── ズルだ!」。プレイヤーの隠しコマンド scan・warp はそのまま
   - AI の隊形 (第 5 段階): 護衛の位置を隊長より前に (左前・右前・左・右。`ESCORT_SLOTS` [[200, ∓170], [20, ∓280]]。前は左・右・左後ろ・右後ろ)。AI の隊長は、一番遅い生きている護衛の最大の速さ × 0.85 (`FORMATION_SPEED_RATIO`) より速く進まない (`formationSpeedCap`。隊形が伸びないように。プレイヤーは制限なし)
@@ -445,7 +447,7 @@
 
 ## 配布 (バージョン別ダウンロード)
 - GitHub の Releases に、バージョンごとの zip を置く。リポジトリは Private なので、ダウンロードできるのはアクセス権のある人だけ
-- zip の中身は `the-day-of-sagittarius-vX.Y/` フォルダに、その版にあるゲームのファイルだけ (`index.html`・`logic.js`・`rule-ai.js`・`brain.js`・`learned-brain.js`・`settings.js`・`music.js`・`sound.js`・`classic/`。クラシックのテストは除く)。解凍して `index.html` を開けば、サーバーなしで遊べる (ES Modules を使っていないため `file://` でも動く)
+- zip の中身は `the-day-of-sagittarius-vX.Y/` フォルダに、その版にあるゲームのファイルだけ (`index.html`・`logic.js`・`rule-ai.js`・`brain.js`・`learned-brain.js`・`settings.js`・`music.js`・`sound.js`・`classic/`。クラシックのテストと開発用の観戦画面 `classic/watch.html` は除く。exe も同じ)。解凍して `index.html` を開けば、サーバーなしで遊べる (ES Modules を使っていないため `file://` でも動く)
 - 変更をコミットしたら毎回、パッチ番号を 1 つ上げたタグ (`v2.3.2` → `v2.3.3`) を付けて push する (ユーザーの指示)。マイナー (`vX.Y`) を上げるのはユーザーが決める
 - 手順: 注釈付きタグ `vX.Y` (または `vX.Y.Z`) を付けて push するだけ。GitHub Actions (`.github/workflows/release.yml`) が `node scripts/package.js <タグ>` で zip を作り、そのタグのリリース (説明はタグのメッセージ) を作って zip を添付する
   - すでにあるタグは、Actions の画面の「Run workflow」でタグ名を入れて実行する (リリースがあれば zip を差し替える)
@@ -598,6 +600,7 @@
 - **`MISSILE_COEF` は 0.002 (現在は廃止)**: 0.003 だと全滅戦の試合時間の中央値が約 45 秒に縮んだため、第 1 段階 (約 50 秒) に近い 0.002 にした
 
 ## 変更履歴
+- クラシック (第 6 段階 5): 出撃準備で味方の AI と敵の AI を 旧型 AI / 学習型 AI から選べる (初めは旧型 AI)。学習型 AI の脳 `classic/learned-brain.js` (第 752 世代。旧型 AI の真似から 60 分学習。旧型 AI に 200 試合で 86.5% (青 85%・赤 88%)、時間切れ 0)。開発用の `classic/watch.html` を zip と exe に入れないようにした
 - クラシック (第 6 段階 4): 観戦画面 `classic/watch.html`。模倣学習 (旧型 AI の真似) は攻撃の一致 隊長 99%・護衛 98%、旧型 AI に 40 試合で 15 勝
 - クラシック (第 6 段階 3): 学習と評価のスクリプト (`classic-evolve.js`・`classic-match-worker.js`・`classic-train.js`・`classic-evaluate.js`・`classic-imitate.js`) と npm のコマンド。`pool.js` にワーカーを指定できるようにした
 - クラシック (第 6 段階 2): 学習型 AI の脳 `classic/brain.js` を追加 (まだゲームでは使わない)
@@ -692,6 +695,7 @@
 ### バージョン
 | タグ | 内容 |
 |---|---|
+| `v3.7.0` | クラシック: 味方の AI と敵の AI を 旧型 AI / 学習型 AI (第 752 世代) から選べる |
 | `v3.6.0` | クラシック: AI の偵察用の分艦隊 |
 | `v3.5.0` | Windows 用 exe (Electron) をリリースに添付 |
 | `v3.4.0` | クラシック: 分艦隊 (SPLIT・MERGE・操作の切り替え) |

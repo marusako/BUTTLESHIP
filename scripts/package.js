@@ -9,7 +9,10 @@ const path = require('node:path');
 const ROOT = path.resolve(__dirname, '..');
 // ゲームに必要なファイル (古い版にないものは、その版の zip には入らない)
 const GAME_FILES = ['index.html', 'logic.js', 'rule-ai.js', 'brain.js', 'learned-brain.js', 'settings.js', 'music.js', 'sound.js', 'classic'];
-const EXCLUDE = [':(exclude)classic/*.test.js']; // クラシックのテストは遊ぶのに要らない
+// 開発用のファイル (遊ぶのに要らない): クラシックのテストと観戦画面
+const DEV_ONLY = ['classic/watch.html'];
+const EXCLUDE = [':(exclude)classic/*.test.js', ...DEV_ONLY.map(f => `:(exclude)${f}`)];
+const isDevOnly = rel => /\.test\.js$/.test(rel) || DEV_ONLY.includes(rel.replace(/\\/g, '/'));
 const NAME = 'the-day-of-sagittarius';
 
 const zipName = tag => `${NAME}-${tag}.zip`;
@@ -48,4 +51,4 @@ if(require.main === module){
   }
 }
 
-module.exports = {GAME_FILES, zipName, isVersionTag, pickGameFiles, buildZip, versionTags};
+module.exports = {GAME_FILES, EXCLUDE, isDevOnly, zipName, isVersionTag, pickGameFiles, buildZip, versionTags};

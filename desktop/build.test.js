@@ -21,6 +21,7 @@ test('exe のアプリの中身: ゲームのファイルを game/ に写し (�
   fs.mkdirSync(path.join(src, 'classic'));
   fs.writeFileSync(path.join(src, 'classic', 'index.html'), '<title>c</title>');
   fs.writeFileSync(path.join(src, 'classic', 'logic.test.js'), '// 配らない');
+  fs.writeFileSync(path.join(src, 'classic', 'watch.html'), '// 開発用');
   fs.writeFileSync(path.join(out, 'old.txt'), '前の組み立ての残り');
 
   D.buildApp(src, out, '3.0.8');
@@ -30,6 +31,7 @@ test('exe のアプリの中身: ゲームのファイルを game/ に写し (�
   assert.ok(fs.existsSync(path.join(out, 'game', 'classic', 'index.html')));
   assert.ok(!fs.existsSync(path.join(out, 'game', 'logic.test.js')), 'GAME_FILES にないものは入れない');
   assert.ok(!fs.existsSync(path.join(out, 'game', 'classic', 'logic.test.js')), 'クラシックのテストは入れない');
+  assert.ok(!fs.existsSync(path.join(out, 'game', 'classic', 'watch.html')), '開発用の観戦画面は入れない');
   assert.ok(!fs.existsSync(path.join(out, 'old.txt')), '前の組み立ては消してから作る');
   assert.equal(fs.readFileSync(path.join(out, 'main.js'), 'utf8'), fs.readFileSync(path.join(__dirname, 'main.js'), 'utf8'));
   const pkg = JSON.parse(fs.readFileSync(path.join(out, 'package.json'), 'utf8'));

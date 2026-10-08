@@ -49,6 +49,14 @@ test('zip に入れるファイル: ゲームに必要なものだけを、そ�
   assert.deepEqual(P.pickGameFiles(['learned-brain.js', 'brain.js', 'brain.test.js', 'rule-ai.js', 'logic.js', 'index.html']), ['index.html', 'logic.js', 'rule-ai.js', 'brain.js', 'learned-brain.js'], '学習型 AI (第 3.5 段階)');
 });
 
+test('開発用のファイル: テストとクラシックの観戦画面は配らない', () => {
+  assert.equal(P.isDevOnly('classic/watch.html'), true);
+  assert.equal(P.isDevOnly('classic/logic.test.js'), true);
+  assert.equal(P.isDevOnly('classic/index.html'), false);
+  assert.equal(P.isDevOnly('classic/learned-brain.js'), false);
+  assert.ok(P.EXCLUDE.includes(':(exclude)classic/watch.html'));
+});
+
 test('存在しないタグはエラーになる', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sagittarius-'));
   assert.throws(() => P.buildZip('v99.0', dir));

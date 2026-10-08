@@ -82,6 +82,10 @@
   .modes{ display: flex; gap: 8px; justify-content: center; margin: 0 0 18px; }
   .modes label{ border: 1px solid var(--line); padding: 8px 14px; cursor: pointer; text-align: left; width: 50%; }
   .modes label:has(input:checked){ border-color: var(--accent); background: rgba(255, 211, 79, 0.08); }
+  .aiPick{ display: flex; gap: 8px; justify-content: center; margin: 0 0 18px; }
+  .aiPick label{ border: 1px solid var(--line); padding: 8px 14px; width: 50%; text-align: left; }
+  .aiPick select{ display: block; width: 100%; margin-top: 6px; background: transparent; color: inherit; border: 1px solid var(--line); padding: 4px; font: inherit; }
+  .aiPick option{ background: #000; }
   .modes input{ margin-right: 6px; }
   .modes small{ display: block; color: var(--muted); font-size: 12px; margin-top: 2px; }
   .section{ color: var(--muted); font-size: 13px; text-align: left; margin: 14px 0 6px; }
@@ -190,6 +194,11 @@
     <div class="modes">
       <label><input type="checkbox" id="enemyCheat">敵がズルをする<small>原作のコンピ研のように、敵は最初から全部見え、30 秒ごとに 1 艦隊があなたの後ろへワープしてくる</small></label>
     </div>
+    <div class="section">AI</div>
+    <div class="aiPick">
+      <label>味方の AI<select id="allyAi"></select></label>
+      <label>敵の AI<select id="enemyAi"></select></label>
+    </div>
     <div class="section">艦隊パラメータ配分</div>
     <div class="presets">
       <button data-preset="34,33,33">均等</button>
@@ -231,6 +240,8 @@
 </div>
 
 <script src="logic.js"></script>
+<script src="brain.js"></script>
+<script src="learned-brain.js"></script>
 <script>
 'use strict';
 const L = window.SagittariusLogic;
@@ -346,8 +357,35 @@ for(const r of document.querySelectorAll('input[name="mode"]')){
   r.addEventListener('change', () => { ruleMode = r.value; });
 }
 
+// AI の選択 (第 6 段階): 旧型 AI (人が書いたルール) か学習型 AI (classic/learned-brain.js)。脳が読めなければ旧型だけ
+const AI_KEY = 'sagittarius.classic.ai';
+const learned = (() => {
+  try{
+    const data = window.SagittariusLearnedBrain;
+    return data && window.SagittariusBrain ? {generation: data.generation, brains: window.SagittariusBrain.fromPlain(data.brains)} : null;
+  }catch(e){ return null; }
+})();
+function setupAiPicks(){
+  let saved = {};
+  try{ saved = JSON.parse(localStorage.getItem(AI_KEY)) || {}; }catch(e){}
+  for(const [id, team] of [['allyAi', 'blue'], ['enemyAi', 'red']]){
+    const sel = $(id);
+    sel.innerHTML = '<option value="rule">旧型 AI</option>' + (learned ? `<option value="learned">学習型 AI (第 ${learned.generation} 世代)</option>` : '');
+    sel.value = learned && saved[team] === 'learned' ? 'learned' : 'rule';
+    sel.addEventListener('change', () => {
+      try{ localStorage.setItem(AI_KEY, JSON.stringify({blue: $('allyAi').value, red: $('enemyAi').value})); }catch(e){}
+    });
+  }
+}
+setupAiPicks();
+function aiControllers(){
+  if(!learned) return null;
+  const pick = id => ($(id).value === 'learned' ? window.SagittariusBrain.controller(learned.brains) : null);
+  return {blue: pick('allyAi'), red: pick('enemyAi')};
+}
+
 function startBattle(){
-  game = L.createGame(Object.assign({}, playerParams), Math.random, ruleMode, {enemyCheat: $('enemyCheat').checked});
+  game = L.createGame(Object.assign({}, playerParams), Math.random, ruleMode, {enemyCheat: $('enemyCheat').checked, controllers: aiControllers()});
   game.controlId = game.fleets.find(f => f.isPlayer).id;
   mergePick = false;
   closeSplit();
