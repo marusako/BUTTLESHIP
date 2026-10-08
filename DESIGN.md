@@ -27,6 +27,7 @@
 | `classic/` | クラシック (v1.3 からジョブを取り除いたもの。`index.html`・`logic.js`・`logic.test.js`)。開発は中断中 |
 | `scripts/serve.js` | 依存なしの開発用サーバー |
 | `desktop/` | exe 化 (Electron)。`main.js` (アプリの入口。ゲームの `game/index.html` を 1440 × 900 のウィンドウで開く。メニューなし、F11 で全画面、音はクリックなしで鳴る)、`build.js` (アプリの中身を `desktop/build/app/` に組み立てる。外部パッケージなし。テストは `build.test.js`)、`package.json` (Electron と @electron/packager。このリポジトリで唯一の外部パッケージ。`desktop/build/`・`desktop/dist/`・`desktop/node_modules/` は git に含めない) |
+| `classic/brain.js` | クラシックの学習型 AI の脳 (第 6 段階)。隊長用と護衛用の 2 つ。入力 50 (自分・隊長・近い味方 2・近い見えている敵 3・最終確認位置 2。赤は盤面を 180° 回す。敵の性能の配分は使わない)、中間 24、出力 7 (移動・攻撃の相手・ミサイルの直進)。テストは `classic/brain.test.js` |
 | `scripts/classic-sim.js` | クラシックのバランス確認 (AI どうしの試合時間と勝率) |
 | `scripts/package.js` | バージョン別の配布用 zip を `dist/` に作る (`npm run package`) |
 | `scripts/package.test.js` | `scripts/package.js` のテスト |
@@ -592,6 +593,7 @@
 - **`MISSILE_COEF` は 0.002 (現在は廃止)**: 0.003 だと全滅戦の試合時間の中央値が約 45 秒に縮んだため、第 1 段階 (約 50 秒) に近い 0.002 にした
 
 ## 変更履歴
+- クラシック (第 6 段階 2): 学習型 AI の脳 `classic/brain.js` を追加 (まだゲームでは使わない)
 - クラシック (第 6 段階 1): AI を差し替えられるように (`createGame` の `options.controllers`)。ゲームの動きは変わらない
 - クラシック (第 5 段階 ⑤): AI の偵察用の分艦隊 (各チーム 2 つ・500 隻。出撃してすぐ出し、敵を見つけたら距離を保って見張る)。分艦隊の名前を整える正規表現の誤りを直した
 - 版の付け方を変えた (ユーザーの指示): 要素の追加は真ん中の番号、修正は最後の番号を上げる。v3 の版を v3.0.0 から振り直した (v3.0 → v3.0.0、v3.0.3 → v3.1.0、v3.0.4 → v3.2.0、v3.0.5 → v3.2.1、v3.0.6 → v3.3.0、v3.0.7 → v3.4.0、v3.0.8 → v3.5.0。記録だけの v3.0.1・v3.0.2 はなし。古いタグは消した)
