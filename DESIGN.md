@@ -32,6 +32,7 @@
 | `scripts/classic-train.js` | クラシックの学習 (`npm run classic-train -- --minutes 60`)。大将戦、相手は 旧型 AI 75%・殿堂入り 25%。途中経過は `training/classic/`。`--from` で出発点の脳 (模倣学習) から最初から (前の学習は `training/classic/archive/` へ)。終わると `classic/learned-brain.js` を書き直す |
 | `scripts/classic-evaluate.js` | クラシックの学習型 AI 対 旧型 AI の勝率 (`npm run classic-evaluate`。200 試合、担当と処理順を入れ替える) |
 | `scripts/classic-imitate.js` | クラシックの模倣学習 (`npm run classic-imitate`)。旧型 AI どうしの試合のお手本で脳を作り、`training/classic/imitation.json` に保存 |
+| `classic/watch.html` | クラシックの開発用の観戦画面 (第 6 段階。配布しない)。大将戦を霧なしで早送り (初期 ×4、制限 300 秒)。最初は 学習型 AI 対 旧型 AI、決着の 3 秒後に `training/classic/best-brains.js` を読み込み直して青と赤を入れ替える。学習の記録 (`training/classic/log.csv`・`progress.json`) をグラフと表で出す (http で開いたとき) |
 | `scripts/classic-sim.js` | クラシックのバランス確認 (AI どうしの試合時間と勝率) |
 | `scripts/package.js` | バージョン別の配布用 zip を `dist/` に作る (`npm run package`) |
 | `scripts/package.test.js` | `scripts/package.js` のテスト |
@@ -597,6 +598,7 @@
 - **`MISSILE_COEF` は 0.002 (現在は廃止)**: 0.003 だと全滅戦の試合時間の中央値が約 45 秒に縮んだため、第 1 段階 (約 50 秒) に近い 0.002 にした
 
 ## 変更履歴
+- クラシック (第 6 段階 4): 観戦画面 `classic/watch.html`。模倣学習 (旧型 AI の真似) は攻撃の一致 隊長 99%・護衛 98%、旧型 AI に 40 試合で 15 勝
 - クラシック (第 6 段階 3): 学習と評価のスクリプト (`classic-evolve.js`・`classic-match-worker.js`・`classic-train.js`・`classic-evaluate.js`・`classic-imitate.js`) と npm のコマンド。`pool.js` にワーカーを指定できるようにした
 - クラシック (第 6 段階 2): 学習型 AI の脳 `classic/brain.js` を追加 (まだゲームでは使わない)
 - クラシック (第 6 段階 1): AI を差し替えられるように (`createGame` の `options.controllers`)。ゲームの動きは変わらない

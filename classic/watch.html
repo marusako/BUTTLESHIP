@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>Classic AI Watch</title>
+<!-- 開発用 (第 6 段階): クラシックの AI 同士の試合 (大将戦) を霧なしで早送りしながら観戦する。学習の記録も出す。配布しない -->
+<style>
+  :root{ --bg: #03060f; --panel: #0a1428; --line: #2a4a7a; --text: #d8e4ff; --muted: #7f93bb; --blue: #4fa3ff; --red: #ff5a5a; --accent: #ffd34f; }
+  html, body{ margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 14px system-ui, sans-serif; }
+  #app{ position: fixed; inset: 0; display: grid; grid-template-columns: 1fr 360px; }
+  #view{ position: relative; min-width: 0; }
+  canvas{ position: absolute; inset: 0; display: block; }
+  #side{ background: var(--panel); border-left: 1px solid var(--line); padding: 12px; overflow-y: auto; overflow-x: hidden; min-width: 0; }
+  h1{ font-size: 16px; margin: 0 0 10px; color: var(--accent); }
+  label{ display: block; margin: 8px 0 2px; color: var(--muted); font-size: 12px; }
+  select, button{ font: inherit; color: var(--text); background: #0f2446; border: 1px solid var(--line); padding: 4px 8px; }
+  button.on{ border-color: var(--accent); color: var(--accent); }
+  .row{ display: flex; gap: 4px; flex-wrap: wrap; }
+  .stat{ margin-top: 12px; line-height: 1.7; font-variant-numeric: tabular-nums; }
+  .fl{ display: flex; justify-content: space-between; font-size: 13px; }
+  .blue{ color: var(--blue); } .red{ color: var(--red); } .dead{ color: var(--muted); text-decoration: line-through; }
+  .hint{ color: var(--muted); font-size: 12px; margin-top: 12px; line-height: 1.6; }
+  h2{ font-size: 14px; margin: 16px 0 6px; color: var(--accent); border-top: 1px solid var(--line); padding-top: 10px; }
+  #chart{ position: static; width: 100%; height: 150px; background: #060c1a; border: 1px solid var(--line); }
+  .legend{ font-size: 11px; color: var(--muted); display: flex; gap: 10px; flex-wrap: wrap; margin: 4px 0; }
+  .legend i{ display: inline-block; width: 10px; height: 3px; margin-right: 4px; vertical-align: middle; }
+  table{ width: 100%; border-collapse: collapse; font-size: 11px; font-variant-numeric: tabular-nums; }
+  th, td{ text-align: right; padding: 1px 3px; }
+  th{ color: var(--muted); font-weight: normal; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="view"><canvas id="c"></canvas></div>
+  <div id="side">
+    <h1>Classic AI Watch (開発用)</h1>
+    <label>青チームの AI</label><select id="blueAi"></select>
+    <label>赤チームの AI</label><select id="redAi"></select>
+    <label>速さ</label><div class="row" id="speeds"></div>
+    <label>試合</label><div class="row"><button id="restart">新しい試合</button><button id="pause">一時停止</button><button id="autoNext" class="on">自動で次の試合</button></div>
+    <label>表示</label><div class="row"><button id="showSensor" class="on">索敵範囲</button><button id="showOrders" class="on">命令</button></div>
+    <div class="stat" id="stat"></div>
+    <div class="hint">ホイール: 拡大縮小 / ドラッグ: 視点移動 / ダブルクリック: 全体表示<br>大将戦、制限時間 300 秒 (学習と同じ)。最初は 学習型 AI 対 旧型 AI。「自動で次の試合」がオンなら、決着の 3 秒後に最新の脳を読み込み直し、青と赤の AI を入れ替えて次の試合を始める。◎ は旗艦、小さな点線の丸は偵察の分艦隊</div>
+    <h2>学習の記録</h2>
+    <div id="progress" class="stat" style="margin-top: 0"></div>
+    <div id="logSummary" class="stat" style="margin-top: 0"></div>
+    <canvas id="chart"></canvas>
+    <div class="legend"><span><i style="background:#4fa3ff"></i>成績の平均</span><span><i style="background:#9fb4dc"></i>成績の最高</span><span><i style="background:#ff5a5a"></i>時間切れの割合</span><span><i style="background:#ffd34f"></i>旧型 AI への勝率</span></div>
+    <table id="logTable"></table>
+    <div class="hint">成績: 勝ち 1 / 負け 0 / 時間切れ -0.25 (+ 残った隻数の差など)。旧型 AI への勝率は 10 世代ごとに 20 試合で測る (ぶれが大きい)。30 秒ごとと、次の試合を始めるときに読み込み直す</div>
+    <div class="hint" id="noBrain">学習型 AI の脳がまだありません (npm run classic-train で作られます)</div>
+  </div>
+</div>
+<script src="logic.js"></script>
+<script src="brain.js"></script>
+<!-- 学習の途中経過 (npm run classic-train が書き出す)。なければ「学習型 AI」は選べない -->
+<script src="../training/classic/best-brains.js" onerror="window.SAGITTARIUS_CLASSIC_TRAINING_BEST = null"></script>
+<script>
+'use strict';
+const L = window.SagittariusLogic, Br = window.SagittariusBrain;
+let trained = window.SAGITTARIUS_CLASSIC_TRAINING_BEST || null;
+const canvas = document.getElementById('c'), ctx = canvas.getContext('2d');
+const $ = id => document.getElementById(id);
+const COLORS = {blue: '#4fa3ff', red: '#ff5a5a', accent: '#ffd34f'};
+const DT = 1 / 60;
+const MAX_TIME = 300;     // 制限時間 (秒)。学習の試合と同じ。過ぎたら時間切れ
+const NEXT_DELAY = 3000;  // 試合が終わってから次の試合を始めるまで (ミリ秒)
+const DIR = '../training/classic/';
+
+// mulberry32 (種が近くてもばらつく乱数)
+function mulberry32(seed){ let a = seed | 0; return () => { a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+
+function renderAiOptions(){
+  const AIS = {};
+  if(trained) AIS.trained = `学習型 AI (第 ${trained.generation} 世代)`;
+  AIS.rule = '旧型 AI';
+  AIS.random = 'ランダムな脳 (学習前)';
+  for(const id of ['blueAi', 'redAi']){
+    const prev = $(id).value;
+    $(id).replaceChildren(...Object.entries(AIS).map(([k, v]) => { const o = document.createElement('option'); o.value = k; o.textContent = v; return o; }));
+    $(id).value = prev && prev in AIS ? prev : (trained && id === 'blueAi' ? 'trained' : 'rule');
+  }
+  $('noBrain').style.display = trained ? 'none' : '';
+}
+for(const id of ['blueAi', 'redAi']) $(id).onchange = restart;
+
+// 学習の途中経過 (training/classic/best-brains.js) を読み込み直す
+function reloadBrains(){
+  return new Promise(resolve => {
+    const tag = document.createElement('script');
+    tag.src = `${DIR}best-brains.js?t=${Date.now()}`;
+    tag.onload = tag.onerror = () => {
+      tag.remove();
+      trained = window.SAGITTARIUS_CLASSIC_TRAINING_BEST || trained;
+      renderAiOptions();
+      resolve();
+    };
+    document.head.appendChild(tag);
+  });
+}
+
+// 学習の記録 (training/classic/log.csv)。http で開いたときだけ読める
+let logRows = [];
+async function reloadLog(){
+  try{
+    const res = await fetch(`${DIR}log.csv?t=${Date.now()}`);
+    if(!res.ok) throw new Error(res.status);
+    const lines = (await res.text()).trim().split('\n');
+    const head = lines.shift().split(',');
+    logRows = lines.map(l => { const v = l.split(','); const o = {}; head.forEach((h, i) => { o[h] = v[i] === '' || v[i] === undefined ? null : Number(v[i]); }); return o; });
+  }catch(e){
+    logRows = null;
+  }
+  renderLog();
+}
+function renderLog(){
+  const pct = v => (v === null || v === undefined ? '-' : `${Math.round(v * 100)}%`);
+  if(!logRows){ $('logSummary').textContent = '学習の記録を読めません (npm run serve で開くと読めます)'; return; }
+  if(!logRows.length){ $('logSummary').textContent = '学習の記録はまだありません'; return; }
+  const last = logRows[logRows.length - 1];
+  const evals = logRows.filter(r => r.vsRuleWin !== null);
+  const lastEval = evals[evals.length - 1];
+  $('logSummary').innerHTML = `第 ${last.generation} 世代まで<br>成績 平均 ${last.mean.toFixed(2)} / 最高 ${last.best.toFixed(2)}<br>時間切れ ${pct(last.timeoutRate)} / 試合時間の中央値 ${last.medianTime} 秒<br>旧型 AI への勝率 <b style="color:var(--accent)">${lastEval ? pct(lastEval.vsRuleWin) : '-'}</b>${lastEval ? ` (第 ${lastEval.generation} 世代、時間切れ ${pct(lastEval.vsRuleTimeout)})` : ''}`;
+  drawChart();
+  const rows = logRows.slice(-10).reverse();
+  $('logTable').innerHTML = '<tr><th>世代</th><th>平均</th><th>最高</th><th>時間切れ</th><th>中央値</th><th>対旧AI</th></tr>' +
+    rows.map(r => `<tr><td>${r.generation}</td><td>${r.mean.toFixed(2)}</td><td>${r.best.toFixed(2)}</td><td>${pct(r.timeoutRate)}</td><td>${r.medianTime}</td><td>${pct(r.vsRuleWin)}</td></tr>`).join('');
+}
+// グラフ: 横が世代。成績は -0.5〜1.5、割合は 0〜100% を同じ高さに描く
+function drawChart(){
+  const c = $('chart'), g = c.getContext('2d');
+  c.width = c.clientWidth; c.height = c.clientHeight;
+  g.clearRect(0, 0, c.width, c.height);
+  const n = logRows.length, pad = 6;
+  const X = i => pad + (n > 1 ? i / (n - 1) : 0) * (c.width - pad * 2);
+  const Yscore = v => c.height - pad - (v + 0.5) / 2 * (c.height - pad * 2);
+  const Yrate = v => c.height - pad - v * (c.height - pad * 2);
+  g.strokeStyle = 'rgba(42,74,122,0.6)';
+  g.beginPath(); g.moveTo(pad, Yscore(0)); g.lineTo(c.width - pad, Yscore(0)); g.stroke();
+  const line = (key, Y, color) => {
+    g.strokeStyle = color; g.beginPath();
+    logRows.forEach((r, i) => { const y = Y(r[key]); i ? g.lineTo(X(i), y) : g.moveTo(X(i), y); });
+    g.stroke();
+  };
+  line('best', Yscore, '#9fb4dc');
+  line('mean', Yscore, '#4fa3ff');
+  line('timeoutRate', Yrate, '#ff5a5a');
+  g.fillStyle = '#ffd34f';
+  logRows.forEach((r, i) => { if(r.vsRuleWin !== null){ g.beginPath(); g.arc(X(i), Yrate(r.vsRuleWin), 3, 0, Math.PI * 2); g.fill(); } });
+}
+setInterval(reloadLog, 30000);
+
+// 学習全体の残り時間 (training/classic/progress.json)
+let progress = null;
+async function reloadProgress(){
+  try{
+    const res = await fetch(`${DIR}progress.json?t=${Date.now()}`);
+    progress = res.ok ? await res.json() : null;
+  }catch(e){
+    progress = null;
+  }
+  renderProgress();
+}
+const hms = ms => { const s = Math.max(0, Math.round(ms / 1000)); return `${Math.floor(s / 3600)}:${String(Math.floor(s / 60) % 60).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`; };
+function renderProgress(){
+  if(!progress){ $('progress').textContent = ''; return; }
+  const end = new Date(progress.deadline);
+  const left = end - Date.now();
+  const at = end.toLocaleTimeString('ja-JP', {hour: '2-digit', minute: '2-digit'});
+  $('progress').textContent = progress.finished ? `学習は終わりました (${progress.minutes} 分)`
+    : left > 0 ? `学習の残り ${hms(left)} (${progress.minutes} 分のうち。${at} ごろ終了)`
+    : '予定の時間になりました。今の世代を仕上げています';
+}
+reloadProgress();
+setInterval(reloadProgress, 30000);
+setInterval(renderProgress, 1000);
+
+let speed = 4, paused = false, showSensor = true, showOrders = true, autoNext = true;
+$('speeds').replaceChildren(...[1, 2, 4, 16].map(n => {
+  const b = document.createElement('button'); b.textContent = `×${n}`; b.dataset.n = n;
+  b.onclick = () => { speed = n; renderButtons(); }; return b;
+}));
+function renderButtons(){
+  for(const b of $('speeds').children) b.classList.toggle('on', Number(b.dataset.n) === speed);
+  $('pause').textContent = paused ? '再開' : '一時停止';
+  $('showSensor').classList.toggle('on', showSensor);
+  $('showOrders').classList.toggle('on', showOrders);
+  $('autoNext').classList.toggle('on', autoNext);
+}
+$('autoNext').onclick = () => { autoNext = !autoNext; renderButtons(); };
+$('pause').onclick = () => { paused = !paused; renderButtons(); };
+$('showSensor').onclick = () => { showSensor = !showSensor; renderButtons(); };
+$('showOrders').onclick = () => { showOrders = !showOrders; renderButtons(); };
+$('restart').onclick = restart;
+
+// 青と赤の AI を入れ替える (自動で次の試合に進むとき。担当の偏りを見ないように)
+function swapSides(){
+  const blue = $('blueAi').value;
+  $('blueAi').value = $('redAi').value;
+  $('redAi').value = blue;
+}
+
+// 旧型 AI は null (controllers に渡さない = クラシックの今の AI)
+function controllerOf(kind, rng){
+  if(kind === 'trained') return Br.controller(Br.fromPlain(trained.brains));
+  if(kind === 'random') return Br.controller(Br.randomBrainSet(rng));
+  return null;
+}
+
+let game, rng, seed = 1, endedAt = 0, reloading = false;
+const finished = () => !!game.outcome || game.time >= MAX_TIME;
+function restart(){
+  endedAt = 0;
+  seed = Math.floor(Math.random() * 2147483647);
+  rng = mulberry32(seed);
+  const preset = L.AI_PRESETS[Math.floor(rng() * L.AI_PRESETS.length)];
+  const controllers = {};
+  const blue = controllerOf($('blueAi').value, rng), red = controllerOf($('redAi').value, rng);
+  if(blue) controllers.blue = blue;
+  if(red) controllers.red = red;
+  game = L.createGame(Object.assign({}, preset.params), rng, 'flagship', {controllers});
+  for(const f of game.fleets) f.isPlayer = false;
+}
+
+// カメラ (全体表示から、ホイールで拡大、ドラッグで移動)
+const cam = {cx: L.WORLD.w / 2, cy: L.WORLD.h / 2, scale: 1};
+function fit(){ cam.cx = L.WORLD.w / 2; cam.cy = L.WORLD.h / 2; cam.scale = Math.min(canvas.width / L.WORLD.w, canvas.height / L.WORLD.h) * 0.95; }
+function resize(){ canvas.width = $('view').clientWidth; canvas.height = $('view').clientHeight; }
+let fitted = false;
+new ResizeObserver(() => { resize(); if(!fitted && canvas.width > 0 && canvas.height > 0){ fit(); fitted = true; } }).observe($('view'));
+resize();
+const toS = (x, y) => ({x: canvas.width / 2 + (x - cam.cx) * cam.scale, y: canvas.height / 2 + (y - cam.cy) * cam.scale});
+canvas.addEventListener('wheel', e => {
+  e.preventDefault();
+  const r = canvas.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top;
+  const wx = cam.cx + (mx - canvas.width / 2) / cam.scale, wy = cam.cy + (my - canvas.height / 2) / cam.scale;
+  cam.scale *= e.deltaY < 0 ? 1.15 : 1 / 1.15;
+  cam.cx = wx - (mx - canvas.width / 2) / cam.scale; cam.cy = wy - (my - canvas.height / 2) / cam.scale;
+}, {passive: false});
+let drag = null;
+canvas.addEventListener('mousedown', e => { drag = {x: e.clientX, y: e.clientY}; });
+window.addEventListener('mousemove', e => { if(!drag) return; cam.cx -= (e.clientX - drag.x) / cam.scale; cam.cy -= (e.clientY - drag.y) / cam.scale; drag = {x: e.clientX, y: e.clientY}; });
+window.addEventListener('mouseup', () => { drag = null; });
+canvas.addEventListener('dblclick', fit);
+
+function draw(){
+  ctx.fillStyle = '#03060f'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+  const a = toS(0, 0), b = toS(L.WORLD.w, L.WORLD.h);
+  ctx.strokeStyle = 'rgba(79, 163, 255, 0.5)'; ctx.strokeRect(a.x, a.y, b.x - a.x, b.y - a.y);
+  const living = game.fleets.filter(f => f.ships > 0);
+  const byId = new Map(game.fleets.map(f => [f.id, f]));
+  if(showSensor){
+    for(const f of living){
+      const p = toS(f.x, f.y);
+      ctx.strokeStyle = f.team === 'blue' ? 'rgba(79,163,255,0.2)' : 'rgba(255,90,90,0.2)';
+      ctx.beginPath(); ctx.arc(p.x, p.y, L.SENSOR_RANGE * cam.scale, 0, Math.PI * 2); ctx.stroke();
+    }
+  }
+  if(showOrders){
+    for(const f of living){
+      if(!f.order) continue;
+      let d = f.order;
+      if(d.type === 'attack' || d.type === 'merge'){ d = byId.get(f.order.targetId); if(!d) continue; }
+      if(d.type === 'course') continue;
+      const p = toS(f.x, f.y), q = toS(d.x, d.y);
+      ctx.strokeStyle = f.order.type === 'attack' ? 'rgba(255,211,79,0.5)' : (f.team === 'blue' ? 'rgba(79,163,255,0.35)' : 'rgba(255,90,90,0.35)');
+      ctx.setLineDash([4, 4]); ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(q.x, q.y); ctx.stroke(); ctx.setLineDash([]);
+    }
+  }
+  for(const bm of game.beams || []){
+    const f = byId.get(bm.from), t = byId.get(bm.to);
+    if(!f || !t) continue;
+    const p = toS(f.x, f.y), q = toS(t.x, t.y);
+    ctx.strokeStyle = bm.team === 'blue' ? 'rgba(160,210,255,0.6)' : 'rgba(255,160,120,0.6)';
+    ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(q.x, q.y); ctx.stroke();
+  }
+  for(const m of game.missiles){
+    const p = toS(m.x, m.y);
+    ctx.fillStyle = m.team === 'blue' ? '#a0d2ff' : '#ffa078';
+    ctx.fillRect(p.x - 2, p.y - 2, 4, 4);
+  }
+  ctx.textAlign = 'center'; ctx.font = '11px sans-serif';
+  for(const f of game.fleets){
+    if(f.merged) continue;
+    const p = toS(f.x, f.y);
+    const r = Math.max(3, (6 + 10 * Math.max(0, f.ships) / L.INITIAL_SHIPS) * Math.max(cam.scale * 2, 0.6));
+    ctx.fillStyle = f.ships > 0 ? COLORS[f.team] : '#44506a';
+    ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2); ctx.fill();
+    if(f.flagship){ ctx.strokeStyle = COLORS.accent; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(p.x, p.y, r + 4, 0, Math.PI * 2); ctx.stroke(); ctx.lineWidth = 1; }
+    if(f.scout){ ctx.strokeStyle = '#ffffff'; ctx.setLineDash([2, 2]); ctx.beginPath(); ctx.arc(p.x, p.y, r + 3, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]); }
+    ctx.fillStyle = '#fff'; ctx.fillText(f.scout ? '偵' : f.id.replace(/\D/g, '').slice(0, 1), p.x, p.y + 4);
+  }
+}
+
+function renderStat(){
+  const ships = {blue: 0, red: 0}, fleets = {blue: 0, red: 0};
+  for(const f of game.fleets) if(f.ships > 0){ ships[f.team] += f.ships; fleets[f.team]++; }
+  const outcome = {win: '青の勝ち', lose: '赤の勝ち', draw: '引き分け'}[game.outcome] || (game.time >= MAX_TIME ? '時間切れ' : '試合中');
+  const rows = game.fleets.filter(f => !f.merged).map(f => `<div class="fl ${f.ships > 0 ? f.team : 'dead'}"><span>${f.name}${f.flagship ? ' ◎' : ''}</span><span>${Math.ceil(Math.max(0, f.ships))}</span></div>`).join('');
+  $('stat').innerHTML = `<div>時間 ${Math.floor(game.time / 60)}:${String(Math.floor(game.time % 60)).padStart(2, '0')}  (種 ${seed})</div>
+    <div><span class="blue">青 ${Math.ceil(ships.blue)} 隻 (${fleets.blue})</span> / <span class="red">赤 ${Math.ceil(ships.red)} 隻 (${fleets.red})</span></div>
+    <div>${outcome}</div>${rows}`;
+}
+
+let last = 0;
+function frame(now){
+  const elapsed = Math.min(0.1, (now - last) / 1000 || 0);
+  last = now;
+  if(!paused && !finished()){
+    const steps = Math.round(elapsed * speed / DT);
+    for(let i = 0; i < steps && !finished(); i++) L.step(game, DT, rng);
+  }
+  if(finished() && !endedAt) endedAt = now;
+  if(autoNext && !paused && endedAt && now - endedAt >= NEXT_DELAY && !reloading){
+    reloading = true;
+    reloadLog();
+    reloadBrains().then(() => { reloading = false; swapSides(); restart(); });
+  }
+  draw();
+  renderStat();
+  requestAnimationFrame(frame);
+}
+renderAiOptions();
+reloadLog();
+restart();
+renderButtons();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
