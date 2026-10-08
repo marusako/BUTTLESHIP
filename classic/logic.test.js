@@ -778,3 +778,44 @@ test('マップ外: どの命令でも移動後の位置はマップの内側', 
   for(let i = 0; i < 50 && f.order; i++) L.moveFleet(f, 1, intel);
   assert.ok(f.x >= 0 && f.y >= 0);
 });
+
+// ---------- 第 5 段階 ③: 敵のズル (原作のコンピ研役) ----------
+
+test('敵のズル: createGame の options.enemyCheat で有効 (初めはなし)。有効なら敵 (赤) は最初から全部見える (索敵モードのオフ)', () => {
+  const off = L.createGame({speed: 34, defense: 33, attack: 33}, seq(0.5), 'flagship');
+  assert.equal(off.enemyCheat, false);
+  const on = L.createGame({speed: 34, defense: 33, attack: 33}, seq(0.5), 'flagship', {enemyCheat: true});
+  assert.equal(on.enemyCheat, true);
+  L.step(on, 1 / 30, seq(0.5));
+  assert.ok(on.fleets.filter(f => f.team === 'blue').every(f => on.intel.red[f.id] && on.intel.red[f.id].visible), '赤は青を全部見える');
+  L.step(off, 1 / 30, seq(0.5));
+  assert.ok(!off.fleets.filter(f => f.team === 'blue').every(f => off.intel.red[f.id] && off.intel.red[f.id].visible), 'ズルなしなら見えない');
+  assert.ok(!on.fleets.filter(f => f.team === 'red').every(f => on.intel.blue[f.id] && on.intel.blue[f.id].visible), '青には効かない');
+});
+
+test('敵のワープ (奇襲): ズルが有効なら CHEAT_WARP_INTERVAL (30) 秒ごとに、赤の一番艦艇の多い護衛が、青の隊長の後ろ CHEAT_WARP_DISTANCE へワープして隊長を攻撃する', () => {
+  assert.deepEqual([L.CHEAT_WARP_INTERVAL, L.CHEAT_WARP_DISTANCE], [30, 200]);
+  const g = L.createGame({speed: 34, defense: 33, attack: 33}, seq(0.5), 'flagship', {enemyCheat: true});
+  const leader = g.fleets.find(f => f.team === 'blue' && f.leader);
+  const reds = g.fleets.filter(f => f.team === 'red' && !f.leader);
+  reds[2].ships = L.INITIAL_SHIPS + 1; // 一番多い護衛
+  for(const f of g.fleets) f.ai.nextThink = 999;
+  g.time = L.CHEAT_WARP_INTERVAL - 0.01;
+  L.step(g, 1 / 30, seq(0.5));
+  const w = reds[2];
+  const behind = {x: leader.x - Math.cos(leader.heading) * 200, y: leader.y - Math.sin(leader.heading) * 200};
+  assert.ok(Math.hypot(w.x - behind.x, w.y - behind.y) < 20, '隊長の後ろへ');
+  assert.deepEqual(w.order, {type: 'attack', targetId: leader.id});
+  assert.equal(g.enemyWarps.length, 1);
+  assert.equal(g.enemyWarps[0].id, w.id);
+  L.step(g, 1, seq(0.5));
+  assert.equal(g.enemyWarps.length, 1, '次は 30 秒あける');
+});
+
+test('敵のワープ: ズルがなければワープしない', () => {
+  const g = L.createGame({speed: 34, defense: 33, attack: 33}, seq(0.5), 'flagship');
+  for(const f of g.fleets) f.ai.nextThink = 999;
+  g.time = L.CHEAT_WARP_INTERVAL - 0.01;
+  L.step(g, 1 / 30, seq(0.5));
+  assert.equal((g.enemyWarps || []).length, 0);
+});

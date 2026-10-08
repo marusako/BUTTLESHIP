@@ -178,6 +178,9 @@
       <label><input type="radio" name="mode" value="annihilation">全滅戦<small>敵を全滅させたら勝ち</small></label>
       <label><input type="radio" name="mode" value="flagship" checked>大将戦<small>敵の旗艦を倒したら勝ち (原作の対戦のルール)</small></label>
     </div>
+    <div class="modes">
+      <label><input type="checkbox" id="enemyCheat">敵がズルをする<small>原作のコンピ研のように、敵は最初から全部見え、30 秒ごとに 1 艦隊があなたの後ろへワープしてくる</small></label>
+    </div>
     <div class="section">艦隊パラメータ配分</div>
     <div class="presets">
       <button data-preset="34,33,33">均等</button>
@@ -331,7 +334,8 @@ for(const r of document.querySelectorAll('input[name="mode"]')){
 }
 
 function startBattle(){
-  game = L.createGame(Object.assign({}, playerParams), Math.random, ruleMode);
+  game = L.createGame(Object.assign({}, playerParams), Math.random, ruleMode, {enemyCheat: $('enemyCheat').checked});
+  warpsLogged = 0;
   dragMove = null;
   const me = player();
   camera.zoom = 1;
@@ -346,6 +350,7 @@ function startBattle(){
   buildAllyRows();
   document.body.classList.remove('no-game');
   addLog(game.mode === 'flagship' ? '大将戦、開始。敵の旗艦を探し出せ' : '全艦隊、出撃。索敵を開始せよ', COLORS.accent);
+  if(game.enemyCheat) addLog('敵は索敵モードをオフにしている (こちらの位置は筒抜けだ)', COLORS.red);
   acc = 0;
   setMode('battle');
 }
@@ -554,7 +559,11 @@ function formatTime(sec){
   return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
 }
 // 前のフレームとの差から「発見」「全滅」を記録する
+let warpsLogged = 0; // ログに出した敵のワープの数
 function trackEvents(){
+  for(; warpsLogged < (game.enemyWarps || []).length; warpsLogged++){
+    addLog(`${fleetById(game.enemyWarps[warpsLogged].id).name}がワープしてきた ── ズルだ!`, COLORS.red);
+  }
   const visible = new Set(Object.entries(game.intel.blue).filter(([, i]) => i.visible).map(([id]) => id));
   for(const id of visible){
     if(prevVisible.has(id)) continue;

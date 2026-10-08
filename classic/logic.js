@@ -36,6 +36,8 @@
   const CHEAT_SEQUENCE = ['KeyY', 'KeyU', 'KeyK', 'KeyI']; // 隠しコマンド入力欄を開くキー列
   const CHEAT_WINDOW = 2;        // キー列を押し切るまでの制限時間 (秒)
   const COMMANDS = ['scan', 'warp'];
+  const CHEAT_WARP_INTERVAL = 30; // 敵のズル (原作のコンピ研役。第 5 段階): 赤の護衛 1 つがこの秒数ごとに青の隊長のそばへワープする
+  const CHEAT_WARP_DISTANCE = 200; // ワープ先: 青の隊長の後ろ (進む向きの反対) のこの距離
   const TEAMS = ['blue', 'red'];
 
   // AI 艦隊のパラメータの型 (v1.2 と同じ。出撃時にランダム)
@@ -292,8 +294,8 @@
     return best ? {type: 'course', angle: best.angle, dodge: true} : null;
   }
 
-  // mode: 'annihilation' (全滅戦) / 'flagship' (大将戦)
-  function createGame(playerParams, rng, mode){
+  // mode: 'annihilation' (全滅戦) / 'flagship' (大将戦)。options.enemyCheat: 敵がズルをする (索敵モードのオフとワープ。原作のコンピ研役)
+  function createGame(playerParams, rng, mode, options){
     const fleets = [];
     for(const team of TEAMS){
       for(let i = 0; i < 5; i++){
@@ -337,16 +339,33 @@
     }
     return {
       time: 0, mode: mode || 'annihilation', fleets, intel: {blue: {}, red: {}}, beams: [],
-      missiles: [], nextMissileId: 1, reveal: false, warpArmed: false, outcome: null
+      missiles: [], nextMissileId: 1, reveal: false, warpArmed: false, outcome: null,
+      enemyCheat: !!(options && options.enemyCheat), nextEnemyWarp: CHEAT_WARP_INTERVAL, enemyWarps: []
     };
   }
 
-  // 青チームだけ隠しコマンドの索敵解除が効く
-  const revealFor = (g, team) => team === 'blue' && g.reveal;
+  // 霧なしで全部見えるか: 青は隠しコマンド scan、赤は敵のズル (索敵モードのオフ)
+  const revealFor = (g, team) => team === 'blue' ? g.reveal : !!g.enemyCheat;
+
+  // 敵のワープ (奇襲): ズルが有効なら CHEAT_WARP_INTERVAL 秒ごとに、赤の一番艦艇の多い護衛を青の隊長の後ろ CHEAT_WARP_DISTANCE へ
+  // ワープさせ、隊長を攻撃させる (しばらくは考え直さない)。g.enemyWarps に記録する (画面のログ用)
+  function enemyCheatWarp(g){
+    if(!g.enemyCheat || g.time < g.nextEnemyWarp) return;
+    g.nextEnemyWarp += CHEAT_WARP_INTERVAL;
+    const target = g.fleets.find(f => f.team === 'blue' && f.leader && alive(f)) || g.fleets.find(f => f.team === 'blue' && alive(f));
+    let raider = null;
+    for(const f of g.fleets) if(f.team === 'red' && !f.leader && alive(f) && (!raider || f.ships > raider.ships)) raider = f;
+    if(!target || !raider) return;
+    raider.x = clamp(target.x - Math.cos(target.heading) * CHEAT_WARP_DISTANCE, 0, WORLD.w);
+    raider.y = clamp(target.y - Math.sin(target.heading) * CHEAT_WARP_DISTANCE, 0, WORLD.h);
+    raider.order = {type: 'attack', targetId: target.id};
+    raider.ai.nextThink = g.time + CHEAT_WARP_INTERVAL / 2;
+    (g.enemyWarps || (g.enemyWarps = [])).push({time: g.time, id: raider.id, x: raider.x, y: raider.y});
+  }
 
   // 発射間隔が空いた艦隊が、ミサイル射程内の見えている最も近い敵へ撃つ
   function launchMissiles(g, dt){
-    const visible = {blue: visibleEnemies(g.fleets, 'blue', revealFor(g, 'blue')), red: visibleEnemies(g.fleets, 'red', false)};
+    const visible = {blue: visibleEnemies(g.fleets, 'blue', revealFor(g, 'blue')), red: visibleEnemies(g.fleets, 'red', revealFor(g, 'red'))};
     for(const f of g.fleets){
       if(!alive(f)) continue;
       f.missileCooldown = Math.max(0, f.missileCooldown - dt);
@@ -494,6 +513,7 @@
       f.ai.nextThink = g.time + DODGE_TIME;
     }
 
+    enemyCheatWarp(g);
     for(const f of living) f.speedCap = formationSpeedCap(f, g.fleets);
     for(const f of living) moveFleet(f, dt, g.intel[f.team]);
     refreshIntel();
@@ -502,7 +522,7 @@
     interceptMissiles(g, dt, rng);
 
     // ビームとミサイルのダメージは全艦隊ぶんを先に計算してから同時に反映する
-    const visible = {blue: visibleEnemies(g.fleets, 'blue', revealFor(g, 'blue')), red: visibleEnemies(g.fleets, 'red', false)};
+    const visible = {blue: visibleEnemies(g.fleets, 'blue', revealFor(g, 'blue')), red: visibleEnemies(g.fleets, 'red', revealFor(g, 'red'))};
     const damage = new Map();
     g.beams = [];
     for(const f of living){
@@ -519,7 +539,7 @@
   }
 
   const api = {
-    WORLD, INITIAL_SHIPS, MAX_THROTTLE, PARAM_TOTAL, PARAM_MIN, MISSILE_AMMO, MISSILE_STRAIGHT_SPEED, segmentDistance, DODGE_LOOKAHEAD, DODGE_MARGIN, DODGE_TIME, dodgeOrder, FORMATION_SPEED_RATIO, formationSpeedCap, SENSOR_RANGE, BEAM_RANGE, GHOST_CLEAR_RANGE, FIREPOWER_FLOOR,
+    WORLD, INITIAL_SHIPS, MAX_THROTTLE, PARAM_TOTAL, PARAM_MIN, MISSILE_AMMO, MISSILE_STRAIGHT_SPEED, segmentDistance, DODGE_LOOKAHEAD, DODGE_MARGIN, DODGE_TIME, dodgeOrder, FORMATION_SPEED_RATIO, formationSpeedCap, CHEAT_WARP_INTERVAL, CHEAT_WARP_DISTANCE, enemyCheatWarp, SENSOR_RANGE, BEAM_RANGE, GHOST_CLEAR_RANGE, FIREPOWER_FLOOR,
     MISSILE_RANGE, MISSILE_INTERVAL, MISSILE_SPEED, MISSILE_LIFE, MISSILE_HIT_RADIUS, INTERCEPT_RANGE, INTERCEPT_INTERVAL,
     AI_PRESETS, validateParams, updateLeaders, maxSpeed, mitigation, beamDps, missileDamage, visibleEnemies, updateIntel,
     chooseTarget, moveFleet, checkOutcome, aiDecide, createGame, step,
