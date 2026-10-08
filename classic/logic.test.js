@@ -691,6 +691,16 @@ test('隊長: 各チーム 1 つ。青はプレイヤー、どちらも横一列
   }
 });
 
+test('出撃位置は点対称: 赤の n 番目の護衛は、青の n 番目の護衛をマップの中心について 180° 回した位置 (隊列の左右が両チームで同じになる。第 5 段階)', () => {
+  const g = L.createGame({speed: 34, defense: 33, attack: 33}, seq(0.1, 0.5, 0.9, 0.3), 'flagship');
+  const escorts = team => g.fleets.filter(f => f.team === team && !f.leader);
+  const blue = escorts('blue'), red = escorts('red');
+  blue.forEach((b, k) => {
+    assert.equal(red[k].x, L.WORLD.w - b.x, '左右が逆');
+    assert.equal(red[k].y, L.WORLD.h - b.y, '上下が逆');
+  });
+});
+
 test('隊長 (全滅戦): 隊長が全滅したら、生き残りで艦艇数が最も多い艦隊が引き継ぐ', () => {
   const lead = fleet({id: 'l', leader: true, ships: 0});
   const a = fleet({id: 'a', ships: 5000});
@@ -724,11 +734,29 @@ test('AI (護衛): 隊長から遠い敵は追わず、隊長の周りの決ま�
   const orders = escorts.map(e => L.aiDecide(e, fleets, intel, seq(0.5)));
   for(const o of orders) assert.equal(o.type, 'move');
   const pos = orders.map(o => [Math.round(o.x), Math.round(o.y)]);
-  // 北向きの隊長に対して: 左・右・左後ろ・右後ろ
-  assert.ok(pos[0][0] < 1200 && pos[1][0] > 1200, '左右');
-  assert.ok(pos[2][0] < 1200 && pos[3][0] > 1200, '後ろの左右');
-  assert.ok(pos[2][1] > pos[0][1] && pos[3][1] > pos[1][1], '後ろの 2 つは前の 2 つより南');
+  // 北向きの隊長に対して: 左前・右前・左・右 (護衛が隊長より前に出て、敵とぶつかる。第 5 段階)
+  assert.ok(pos[0][0] < 1200 && pos[1][0] > 1200, '前の左右');
+  assert.ok(pos[2][0] < 1200 && pos[3][0] > 1200, '横の左右');
+  assert.ok(pos[0][1] < 3000 && pos[1][1] < 3000, '前の 2 つは隊長より北 (前)');
+  assert.ok(pos[2][1] > pos[0][1] && pos[3][1] > pos[1][1], '横の 2 つは前の 2 つより南');
   assert.equal(new Set(pos.map(p => p.join(','))).size, 4, '位置は重ならない');
+});
+
+test('隊形の速さ (AI の隊長): 一番遅い生きている護衛の最大の速さ × FORMATION_SPEED_RATIO より速く進まない (隊形が伸びないように)。プレイヤーと護衛は制限なし', () => {
+  assert.equal(L.FORMATION_SPEED_RATIO, 0.85);
+  const leader = fleet({id: 'lead', leader: true, params: {speed: 100, defense: 0, attack: 0}});
+  const slow = fleet({id: 's', params: {speed: 0, defense: 50, attack: 50}});
+  const fast = fleet({id: 'f2', params: {speed: 50, defense: 25, attack: 25}});
+  const dead = fleet({id: 'd', params: {speed: 0, defense: 50, attack: 50}, ships: 0});
+  const fleets = [leader, slow, fast, dead, fleet({id: 'r', team: 'red', params: {speed: 0, defense: 50, attack: 50}})];
+  assert.equal(L.formationSpeedCap(leader, fleets), L.maxSpeed(slow.params) * 0.85, '全滅した艦隊と敵は数えない');
+  assert.equal(L.formationSpeedCap(slow, fleets), null, '護衛は制限なし');
+  assert.equal(L.formationSpeedCap(Object.assign({}, leader, {isPlayer: true}), fleets), null, 'プレイヤーは制限なし');
+  assert.equal(L.formationSpeedCap(leader, [leader]), null, '護衛がいなければ制限なし');
+  const g = Object.assign(game([Object.assign(leader, {order: {type: 'move', x: 2000, y: 0}}), slow, fast]), {mode: 'annihilation'});
+  for(const f of g.fleets) f.ai.nextThink = 99;
+  L.step(g, 1, seq(0.5));
+  assert.ok(Math.abs(leader.x - L.maxSpeed(slow.params) * 0.85) < 1e-6, '1 秒で進んだ距離が制限の速さ');
 });
 
 test('AI (護衛): 隊列の位置もマップの内側に収める', () => {

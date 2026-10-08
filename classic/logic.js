@@ -46,8 +46,10 @@
     {name: '均等型', params: {speed: 34, defense: 33, attack: 33}}
   ];
 
-  // 隊列: 護衛が付く位置 (隊長から見て [前方, 右方向] の距離)。左・右・左後ろ・右後ろ
-  const ESCORT_SLOTS = [[-40, -260], [-40, 260], [-260, -170], [-260, 170]];
+  // 隊列: 護衛が付く位置 (隊長から見て [前方, 右方向] の距離)。左前・右前・左・右 (第 5 段階: 護衛を隊長より前に出し、
+  // 攻めるときに隊長が先頭で敵の全艦隊に囲まれないようにした。前は左・右・左後ろ・右後ろ)
+  const ESCORT_SLOTS = [[200, -170], [200, 170], [20, -280], [20, 280]];
+  const FORMATION_SPEED_RATIO = 0.85; // AI の隊長は、一番遅い護衛の最大の速さのこの割合より速く進まない (隊形が伸びないように。第 5 段階)
   const DEFEND_RADIUS = 600;     // 護衛は隊長からこの距離以内の敵を迎え撃つ
   const SPAWN_XS = [400, 800, 1200, 1600, 2000]; // 横一列の出撃位置。真ん中 (1200) は隊長
 
@@ -130,7 +132,8 @@
   function moveFleet(f, dt, intel){
     const o = f.order;
     if(!o || f.throttle === 0) return;
-    const step = maxSpeed(f.params) * f.throttle / MAX_THROTTLE * dt;
+    const speed = f.speedCap === null || f.speedCap === undefined ? maxSpeed(f.params) : Math.min(maxSpeed(f.params), f.speedCap);
+    const step = speed * f.throttle / MAX_THROTTLE * dt;
 
     // WAY: 指定方向へ進み続け、マップの端に着いたら止まる
     if(o.type === 'course'){
@@ -234,6 +237,15 @@
     return {type: 'move', x, y, explore: true};
   }
 
+  // 隊形の速さ: AI の隊長が進める最大の速さ (一番遅い生きている護衛の最大の速さ × FORMATION_SPEED_RATIO)。
+  // 隊長でない・プレイヤー・護衛がいないときは null (制限なし)
+  function formationSpeedCap(f, fleets){
+    if(f.isPlayer || !f.leader) return null;
+    const escorts = fleets.filter(e => e.team === f.team && e !== f && alive(e));
+    if(!escorts.length) return null;
+    return FORMATION_SPEED_RATIO * Math.min(...escorts.map(e => maxSpeed(e.params)));
+  }
+
   // 護衛の位置: 隊長の向きを基準に ESCORT_SLOTS の位置 (マップ内に収める)
   function escortSlot(leader, index){
     const [fwd, right] = ESCORT_SLOTS[index % ESCORT_SLOTS.length];
@@ -321,7 +333,7 @@
       const members = fleets.filter(f => f.team === team);
       const ordered = members.filter(f => !f.leader);
       ordered.splice(2, 0, members.find(f => f.leader));
-      ordered.forEach((f, k) => { f.x = SPAWN_XS[k]; });
+      ordered.forEach((f, k) => { f.x = team === 'blue' ? SPAWN_XS[k] : WORLD.w - SPAWN_XS[k]; }); // 赤は点対称 (隊列の左右を両チームでそろえる。第 5 段階)
     }
     return {
       time: 0, mode: mode || 'annihilation', fleets, intel: {blue: {}, red: {}}, beams: [],
@@ -482,6 +494,7 @@
       f.ai.nextThink = g.time + DODGE_TIME;
     }
 
+    for(const f of living) f.speedCap = formationSpeedCap(f, g.fleets);
     for(const f of living) moveFleet(f, dt, g.intel[f.team]);
     refreshIntel();
 
@@ -506,7 +519,7 @@
   }
 
   const api = {
-    WORLD, INITIAL_SHIPS, MAX_THROTTLE, PARAM_TOTAL, PARAM_MIN, MISSILE_AMMO, MISSILE_STRAIGHT_SPEED, segmentDistance, DODGE_LOOKAHEAD, DODGE_MARGIN, DODGE_TIME, dodgeOrder, SENSOR_RANGE, BEAM_RANGE, GHOST_CLEAR_RANGE, FIREPOWER_FLOOR,
+    WORLD, INITIAL_SHIPS, MAX_THROTTLE, PARAM_TOTAL, PARAM_MIN, MISSILE_AMMO, MISSILE_STRAIGHT_SPEED, segmentDistance, DODGE_LOOKAHEAD, DODGE_MARGIN, DODGE_TIME, dodgeOrder, FORMATION_SPEED_RATIO, formationSpeedCap, SENSOR_RANGE, BEAM_RANGE, GHOST_CLEAR_RANGE, FIREPOWER_FLOOR,
     MISSILE_RANGE, MISSILE_INTERVAL, MISSILE_SPEED, MISSILE_LIFE, MISSILE_HIT_RADIUS, INTERCEPT_RANGE, INTERCEPT_INTERVAL,
     AI_PRESETS, validateParams, updateLeaders, maxSpeed, mitigation, beamDps, missileDamage, visibleEnemies, updateIntel,
     chooseTarget, moveFleet, checkOutcome, aiDecide, createGame, step,
