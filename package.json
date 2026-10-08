@@ -8,6 +8,11 @@
     "train": "node scripts/train.js",
     "export-brain": "node scripts/train.js --export-brain",
     "evaluate": "node scripts/evaluate.js",
-    "imitate": "node scripts/imitate.js"
+    "imitate": "node scripts/imitate.js",
+    "classic-train": "node scripts/classic-train.js",
+    "classic-export-brain": "node scripts/classic-train.js --export-brain",
+    "classic-evaluate": "node scripts/classic-evaluate.js",
+    "classic-imitate": "node scripts/classic-imitate.js",
+    "classic-sim": "node scripts/classic-sim.js"
   }
 }

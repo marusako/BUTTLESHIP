@@ -2,8 +2,9 @@
 const path = require('node:path');
 const {Worker} = require('node:worker_threads');
 
-function createPool(size){
-  const workers = Array.from({length: size}, () => new Worker(path.join(__dirname, 'match-worker.js')));
+// workerFile: 試合を回すワーカー (省略時はモダンの match-worker.js。クラシックは classic-match-worker.js)
+function createPool(size, workerFile){
+  const workers = Array.from({length: size}, () => new Worker(workerFile || path.join(__dirname, 'match-worker.js')));
   return {
     // tasks: [{blue, red, opts}] → 同じ順の結果の配列
     run(tasks){
