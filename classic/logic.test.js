@@ -963,3 +963,19 @@ test('偵察 (AI): 護衛の隊列と隊形の速さには偵察の分艦隊を�
   const after = [L.aiDecide(escort, g.fleets, g.intel.red, seq(0.5)), L.formationSpeedCap(leader, g.fleets)];
   assert.deepEqual(after, before);
 });
+
+// ---------- 第 6 段階: AI を差し替える (学習型 AI のため) ----------
+
+test('controllers: createGame の options.controllers のチームの AI の艦隊は、その関数で命令を決める (偵察の分艦隊は今のルールのまま)。渡さないチームは今の AI', () => {
+  const calls = [];
+  const red = (f, fleets, intel, rng) => { calls.push([f.id, fleets.length > 0, typeof intel, typeof rng]); return {type: 'move', x: 1200, y: 2400}; };
+  const g = L.createGame({speed: 34, defense: 33, attack: 33}, seq(0.5), 'flagship', {controllers: {red}});
+  L.step(g, 1 / 30, seq(0.5));
+  L.step(g, 1 / 30, seq(0.5)); // 偵察は最初の step の終わりに出るので、命令は次の step から
+  const reds = g.fleets.filter(f => f.team === 'red' && !f.scout);
+  assert.deepEqual(calls.map(c => c[0]).sort(), reds.map(f => f.id).sort(), '赤の偵察以外の艦隊ごとに呼ぶ');
+  assert.ok(calls.every(c => c[1] && c[2] === 'object' && c[3] === 'function'), '(f, fleets, intel, rng) を渡す');
+  assert.ok(reds.every(f => f.order && f.order.x === 1200 && f.order.y === 2400));
+  assert.ok(g.fleets.filter(f => f.team === 'red' && f.scout).every(f => f.order && f.order.explore), '偵察は今のルール');
+  assert.ok(g.fleets.filter(f => f.team === 'blue' && !f.isPlayer && !f.scout).every(f => !(f.order && f.order.x === 1200 && f.order.y === 2400)), '青は今の AI');
+});

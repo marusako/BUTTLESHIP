@@ -394,7 +394,8 @@
     return best ? {type: 'course', angle: best.angle, dodge: true} : null;
   }
 
-  // mode: 'annihilation' (全滅戦) / 'flagship' (大将戦)。options.enemyCheat: 敵がズルをする (索敵モードのオフとワープ。原作のコンピ研役)
+  // mode: 'annihilation' (全滅戦) / 'flagship' (大将戦)。options.enemyCheat: 敵がズルをする (索敵モードのオフとワープ。原作のコンピ研役)。
+  // options.controllers: {blue, red} チームごとの AI (艦隊ごとに (f, fleets, intel, rng) → 命令。学習型 AI など。第 6 段階)。渡さないチームは今の AI (旧型 AI)
   function createGame(playerParams, rng, mode, options){
     const fleets = [];
     for(const team of TEAMS){
@@ -440,7 +441,8 @@
     return {
       time: 0, mode: mode || 'annihilation', fleets, intel: {blue: {}, red: {}}, beams: [],
       missiles: [], nextMissileId: 1, reveal: false, warpArmed: false, outcome: null,
-      enemyCheat: !!(options && options.enemyCheat), nextEnemyWarp: CHEAT_WARP_INTERVAL, enemyWarps: []
+      enemyCheat: !!(options && options.enemyCheat), nextEnemyWarp: CHEAT_WARP_INTERVAL, enemyWarps: [],
+      controllers: (options && options.controllers) || null
     };
   }
 
@@ -601,7 +603,8 @@
 
     for(const f of living){
       if(f.isPlayer || g.time < f.ai.nextThink) continue;
-      f.order = aiDecide(f, g.fleets, g.intel[f.team], rng);
+      const ctl = g.controllers && g.controllers[f.team];
+      f.order = ctl && !f.scout ? ctl(f, g.fleets, g.intel[f.team], rng) : aiDecide(f, g.fleets, g.intel[f.team], rng); // 偵察の分艦隊は今のルールのまま
       f.ai.nextThink = g.time + AI_THINK_INTERVAL;
     }
     // AI は直進ミサイルを毎ステップ見て、当たりそうならよける (プレイヤーは自分でよける)
