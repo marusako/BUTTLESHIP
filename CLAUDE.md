@@ -4,8 +4,10 @@
 
 **対象は PC のブラウザ (キーボード + マウス) だけ。** スマホ・タッチ対応は考えない。
 
+**v3.0 からの方針 (ユーザーの指示)**: 原作ゲームの再現である**クラシック (`classic/`) を主流として開発する**。ユーザーがオリジナルで作った**モダン (一番上の `index.html` のゲーム・`logic.js`・`rule-ai.js`・`brain.js`・`learned-brain.js`・`watch.html` など) は廃止して凍結**する: タイトル画面から消し、ファイルは残すが、ユーザーの指示がない限り変更しない。AI 学習の仕組み (神経進化・評価・観戦) はクラシックでも使い、学習はクラシック用に第 1 世代から始める (モダンの学習は `training/archive/2026-10-08-modern-gen2086/` に退避)
+
 ## 構成
-- `index.html` … 描画・入力・ゲームループ
+- `index.html` … タイトル画面・設定画面 (タイトルの「クラシック」で `classic/index.html` へ)。モダンのゲーム (描画・入力・ゲームループ) も入っているが凍結
 - `logic.js` … 描画や DOM に依存しないロジック。ブラウザでは `<script src>` で `window.SagittariusLogic` に、Node では `require()` で読み込める形にする (ES Modules は `file://` で動かないため使わない)
 - `logic.test.js` … `logic.js` の仕様テスト (`node:test`)
 - `rule-ai.js` / `rule-ai.test.js` … 旧型 AI (人が書いたルールの AI。ゲームで選べる AI の 1 つで、学習の「ものさし」)
@@ -16,7 +18,7 @@
 - `music.js` / `music.test.js` … BGM の楽譜データと、再生の予定を作る純粋な関数とそのテスト
 - `sound.js` / `sound.test.js` … 効果音と BGM (Web Audio で合成) と、その計算の関数のテスト
 - ゲームに必要なファイルを増やしたら、`scripts/package.js` の `GAME_FILES` にも加える (配布用 zip に入れるため)
-- `classic/` … クラシック (v1.3 からジョブを取り除いたもの)。**開発は中断中なので、ユーザーの指示がない限り変更しない**
+- `classic/` … クラシック (原作ゲームの再現。v1.3 からジョブを取り除いたものから始める)。**v3.0 から主流の開発対象**
 - `DESIGN.md` … 設計書。**作業に入る前に必ず読む**
 - `PLAN.md` … MVP の計画
 - `scripts/serve.js` … 依存なしの開発用サーバー

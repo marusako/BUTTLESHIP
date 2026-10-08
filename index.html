@@ -165,8 +165,7 @@
     <h1>BATTLESHIP</h1>
     <div class="sub">海上艦隊チーム対戦シミュレーション (5 vs 5)</div>
     <div class="titleMenu">
-      <button id="toModern">モダン</button>
-      <button id="toClassic" disabled>クラシック</button>
+      <button id="toClassic">クラシック</button>
       <button id="toSettings">設定</button>
     </div>
   </div>
@@ -336,8 +335,8 @@ function endGame(){
   setMode('title');
 }
 
-$('toModern').onclick = () => setMode('setup');
-// クラシックは押しても反応しない (ユーザーの指示。classic/ のファイルは残してある)
+// モダンは v3.0 でタイトルから消した (ユーザーの指示。ファイルと出撃準備・戦闘の画面は凍結して残す)。タイトルからはクラシックへ
+$('toClassic').onclick = () => { location.href = 'classic/index.html'; };
 $('toSettings').onclick = () => { waitingAction = null; renderSettings(); setMode('settings'); };
 $('settingsBack').onclick = () => { waitingAction = null; setMode('title'); };
 $('backTitle').onclick = () => setMode('title');
