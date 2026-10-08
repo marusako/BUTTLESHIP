@@ -1,5 +1,5 @@
 // クラシック: 描画や DOM に依存しないゲームロジック。
-// v1.3 からジョブを取り除き、ステータスは v1.2 と同じスライダー配分 (AI は 4 つの型からランダム) にしたもの。開発は中断中。
+// v1.3 からジョブを取り除き、ステータスは v1.2 と同じスライダー配分 (AI は 4 つの型からランダム) にしたもの。v3.0 から主流の開発対象 (原作ゲームの再現)。
 // ブラウザでは window.SagittariusLogic、Node では require('./logic.js') で使う。
 (function(root){
   'use strict';
@@ -8,7 +8,7 @@
   const INITIAL_SHIPS = 15000;   // 原作の画面に合わせた初期艦艇数
   const MAX_THROTTLE = 4;        // SPEED の段階の最大 (0〜4)
   const PARAM_TOTAL = 100;
-  const PARAM_MIN = 10;
+  const PARAM_MIN = 0;          // 各パラメータの最低 (原作どおり 0 から。第 5 段階で 10 → 0)
   const SENSOR_RANGE = 450;      // 索敵半径
   const BEAM_RANGE = 260;        // ビーム射程 (索敵半径より短い)
   const GHOST_CLEAR_RANGE = 150; // 最終確認位置にこの距離まで近づいて敵がいなければ記録を消す

@@ -173,8 +173,8 @@
     <h2>出撃準備</h2>
     <div class="section">ルール</div>
     <div class="modes">
-      <label><input type="radio" name="mode" value="annihilation" checked>全滅戦<small>敵を全滅させたら勝ち</small></label>
-      <label><input type="radio" name="mode" value="flagship">大将戦<small>敵の旗艦を倒したら勝ち</small></label>
+      <label><input type="radio" name="mode" value="annihilation">全滅戦<small>敵を全滅させたら勝ち</small></label>
+      <label><input type="radio" name="mode" value="flagship" checked>大将戦<small>敵の旗艦を倒したら勝ち (原作の対戦のルール)</small></label>
     </div>
     <div class="section">艦隊パラメータ配分</div>
     <div class="presets">
@@ -183,9 +183,9 @@
       <button data-preset="20,50,30">重装</button>
       <button data-preset="25,20,55">攻撃</button>
     </div>
-    <label class="param"><span>速度</span><input id="p-speed" type="range" min="10" max="80" step="1"><output id="o-speed"></output></label>
-    <label class="param"><span>防御</span><input id="p-defense" type="range" min="10" max="80" step="1"><output id="o-defense"></output></label>
-    <label class="param"><span>攻撃</span><input id="p-attack" type="range" min="10" max="80" step="1"><output id="o-attack"></output></label>
+    <label class="param"><span>速度</span><input id="p-speed" type="range" min="0" max="100" step="1"><output id="o-speed"></output></label>
+    <label class="param"><span>防御</span><input id="p-defense" type="range" min="0" max="100" step="1"><output id="o-defense"></output></label>
+    <label class="param"><span>攻撃</span><input id="p-attack" type="range" min="0" max="100" step="1"><output id="o-attack"></output></label>
     <div id="remain" class="remain"></div>
     <button id="backTitle">戻る</button>
     <button id="start">出撃</button>
@@ -234,7 +234,7 @@ let game = null;
 let playerParams = {speed: 34, defense: 33, attack: 33};
 // 長押しでの移動: 押している間はカーソルの位置 (キャンバス内の座標) を移動先にし続ける
 let dragMove = null;
-let ruleMode = 'annihilation';
+let ruleMode = 'flagship'; // 初めは大将戦 (原作の対戦のルール。第 5 段階)
 // カメラ: 画面中心に映すワールド座標 (cx, cy)、拡大率、回転角 (0 で北が上)
 const camera = {cx: 0, cy: 0, zoom: 1, angle: 0};
 const keys = new Set();

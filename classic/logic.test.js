@@ -25,12 +25,23 @@ function seq(...values){
   return () => values[i++ % values.length];
 }
 
-test('パラメータ配分: 合計 100・各 10 以上・整数だけ有効', () => {
+test('パラメータ配分: 合計 100・各 0 以上・整数だけ有効 (原作どおり 0 から 1 ずつ。第 5 段階で各 10 以上の制限をなくした)', () => {
+  assert.equal(L.PARAM_MIN, 0);
   assert.equal(L.validateParams({speed: 34, defense: 33, attack: 33}), true);
   assert.equal(L.validateParams({speed: 10, defense: 10, attack: 80}), true);
+  assert.equal(L.validateParams({speed: 9, defense: 45, attack: 46}), true);
+  assert.equal(L.validateParams({speed: 0, defense: 0, attack: 100}), true);
   assert.equal(L.validateParams({speed: 34, defense: 33, attack: 34}), false); // 合計 101
-  assert.equal(L.validateParams({speed: 9, defense: 45, attack: 46}), false);  // 10 未満
+  assert.equal(L.validateParams({speed: -1, defense: 50, attack: 51}), false);  // 0 未満
   assert.equal(L.validateParams({speed: 33.5, defense: 33.5, attack: 33}), false); // 小数
+});
+
+test('パラメータ配分の極端な値: 速度 0 でも動け (最低の速さ 40)、攻撃 0 ならビームのダメージは 0、防御 0 なら軽減なし', () => {
+  assert.equal(L.maxSpeed({speed: 0, defense: 50, attack: 50}), 40);
+  const a = {ships: L.INITIAL_SHIPS, params: {speed: 50, defense: 50, attack: 0}};
+  const t = {ships: L.INITIAL_SHIPS, params: {speed: 50, defense: 0, attack: 50}};
+  assert.equal(L.beamDps(a, t), 0);
+  assert.equal(L.mitigation(t.params), 1);
 });
 
 test('速度: 速度パラメータが高いほど速い', () => {
