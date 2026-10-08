@@ -1,0 +1,9 @@
+{
+  "name": "battleship-desktop",
+  "private": true,
+  "description": "exe 化 (Electron) のための開発用の依存。ゲーム本体は外部パッケージを使わない (CLAUDE.md の例外)",
+  "devDependencies": {
+    "electron": ">=37.0.0",
+    "@electron/packager": ">=18.0.0"
+  }
+}

@@ -48,4 +48,4 @@ if(require.main === module){
   }
 }
 
-module.exports = {zipName, isVersionTag, pickGameFiles, buildZip, versionTags};
+module.exports = {GAME_FILES, zipName, isVersionTag, pickGameFiles, buildZip, versionTags};

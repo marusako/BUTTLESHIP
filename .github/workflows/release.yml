@@ -1,4 +1,4 @@
-# バージョンのタグ (vX.Y / vX.Y.Z) を push すると、配布用 zip を作って GitHub Releases に置く。
+# バージョンのタグ (vX.Y / vX.Y.Z) を push すると、配布用 zip を作って GitHub Releases に置き、Windows 用の exe (Electron) の zip も添付する。
 # すでにあるタグは Actions の画面の「Run workflow」でタグ名を入れて実行できる (リリースがあれば zip を差し替える)
 name: release
 
@@ -34,3 +34,28 @@ jobs:
           else
             gh release create "$TAG" dist/*.zip --title "$TAG" --notes-file notes.txt
           fi
+
+  # exe 化 (Electron。desktop/)。リリースを作ったあと、Windows で exe を作って「BATTLESHIP-<タグ>-windows.zip」を添付する
+  desktop:
+    needs: release
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.tag || github.ref }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: exe を作ってリリースに添付する
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          (cd desktop && npm install --no-audit --no-fund)
+          node desktop/build.js "$TAG"
+          ELECTRON_VERSION=$(node -p "require('./desktop/node_modules/electron/package.json').version")
+          desktop/node_modules/.bin/electron-packager desktop/build/app BATTLESHIP --platform=win32 --arch=x64 --electron-version="$ELECTRON_VERSION" --out desktop/dist --overwrite
+          (cd desktop/dist && 7z a "../../BATTLESHIP-$TAG-windows.zip" BATTLESHIP-win32-x64 > /dev/null)
+          gh release upload "$TAG" "BATTLESHIP-$TAG-windows.zip" --clobber

@@ -1317,6 +1317,19 @@
   - 配布方法 (GitHub の Releases など) と、署名していないアプリに出る OS の警告への対応
 - 後述のオンライン対戦と一緒にやるか、別にやるか
 
+### 決まったこと (ユーザーの選択。2026-10-08。第 5 段階 ④ のあと)
+- 作り方: **Electron** (外部パッケージ。このルールの例外として `desktop/` の中だけで使う。ゲーム本体は今までどおり外部パッケージなし)。Claude の推奨は「Windows に入っている C# のコンパイラで作る小さな起動用 exe」だったが、ユーザーは自前のウィンドウを持つ本格的なアプリを選んだ
+- 配布: タグの push で GitHub Actions (Windows の実行環境) が exe を作り、「exe とゲームのファイル」の zip をリリースに添付する。Actions の時間は Windows なので 2 倍で数えられる
+- 開くもの: タイトル画面 (一番上の index.html。クラシックと設定)
+- この PC には npm がないので、Electron のアプリはこの PC では動かせない。アプリの中身を組み立てる部分 (`desktop/build.js`) だけをテストし、exe はユーザーがリリースから取って確かめる
+
+### 作るもの
+- `desktop/main.js`: Electron の起動。ウィンドウ 1440 × 900 (最小 1280 × 720)、メニューなし、題名 BATTLESHIP、F11 で全画面。音はクリックなしで鳴らせるようにする。`game/index.html` を開く
+- `desktop/package.json`: Electron と @electron/packager (どちらも開発用)。版は固定せず、メジャー版の範囲で指定する
+- `desktop/build.js`: `scripts/package.js` の `GAME_FILES` を `desktop/build/app/game/` に写し、`main.js` とアプリの `package.json` (版はタグ) を置く (外部パッケージなし。テストは `desktop/build.test.js`)
+- `.github/workflows/release.yml`: リリースを作ったあと、Windows で `npm install` → `node desktop/build.js` → `@electron/packager` で `BATTLESHIP-win32-x64/` を作り、zip にしてリリースに添付する
+- Mac 版・署名 (OS の警告をなくす) は今回はしない。署名していないので、初めて開くときに Windows の SmartScreen の警告が出る (「詳細情報」→「実行」で開ける)
+
 ## オンライン対戦 (Windows・Mac 対応)
 - 目的: 作中のように、別々の PC (Windows・Mac のどちらでも) からチームに分かれて対戦できるようにする
 - 着手時に決めること

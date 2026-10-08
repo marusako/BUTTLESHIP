@@ -1,2 +1,5 @@
 dist/
 training/
+desktop/build/
+desktop/dist/
+desktop/node_modules/
