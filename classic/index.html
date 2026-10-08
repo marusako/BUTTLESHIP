@@ -292,6 +292,7 @@ function resize(){
   const mini = minimap.parentElement;
   minimap.width = mini.clientWidth;
   minimap.height = mini.clientHeight;
+  clampCamera();
 }
 // ウィンドウの大きさだけでなく、パネルの中身が増えて枠の大きさが変わったときも合わせ直す
 new ResizeObserver(resize).observe($('mapWrap'));
@@ -635,15 +636,16 @@ function minimapArea(){
   const w = L.WORLD.w * s, h = L.WORLD.h * s;
   return {x: (minimap.width - w) / 2, y: (minimap.height - h) / 2, w, h};
 }
+// 画面にマップの外が写らないように視点を寄せる (回転・拡大も考える)
 function clampCamera(){
-  camera.cx = Math.min(L.WORLD.w, Math.max(0, camera.cx));
-  camera.cy = Math.min(L.WORLD.h, Math.max(0, camera.cy));
+  Object.assign(camera, L.clampCameraCenter(camera.cx, camera.cy, canvas.width, canvas.height, camera.zoom, camera.angle));
 }
 function centerOnPlayer(){
   const me = player();
   if(!me) return;
   camera.cx = me.x;
   camera.cy = me.y;
+  clampCamera();
 }
 
 // 操作中の艦隊 (分艦隊のうち 1 つ。第 5 段階 ④)。全滅・合流したら残っている自分の艦隊へ移る。全部沈んだら元の艦隊
@@ -727,8 +729,8 @@ function update(dt){
   const k = CAMERA_SPEED * dt / camera.zoom;
   camera.cx += (vx * c - vy * s) * k;
   camera.cy += (vx * s + vy * c) * k;
-  clampCamera();
   camera.angle += (keys.has('KeyE') - keys.has('KeyQ')) * ROTATE_SPEED * dt;
+  clampCamera();
 
   applyDragMove();
   L.step(game, dt, Math.random);

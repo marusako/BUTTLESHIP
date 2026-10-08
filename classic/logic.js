@@ -655,7 +655,16 @@
     g.outcome = checkOutcome(g.fleets);
   }
 
-  const api = {
+  // 視点の中心 (cx, cy) を、画面 (viewW × viewH ピクセル、拡大 zoom、回転 angle) にマップの外が写らない範囲に寄せる。
+  // 回した画面を囲む長方形がマップに収まるようにする。画面のほうが広い向きは、マップの真ん中にする
+  function clampCameraCenter(cx, cy, viewW, viewH, zoom, angle){
+    const c = Math.abs(Math.cos(angle)), s = Math.abs(Math.sin(angle));
+    const hw = (c * viewW + s * viewH) / 2 / zoom, hh = (s * viewW + c * viewH) / 2 / zoom;
+    const fit = (v, half, size) => (half * 2 >= size ? size / 2 : Math.min(size - half, Math.max(half, v)));
+    return {cx: fit(cx, hw, WORLD.w), cy: fit(cy, hh, WORLD.h)};
+  }
+
+  const api = {clampCameraCenter, 
     WORLD, INITIAL_SHIPS, MAX_THROTTLE, PARAM_TOTAL, PARAM_MIN, MISSILE_AMMO, MISSILE_STRAIGHT_SPEED, segmentDistance, DODGE_LOOKAHEAD, DODGE_MARGIN, DODGE_TIME, dodgeOrder, FORMATION_SPEED_RATIO, formationSpeedCap, CHEAT_WARP_INTERVAL, CHEAT_WARP_DISTANCE, enemyCheatWarp, SUBFLEET_MAX, MERGE_RANGE, splitFleet, mergeFleets, SCOUT_COUNT, SCOUT_SHIPS, SCOUT_WATCH_DISTANCE, SCOUT_SAFE_DISTANCE, launchScouts, SENSOR_RANGE, BEAM_RANGE, GHOST_CLEAR_RANGE, FIREPOWER_FLOOR,
     MISSILE_RANGE, MISSILE_INTERVAL, MISSILE_SPEED, MISSILE_LIFE, MISSILE_HIT_RADIUS, INTERCEPT_RANGE, INTERCEPT_INTERVAL,
     AI_PRESETS, validateParams, updateLeaders, maxSpeed, mitigation, beamDps, missileDamage, visibleEnemies, updateIntel,

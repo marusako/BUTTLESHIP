@@ -979,3 +979,13 @@ test('controllers: createGame の options.controllers のチームの AI の艦�
   assert.ok(g.fleets.filter(f => f.team === 'red' && f.scout).every(f => f.order && f.order.explore), '偵察は今のルール');
   assert.ok(g.fleets.filter(f => f.team === 'blue' && !f.isPlayer && !f.scout).every(f => !(f.order && f.order.x === 1200 && f.order.y === 2400)), '青は今の AI');
 });
+
+test('視点: 画面にマップの外が写らないように中心を寄せる (回転と拡大を考える。画面がマップより大きい向きは真ん中)', () => {
+  const {w, h} = L.WORLD;
+  assert.deepEqual(L.clampCameraCenter(0, 0, 800, 600, 1, 0), {cx: 400, cy: 300});
+  assert.deepEqual(L.clampCameraCenter(w, h, 800, 600, 2, 0), {cx: w - 200, cy: h - 150});
+  assert.deepEqual(L.clampCameraCenter(1000, 2000, 800, 600, 1, 0), {cx: 1000, cy: 2000}, '中ならそのまま');
+  const r = L.clampCameraCenter(0, 0, 800, 600, 1, Math.PI / 2);
+  assert.ok(Math.abs(r.cx - 300) < 1e-9 && Math.abs(r.cy - 400) < 1e-9, '90° 回すと縦横が入れ替わる');
+  assert.equal(L.clampCameraCenter(0, 0, w * 2, 600, 1, 0).cx, w / 2, '画面のほうが広ければ真ん中');
+});
