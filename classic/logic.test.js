@@ -893,3 +893,73 @@ test('分艦隊: AI の味方の護衛は、プレイヤーの分艦隊を数え
   const after = L.aiDecide(escort, g.fleets, g.intel.blue, seq(0.5));
   assert.deepEqual(after, before);
 });
+
+// ---------- 第 5 段階 ⑤: AI の偵察用の分艦隊 ----------
+
+test('偵察 (AI): 出撃してすぐ、各チームの AI の護衛のうち左右の端の 2 艦隊が SCOUT_SHIPS (500) 隻ずつ偵察の分艦隊を切り出す。プレイヤーの艦隊からは出さない。沈んでも出し直さない', () => {
+  assert.deepEqual([L.SCOUT_COUNT, L.SCOUT_SHIPS], [2, 500]);
+  const g = L.createGame({speed: 34, defense: 33, attack: 33}, seq(0.5), 'flagship');
+  L.step(g, 1 / 30, seq(0.5));
+  for(const team of ['blue', 'red']){
+    const scouts = g.fleets.filter(f => f.team === team && f.scout);
+    assert.equal(scouts.length, 2, team);
+    assert.ok(scouts.every(f => f.ships === 500 && !f.isPlayer && !f.leader && !f.flagship), team);
+    const parents = scouts.map(sc => g.fleets.find(f => f.id === sc.root));
+    assert.ok(parents.every(p => !p.isPlayer && !p.leader && p.ships === L.INITIAL_SHIPS - 500), team + ' 親は AI の護衛');
+    const xs = g.fleets.filter(f => f.team === team && !f.scout && !f.leader).map(f => f.x);
+    assert.deepEqual(parents.map(p => p.x).sort((a, b) => a - b), [Math.min(...xs), Math.max(...xs)], team + ' 左右の端');
+    assert.deepEqual(scouts.map(sc => sc.scoutSide).sort(), [-1, 1]);
+  }
+  for(const f of g.fleets.filter(f => f.scout)) f.ships = 0;
+  L.step(g, 1 / 30, seq(0.5));
+  assert.equal(g.fleets.filter(f => f.scout).length, 4, '出し直さない');
+});
+
+// 偵察の分艦隊 1 つ (青、左側担当) と、必要なら敵
+function scoutScene(extra){
+  const sc = fleet({id: 'sc', x: 600, y: 3000, scout: true, scoutSide: -1, ships: 500});
+  const lead = fleet({id: 'lead', x: 1200, y: 4500, leader: true});
+  return [sc, lead, ...(extra || [])];
+}
+
+test('偵察 (AI): 敵の手がかりがなければ、敵陣側の自分の担当 (左右の半分) の中を探して回る', () => {
+  const fleets = scoutScene();
+  const o = L.aiDecide(fleets[0], fleets, {}, seq(0.3));
+  assert.equal(o.type, 'move');
+  assert.ok(o.explore);
+  assert.ok(o.x <= L.WORLD.w / 2, '左側の担当');
+  assert.ok(o.y < L.WORLD.h / 2, '敵陣側 (青は上)');
+});
+
+test('偵察 (AI): 敵が見えていれば SCOUT_WATCH_DISTANCE を保って見張る (敵旗艦を優先)。自分からは攻撃に行かない', () => {
+  const e = fleet({id: 'e', team: 'red', x: 600, y: 2400});
+  const rf = fleet({id: 'rf', team: 'red', x: 900, y: 2300, flagship: true});
+  const fleets = scoutScene([e, rf]);
+  const intel = {e: {x: e.x, y: e.y, visible: true}, rf: {x: rf.x, y: rf.y, visible: true}};
+  const o = L.aiDecide(fleets[0], fleets, intel, seq(0.3));
+  assert.equal(o.type, 'move');
+  assert.ok(Math.abs(Math.hypot(o.x - rf.x, o.y - rf.y) - L.SCOUT_WATCH_DISTANCE) < 1e-6, '敵旗艦から見張る距離');
+  delete intel.rf;
+  const o2 = L.aiDecide(fleets[0], fleets.filter(f => f.id !== 'rf'), intel, seq(0.3));
+  assert.ok(Math.abs(Math.hypot(o2.x - e.x, o2.y - e.y) - L.SCOUT_WATCH_DISTANCE) < 1e-6, '旗艦が見えなければ近い敵');
+});
+
+test('偵察 (AI): 敵が SCOUT_SAFE_DISTANCE より近ければ、その敵から離れる', () => {
+  assert.ok(L.SCOUT_SAFE_DISTANCE > L.BEAM_RANGE, 'ビームの射程の外');
+  const e = fleet({id: 'e', team: 'red', x: 600, y: 3000 - L.SCOUT_SAFE_DISTANCE + 50});
+  const fleets = scoutScene([e]);
+  const o = L.aiDecide(fleets[0], fleets, {e: {x: e.x, y: e.y, visible: true}}, seq(0.3));
+  assert.equal(o.type, 'move');
+  assert.ok(o.y > 3000, '敵 (北) と反対の南へ');
+});
+
+test('偵察 (AI): 護衛の隊列と隊形の速さには偵察の分艦隊を数えない', () => {
+  const g = L.createGame({speed: 34, defense: 33, attack: 33}, seq(0.5), 'flagship');
+  for(const f of g.fleets) f.ai.nextThink = 999;
+  const escort = g.fleets.find(f => f.team === 'red' && !f.leader && f.x > 1000 && f.x < 1400) || g.fleets.find(f => f.team === 'red' && !f.leader);
+  const leader = g.fleets.find(f => f.team === 'red' && f.leader);
+  const before = [L.aiDecide(escort, g.fleets, g.intel.red, seq(0.5)), L.formationSpeedCap(leader, g.fleets)];
+  g.fleets.push(Object.assign({}, escort, {id: 'red-scout', scout: true, ships: 500, params: {speed: 0, defense: 50, attack: 50}}));
+  const after = [L.aiDecide(escort, g.fleets, g.intel.red, seq(0.5)), L.formationSpeedCap(leader, g.fleets)];
+  assert.deepEqual(after, before);
+});

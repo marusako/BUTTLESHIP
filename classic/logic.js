@@ -40,6 +40,10 @@
   const SUBFLEET_MAX = 20;       // 分艦隊 (第 5 段階 ④。原作どおり): プレイヤーの艦隊は、元の艦隊と分艦隊を合わせてこの数まで
   const MERGE_RANGE = 40;        // 合流: merge 命令の艦隊が合流先からこの距離以内に来たら 1 つになる
   const SUBFLEET_OFFSET = 40;    // 切り出した分艦隊は、元の艦隊の右へこの距離ずらして出す
+  const SCOUT_COUNT = 2;         // 偵察 (AI。第 5 段階 ⑤): 出撃してすぐ、各チームの AI の護衛のうち左右の端のこの数が分艦隊を出す
+  const SCOUT_SHIPS = 500;       // 偵察の分艦隊の隻数
+  const SCOUT_WATCH_DISTANCE = 400; // 偵察の分艦隊は、見つけた敵からこの距離を保って見張る (索敵 450 の内側、ビーム 260 の外)
+  const SCOUT_SAFE_DISTANCE = 360;  // これより近くに敵が来たら離れる
   const CHEAT_WARP_DISTANCE = 200; // ワープ先: 青の隊長の後ろ (進む向きの反対) のこの距離
   const TEAMS = ['blue', 'red'];
 
@@ -248,13 +252,18 @@
   function splitFleet(g, f, ships){
     if(!f || !f.isPlayer || !alive(f) || !Number.isInteger(ships) || ships < 1 || ships >= f.ships) return null;
     if(g.fleets.filter(a => a.team === f.team && a.isPlayer && alive(a)).length >= SUBFLEET_MAX) return null;
+    return cutFleet(g, f, ships, '分艦隊');
+  }
+
+  // f から ships 隻を切り出した新しい艦隊を g.fleets に足して返す (確かめは呼ぶ側。名前は「元の名前・<label>N」)
+  function cutFleet(g, f, ships, label){
     const root = f.root || f.id;
     const rootFleet = g.fleets.find(a => a.id === root) || f;
     g.nextSubId = (g.nextSubId || 0) + 1;
     const missiles = Math.floor((f.missiles || 0) * ships / f.ships);
     const c = Math.cos(f.heading), s = Math.sin(f.heading);
     const sub = Object.assign({}, f, {
-      id: root + '-s' + g.nextSubId, root, name: rootFleet.name.replace(/・分艦隊d+$/, '') + '・分艦隊' + g.nextSubId,
+      id: root + '-s' + g.nextSubId, root, name: rootFleet.name.replace(/・(分艦隊|偵察)\d+$/, '') + '・' + label + g.nextSubId,
       x: clamp(f.x - s * SUBFLEET_OFFSET, 0, WORLD.w), y: clamp(f.y + c * SUBFLEET_OFFSET, 0, WORLD.h),
       ships, missiles, flagship: false, leader: false, order: null, merged: false,
       params: Object.assign({}, f.params), weapons: Object.assign({}, f.weapons), ai: {nextThink: 0}, interceptCooldown: 0
@@ -263,6 +272,55 @@
     f.missiles = (f.missiles || 0) - missiles;
     g.fleets.push(sub);
     return sub;
+  }
+
+  // 偵察 (AI。第 5 段階 ⑤): 各チームの AI の護衛 (プレイヤー・隊長・偵察でない) のうち、左右の端の艦隊が SCOUT_SHIPS 隻ずつ切り出す。
+  // 担当 scoutSide は左 (-1) / 右 (1)。試合の始めに 1 回だけ (沈んでも出し直さない)
+  function launchScouts(g){
+    for(const team of TEAMS){
+      const escorts = g.fleets.filter(f => f.team === team && alive(f) && !f.isPlayer && !f.leader && !f.scout);
+      if(!escorts.length) continue;
+      const byX = [...escorts].sort((a, b) => a.x - b.x);
+      const picks = SCOUT_COUNT >= 2 && byX.length >= 2 ? [byX[0], byX[byX.length - 1]] : [byX[0]];
+      for(const parent of picks){
+        if(parent.ships <= SCOUT_SHIPS) continue;
+        const sc = cutFleet(g, parent, SCOUT_SHIPS, '偵察');
+        sc.scout = true;
+        sc.scoutSide = parent.x < WORLD.w / 2 ? -1 : 1;
+      }
+    }
+  }
+
+  // 偵察の分艦隊の命令: 近すぎる敵から離れる → 見えている敵 (敵旗艦を優先) を SCOUT_WATCH_DISTANCE で見張る →
+  // 見失った敵の最終確認位置へ → 手がかりがなければ敵陣側の自分の担当 (左右の半分) を探して回る。自分からは攻撃に行かない
+  function scoutDecide(f, fleets, intel, rng){
+    const byId = new Map(fleets.map(e => [e.id, e]));
+    const seen = Object.entries(intel).filter(([id, i]) => i.visible && byId.get(id) && alive(byId.get(id)));
+    let near = null;
+    for(const [, i] of seen) if(dist(f, i) < SCOUT_SAFE_DISTANCE && (!near || dist(f, i) < dist(f, near))) near = i;
+    if(near){
+      const d = dist(f, near) || 1;
+      return {type: 'move', x: clamp(f.x + (f.x - near.x) / d * 300, 0, WORLD.w), y: clamp(f.y + (f.y - near.y) / d * 300, 0, WORLD.h)};
+    }
+    let watch = null;
+    for(const [id, i] of seen){
+      const flag = byId.get(id).flagship;
+      if(!watch || (flag && !watch.flag) || (flag === watch.flag && dist(f, i) < dist(f, watch.i))) watch = {i, flag};
+    }
+    if(!watch){
+      let ghost = null;
+      for(const i of Object.values(intel)) if(!i.visible && (!ghost || dist(f, i) < dist(f, ghost))) ghost = i;
+      if(ghost) watch = {i: ghost};
+    }
+    if(watch){
+      const i = watch.i, d = dist(f, i) || 1;
+      return {type: 'move', x: clamp(i.x + (f.x - i.x) / d * SCOUT_WATCH_DISTANCE, 0, WORLD.w), y: clamp(i.y + (f.y - i.y) / d * SCOUT_WATCH_DISTANCE, 0, WORLD.h)};
+    }
+    if(f.order && f.order.explore) return f.order;
+    const half = WORLD.h / 2, halfW = WORLD.w / 2;
+    const x = f.scoutSide < 0 ? rng() * halfW : halfW + rng() * halfW;
+    const y = f.team === 'blue' ? rng() * half : half + rng() * half;
+    return {type: 'move', x, y, explore: true};
   }
 
   // 合流: a と b を 1 つにする (隻数とミサイルを足す)。旗艦・隊長がいればその側に残し、もう片方は合流済み (ships 0・merged) になる。残った艦隊を返す
@@ -284,7 +342,7 @@
   // 隊長でない・プレイヤー・護衛がいないときは null (制限なし)
   function formationSpeedCap(f, fleets){
     if(f.isPlayer || !f.leader) return null;
-    const escorts = fleets.filter(e => e.team === f.team && e !== f && alive(e) && !e.isPlayer);
+    const escorts = fleets.filter(e => e.team === f.team && e !== f && alive(e) && !e.isPlayer && !e.scout);
     if(!escorts.length) return null;
     return FORMATION_SPEED_RATIO * Math.min(...escorts.map(e => maxSpeed(e.params)));
   }
@@ -301,6 +359,7 @@
 
   // AI の命令を決める。隊長は攻撃に向かい、護衛は隊長を守って付いていく
   function aiDecide(f, fleets, intel, rng){
+    if(f.scout) return scoutDecide(f, fleets, intel, rng);
     const leader = fleets.find(a => a.team === f.team && a.leader && alive(a));
     if(!leader || leader === f) return leaderDecide(f, fleets, intel, rng);
 
@@ -312,7 +371,7 @@
     if(threat) return {type: 'attack', targetId: threat};
 
     // 隊長の周りの決まった位置へ付いていく
-    const escorts = fleets.filter(a => a.team === f.team && alive(a) && a !== leader && !a.isPlayer); // プレイヤーの分艦隊は数えない
+    const escorts = fleets.filter(a => a.team === f.team && alive(a) && a !== leader && !a.isPlayer && !a.scout); // プレイヤーの分艦隊と偵察は数えない
     const slot = escortSlot(leader, escorts.indexOf(f));
     return {type: 'move', x: slot.x, y: slot.y};
   }
@@ -554,6 +613,7 @@
       f.ai.nextThink = g.time + DODGE_TIME;
     }
 
+    if(!g.scoutsLaunched){ g.scoutsLaunched = true; launchScouts(g); }
     enemyCheatWarp(g);
     const byIdNow = new Map(g.fleets.map(f => [f.id, f]));
     for(const f of living){
@@ -593,7 +653,7 @@
   }
 
   const api = {
-    WORLD, INITIAL_SHIPS, MAX_THROTTLE, PARAM_TOTAL, PARAM_MIN, MISSILE_AMMO, MISSILE_STRAIGHT_SPEED, segmentDistance, DODGE_LOOKAHEAD, DODGE_MARGIN, DODGE_TIME, dodgeOrder, FORMATION_SPEED_RATIO, formationSpeedCap, CHEAT_WARP_INTERVAL, CHEAT_WARP_DISTANCE, enemyCheatWarp, SUBFLEET_MAX, MERGE_RANGE, splitFleet, mergeFleets, SENSOR_RANGE, BEAM_RANGE, GHOST_CLEAR_RANGE, FIREPOWER_FLOOR,
+    WORLD, INITIAL_SHIPS, MAX_THROTTLE, PARAM_TOTAL, PARAM_MIN, MISSILE_AMMO, MISSILE_STRAIGHT_SPEED, segmentDistance, DODGE_LOOKAHEAD, DODGE_MARGIN, DODGE_TIME, dodgeOrder, FORMATION_SPEED_RATIO, formationSpeedCap, CHEAT_WARP_INTERVAL, CHEAT_WARP_DISTANCE, enemyCheatWarp, SUBFLEET_MAX, MERGE_RANGE, splitFleet, mergeFleets, SCOUT_COUNT, SCOUT_SHIPS, SCOUT_WATCH_DISTANCE, SCOUT_SAFE_DISTANCE, launchScouts, SENSOR_RANGE, BEAM_RANGE, GHOST_CLEAR_RANGE, FIREPOWER_FLOOR,
     MISSILE_RANGE, MISSILE_INTERVAL, MISSILE_SPEED, MISSILE_LIFE, MISSILE_HIT_RADIUS, INTERCEPT_RANGE, INTERCEPT_INTERVAL,
     AI_PRESETS, validateParams, updateLeaders, maxSpeed, mitigation, beamDps, missileDamage, visibleEnemies, updateIntel,
     chooseTarget, moveFleet, checkOutcome, aiDecide, createGame, step,
