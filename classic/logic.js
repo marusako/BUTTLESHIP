@@ -4,7 +4,7 @@
 (function(root){
   'use strict';
 
-  const WORLD = {w: 4800, h: 9600}; // 原作のミニマップと同じ縦長 (横 1 : 縦 2)。青は下、赤は上に陣取る (第 7 段階で 2 倍に。索敵・射程・速さはそのまま)
+  const WORLD = {w: 14400, h: 28800}; // 原作のミニマップと同じ縦長 (横 1 : 縦 2)。青は下、赤は上に陣取る (第 7 段階で 2 倍、第 8 段階で 3 倍に。索敵・射程・速さはそのまま)
   const INITIAL_SHIPS = 15000;   // 原作の画面に合わせた初期艦艇数
   const MAX_THROTTLE = 4;        // SPEED の段階の最大 (0〜4)
   const PARAM_TOTAL = 100;
@@ -47,6 +47,11 @@
   const SCOUT_SHIPS = 500;       // 偵察の分艦隊の隻数
   const SCOUT_WATCH_DISTANCE = 400; // 偵察の分艦隊は、見つけた敵からこの距離を保って見張る (索敵 450 の内側、ビーム 260 の外)
   const SCOUT_SAFE_DISTANCE = 360;  // これより近くに敵が来たら離れる
+  const DETACH_PER_ESCORT = 3;   // 展開隊 (AI の戦う分艦隊。第 8 段階): 出撃してすぐ、AI の護衛はそれぞれこの数を切り出す (元と合わせて等分)
+  const TEAM_FLEET_MAX = 20;     // AI が分艦隊を出すとき、チームの艦隊 (元の艦隊・偵察・展開隊) をこの数より増やさない
+  const DELAY_RADIUS = 2000;     // 足止め: 見えている敵が隊長からこの距離以内なら、その敵に近い展開隊が向かう
+  const DELAY_COUNT = 2;         // 足止めに向かう展開隊の数
+  const DETACH_EDGE_MARGIN = 500; // 展開隊が探しに行く敵陣の端 (マップの端からこの距離)
   const CHEAT_WARP_DISTANCE = 200; // ワープ先: 青の隊長の後ろ (進む向きの反対) のこの距離
   const TEAMS = ['blue', 'red'];
 
@@ -315,7 +320,7 @@
     const missiles = Math.floor((f.missiles || 0) * ships / f.ships);
     const c = Math.cos(f.heading), s = Math.sin(f.heading);
     const sub = Object.assign({}, f, {
-      id: root + '-s' + g.nextSubId, root, name: rootFleet.name.replace(/・(分艦隊|偵察)\d+$/, '') + '・' + label + g.nextSubId,
+      id: root + '-s' + g.nextSubId, root, name: rootFleet.name.replace(/・(分艦隊|偵察|分隊)\d+$/, '') + '・' + label + g.nextSubId,
       x: clamp(f.x - s * SUBFLEET_OFFSET, 0, WORLD.w), y: clamp(f.y + c * SUBFLEET_OFFSET, 0, WORLD.h),
       ships, missiles, flagship: false, leader: false, order: null, merged: false,
       params: Object.assign({}, f.params), weapons: Object.assign({}, f.weapons), ai: {nextThink: 0}, interceptCooldown: 0
@@ -341,6 +346,59 @@
         sc.scoutSide = parent.x < WORLD.w / 2 ? -1 : 1;
       }
     }
+  }
+
+  // 展開隊 (AI の戦う分艦隊。第 8 段階): 各チームの AI の護衛 (プレイヤー・隊長・偵察・展開隊でない) が、左から順に DETACH_PER_ESCORT ずつ切り出す
+  // (元と合わせて DETACH_PER_ESCORT + 1 等分。チームの艦隊が TEAM_FLEET_MAX になったらやめる)。列 lane は切り出した順に 0, 1, …、lanes は列の数。試合の始めに 1 回だけ
+  function launchDetachments(g){
+    for(const team of TEAMS){
+      const escorts = g.fleets.filter(f => f.team === team && alive(f) && !f.isPlayer && !f.leader && !f.scout && !f.detach).sort((a, b) => a.x - b.x);
+      const subs = [];
+      for(const parent of escorts){
+        const part = Math.floor(parent.ships / (DETACH_PER_ESCORT + 1));
+        for(let k = 0; k < DETACH_PER_ESCORT && part >= 1; k++){
+          if(g.fleets.filter(f => f.team === team && alive(f)).length >= TEAM_FLEET_MAX) break;
+          const d = cutFleet(g, parent, part, '分隊');
+          d.detach = true;
+          subs.push(d);
+        }
+      }
+      subs.forEach((d, k) => { d.lane = k; d.lanes = subs.length; });
+    }
+  }
+
+  // 展開隊の命令: 足止め (隊長から DELAY_RADIUS 以内の見えている敵に近い DELAY_COUNT 個は、その敵を攻撃) →
+  // 見えている敵のうち最もよい相手 (旗艦優先) を攻撃 → 見失った敵の最終確認位置へ →
+  // 手がかりがなければ自分の列 (縦の帯の真ん中) を、敵陣の端とマップの真ん中の間で行き来する (自陣の端まで行き来させると、時間切れが 3.5% → 9.5% に増えた。敵陣側を探すほうが早く出会う)
+  function detachDecide(f, fleets, intel, rng){
+    const byId = new Map(fleets.map(e => [e.id, e]));
+    const leader = fleets.find(a => a.team === f.team && a.leader && alive(a));
+    if(leader){
+      let threat = null, threatId = null;
+      for(const [id, info] of Object.entries(intel)){
+        const e = byId.get(id);
+        if(!info.visible || !e || !alive(e) || dist(leader, info) > DELAY_RADIUS) continue;
+        if(!threat || dist(leader, info) < dist(leader, threat)){ threat = info; threatId = id; }
+      }
+      if(threat){
+        const mates = fleets.filter(a => a.team === f.team && a.detach && alive(a)).sort((a, b) => dist(a, threat) - dist(b, threat));
+        if(mates.indexOf(f) < DELAY_COUNT) return {type: 'attack', targetId: threatId};
+      }
+    }
+    const target = bestVisibleTarget(f, fleets, intel);
+    if(target) return {type: 'attack', targetId: target};
+    let ghost = null;
+    for(const info of Object.values(intel)) if(!info.visible && (!ghost || dist(f, info) < dist(f, ghost))) ghost = info;
+    if(ghost) return {type: 'move', x: ghost.x, y: ghost.y};
+    if(f.order && f.order.explore) return f.order;
+    // 列は、生き残っている展開隊を最初の列の順に並べて割り直す (沈んだ展開隊の列を空けない)
+    const mates = fleets.filter(a => a.team === f.team && a.detach && alive(a)).sort((a, b) => (a.lane || 0) - (b.lane || 0));
+    const rank = Math.max(0, mates.indexOf(f));
+    const x = WORLD.w * (rank + 0.5) / Math.max(1, mates.length);
+    const edge = f.team === 'blue' ? DETACH_EDGE_MARGIN : WORLD.h - DETACH_EDGE_MARGIN;
+    const y = f.sweep ? WORLD.h / 2 : edge;
+    f.sweep = !f.sweep;
+    return {type: 'move', x, y, explore: true};
   }
 
   // 偵察の分艦隊の命令: 近すぎる敵から離れる → 見えている敵 (敵旗艦を優先) を SCOUT_WATCH_DISTANCE で見張る →
@@ -394,7 +452,7 @@
   // 隊長でない・プレイヤー・護衛がいないときは null (制限なし)
   function formationSpeedCap(f, fleets){
     if(f.isPlayer || !f.leader) return null;
-    const escorts = fleets.filter(e => e.team === f.team && e !== f && alive(e) && !e.isPlayer && !e.scout);
+    const escorts = fleets.filter(e => e.team === f.team && e !== f && alive(e) && !e.isPlayer && !e.scout && !e.detach);
     if(!escorts.length) return null;
     return FORMATION_SPEED_RATIO * Math.min(...escorts.map(e => maxSpeed(e.params)));
   }
@@ -412,6 +470,7 @@
   // AI の命令を決める。隊長は攻撃に向かい、護衛は隊長を守って付いていく
   function aiDecide(f, fleets, intel, rng){
     if(f.scout) return scoutDecide(f, fleets, intel, rng);
+    if(f.detach) return detachDecide(f, fleets, intel, rng);
     const leader = fleets.find(a => a.team === f.team && a.leader && alive(a));
     if(!leader || leader === f) return leaderDecide(f, fleets, intel, rng);
 
@@ -423,7 +482,7 @@
     if(threat) return {type: 'attack', targetId: threat};
 
     // 隊長の周りの決まった位置へ付いていく
-    const escorts = fleets.filter(a => a.team === f.team && alive(a) && a !== leader && !a.isPlayer && !a.scout); // プレイヤーの分艦隊と偵察は数えない
+    const escorts = fleets.filter(a => a.team === f.team && alive(a) && a !== leader && !a.isPlayer && !a.scout && !a.detach); // プレイヤーの分艦隊・偵察・展開隊は数えない
     const slot = escortSlot(leader, escorts.indexOf(f));
     return {type: 'move', x: slot.x, y: slot.y};
   }
@@ -668,7 +727,7 @@
       f.ai.nextThink = g.time + DODGE_TIME;
     }
 
-    if(!g.scoutsLaunched){ g.scoutsLaunched = true; launchScouts(g); }
+    if(!g.scoutsLaunched){ g.scoutsLaunched = true; launchScouts(g); launchDetachments(g); }
     enemyCheatWarp(g);
     const byIdNow = new Map(g.fleets.map(f => [f.id, f]));
     for(const f of living){
@@ -717,7 +776,7 @@
     return {cx: fit(cx, hw, WORLD.w), cy: fit(cy, hh, WORLD.h)};
   }
 
-  const api = {clampCameraCenter, FLEET_RADIUS, separateFleets, SPAWN_XS, BEAM_OPTIMAL_RATIO, BEAM_CLOSE_FACTOR, beamRangeFactor, 
+  const api = {clampCameraCenter, DETACH_PER_ESCORT, TEAM_FLEET_MAX, DELAY_RADIUS, DELAY_COUNT, DETACH_EDGE_MARGIN, launchDetachments, detachDecide, FLEET_RADIUS, separateFleets, SPAWN_XS, BEAM_OPTIMAL_RATIO, BEAM_CLOSE_FACTOR, beamRangeFactor, 
     WORLD, INITIAL_SHIPS, MAX_THROTTLE, PARAM_TOTAL, PARAM_MIN, MISSILE_AMMO, MISSILE_STRAIGHT_SPEED, segmentDistance, DODGE_LOOKAHEAD, DODGE_MARGIN, DODGE_TIME, dodgeOrder, FORMATION_SPEED_RATIO, formationSpeedCap, CHEAT_WARP_INTERVAL, CHEAT_WARP_DISTANCE, enemyCheatWarp, SUBFLEET_MAX, MERGE_RANGE, splitFleet, mergeFleets, SCOUT_COUNT, SCOUT_SHIPS, SCOUT_WATCH_DISTANCE, SCOUT_SAFE_DISTANCE, launchScouts, SENSOR_RANGE, BEAM_RANGE, GHOST_CLEAR_RANGE, FIREPOWER_FLOOR,
     MISSILE_RANGE, MISSILE_INTERVAL, MISSILE_SPEED, MISSILE_LIFE, MISSILE_HIT_RADIUS, INTERCEPT_RANGE, INTERCEPT_INTERVAL,
     AI_PRESETS, validateParams, updateLeaders, maxSpeed, mitigation, beamDps, missileDamage, visibleEnemies, updateIntel,

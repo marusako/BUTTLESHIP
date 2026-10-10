@@ -4,7 +4,7 @@
 //   node scripts/classic-train.js --export-brain          training/classic/best.json を classic/learned-brain.js に書き出す
 // 試合は大将戦 (原作の対戦のルール)。学習の相手は 旧型 AI 75%・殿堂入り 25%。担当 (青 / 赤) と処理順を入れ替える
 // ほかのオプション: --workers 5 --pop 48 --games 6 --elite 6 --sigma 0.05 --rate 0.1 --tournament 3
-//   --rule-prob 0.75 --hall-every 5 --hall-max 20 --eval-every 10 --eval-games 20 --dt 0.0333 --max-time 300 --seed 1
+//   --rule-prob 0.75 --hall-every 5 --hall-max 20 --eval-every 10 --eval-games 20 --dt 0.0333 --max-time 600 --seed 1
 const fs = require('node:fs');
 const path = require('node:path');
 const B = require('../classic/brain.js');
@@ -16,7 +16,7 @@ const WORKER = path.join(__dirname, 'classic-match-worker.js');
 const DEFAULTS = {
   minutes: 60, workers: 5, pop: 48, games: 6, elite: 6, sigma: 0.05, rate: 0.1, tournament: 3,
   'rule-prob': 0.75, 'hall-every': 5, 'hall-max': 20, 'eval-every': 10, 'eval-games': 20,
-  dt: 1 / 30, 'max-time': 300, seed: 1, from: ''
+  dt: 1 / 30, 'max-time': 600, seed: 1, from: ''
 };
 
 function parseArgs(argv){

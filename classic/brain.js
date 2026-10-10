@@ -128,9 +128,11 @@
 
   const roleOf = f => (f.leader ? 'leader' : 'escort');
 
-  // createGame の options.controllers に渡す形の AI。brains: 役割 (leader / escort) → 重み
+  // createGame の options.controllers に渡す形の AI。brains: 役割 (leader / escort) → 重み。
+  // 見えている敵も最終確認位置もない (手がかりがない) ときは、旧型 AI の動き (隊長は索敵、護衛は隊列) で探す
+  // (脳だけだと、敵陣側の角へ行って張りつき、時間切れになっていたため)
   function controller(brains){
-    return (f, fleets, intel) => decide(brains[roleOf(f)], f, fleets, intel);
+    return (f, fleets, intel, rng) => (Object.keys(intel).length ? decide(brains[roleOf(f)], f, fleets, intel) : L.aiDecide(f, fleets, intel, rng));
   }
 
   // 学習前のランダムな脳の組 (重みは -scale〜scale)

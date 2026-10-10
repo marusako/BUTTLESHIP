@@ -33,6 +33,7 @@
   .kv{ display: flex; justify-content: space-between; font-size: 14px; line-height: 1.6; }
   .kv span:first-child{ color: #9fb4dc; letter-spacing: 0.03em; }
   .kv2{ display: grid; grid-template-columns: 1fr 1fr; column-gap: 16px; }
+  #allies{ max-height: 26vh; overflow-y: auto; } /* 展開隊などで味方が 20 近くになっても COMMAND を押しつぶさない (第 8 段階) */
   .allyRow{ display: flex; justify-content: space-between; font-size: 14px; line-height: 1.75; }
   .allyRow::before{ content: "▶"; color: #ff7a3c; margin-right: 6px; font-size: 11px; }
   .allyRow .name{ flex: 1; color: var(--blue); }

@@ -257,12 +257,12 @@ test('AI (隊長): 手がかりがなければ敵陣の方向 (青は上・赤�
   }
 });
 
-test('マップ: 原作のミニマップと同じ縦長 (横 1 : 縦 2) の 4800 × 9600 (第 7 段階で 2 倍に)', () => {
-  assert.deepEqual(L.WORLD, {w: 4800, h: 9600});
+test('マップ: 原作のミニマップと同じ縦長 (横 1 : 縦 2) の 14400 × 28800 (第 7 段階で 2 倍、第 8 段階で 3 倍に)', () => {
+  assert.deepEqual(L.WORLD, {w: 14400, h: 28800});
 });
 
 test('出撃位置: 横一列は 400 おきで、真ん中がマップの中央 (第 7 段階)', () => {
-  assert.deepEqual(L.SPAWN_XS, [1600, 2000, 2400, 2800, 3200]);
+  assert.deepEqual(L.SPAWN_XS, [-800, -400, 0, 400, 800].map(d => L.WORLD.w / 2 + d));
 });
 
 test('ゲーム作成: 青は下の端、赤は上の端から、横に並んで出撃する', () => {
@@ -940,8 +940,9 @@ test('偵察 (AI): 出撃してすぐ、各チームの AI の護衛のうち左
     assert.equal(scouts.length, 2, team);
     assert.ok(scouts.every(f => f.ships === 500 && !f.isPlayer && !f.leader && !f.flagship), team);
     const parents = scouts.map(sc => g.fleets.find(f => f.id === sc.root));
-    assert.ok(parents.every(p => !p.isPlayer && !p.leader && p.ships === L.INITIAL_SHIPS - 500), team + ' 親は AI の護衛');
-    const xs = g.fleets.filter(f => f.team === team && !f.scout && !f.leader).map(f => f.x);
+    const detached = p => g.fleets.filter(f => f.detach && f.root === p.id).reduce((s, f) => s + f.ships, 0);
+    assert.ok(parents.every(p => !p.isPlayer && !p.leader && p.ships + detached(p) === L.INITIAL_SHIPS - 500), team + ' 親は AI の護衛 (偵察のあと展開隊も出す)');
+    const xs = g.fleets.filter(f => f.team === team && !f.scout && !f.detach && !f.leader).map(f => f.x);
     assert.deepEqual(parents.map(p => p.x).sort((a, b) => a - b), [Math.min(...xs), Math.max(...xs)], team + ' 左右の端');
     assert.deepEqual(scouts.map(sc => sc.scoutSide).sort(), [-1, 1]);
   }
@@ -995,6 +996,97 @@ test('偵察 (AI): 護衛の隊列と隊形の速さには偵察の分艦隊を�
   const leader = g.fleets.find(f => f.team === 'red' && f.leader);
   const before = [L.aiDecide(escort, g.fleets, g.intel.red, seq(0.5)), L.formationSpeedCap(leader, g.fleets)];
   g.fleets.push(Object.assign({}, escort, {id: 'red-scout', scout: true, ships: 500, params: {speed: 0, defense: 50, attack: 50}}));
+  const after = [L.aiDecide(escort, g.fleets, g.intel.red, seq(0.5)), L.formationSpeedCap(leader, g.fleets)];
+  assert.deepEqual(after, before);
+});
+
+// ---------- 第 8 段階: 展開隊 (AI の戦う分艦隊) ----------
+
+test('展開隊 (第 8 段階): 出撃してすぐ、AI の護衛はそれぞれ DETACH_PER_ESCORT (3) つの展開隊を切り出す (元と合わせて 4 等分)。チームで TEAM_FLEET_MAX (20) を超えない。プレイヤーと隊長からは出さない', () => {
+  assert.deepEqual([L.DETACH_PER_ESCORT, L.TEAM_FLEET_MAX], [3, 20]);
+  const g = L.createGame({speed: 34, defense: 33, attack: 33}, seq(0.5), 'flagship');
+  L.step(g, 1 / 30, seq(0.5));
+  for(const team of ['blue', 'red']){
+    const all = g.fleets.filter(f => f.team === team);
+    const subs = all.filter(f => f.detach);
+    assert.equal(subs.length, 12, team);
+    assert.ok(all.length <= L.TEAM_FLEET_MAX, team + ' ' + all.length);
+    for(const p of all.filter(f => !f.detach && !f.scout && !f.leader)){
+      const mine = subs.filter(s => s.root === p.id);
+      assert.equal(mine.length, 3, team + ' ' + p.id);
+      const total = p.ships + mine.reduce((s, f) => s + f.ships, 0);
+      assert.ok(mine.every(s => s.ships === Math.floor(total / 4)), '4 等分');
+    }
+    assert.ok(subs.every(s => !s.isPlayer && !s.leader && !s.flagship && /・分隊\d+$/.test(s.name)), team);
+    assert.deepEqual(subs.map(s => s.lane).sort((a, b) => a - b), Array.from({length: 12}, (_, k) => k), team + ' 列は 0〜11');
+  }
+  assert.ok(!g.fleets.some(f => f.detach && g.fleets.find(p => p.id === f.root).isPlayer), 'プレイヤーの艦隊からは出さない');
+  L.step(g, 1 / 30, seq(0.5));
+  assert.equal(g.fleets.filter(f => f.detach).length, 24, '1 回だけ');
+});
+
+// 展開隊 1 つ (青、12 列のうち 3 番目) と隊長、必要なら敵
+function detachScene(extra){
+  const d = fleet({id: 'd', x: 3000, y: 20000, detach: true, lane: 2, lanes: 12, ships: 3000});
+  const lead = fleet({id: 'lead', x: 7200, y: 27000, leader: true});
+  return [d, lead, ...(extra || [])];
+}
+
+test('展開隊: 手がかりがなければ、自分の列 (マップの横幅を列の数で割った縦の帯の真ん中) を、敵陣の端とマップの真ん中の間で行き来する', () => {
+  const fleets = detachScene();
+  const laneX = L.WORLD.w / 2; // 生き残っている展開隊が 1 つなら、列はマップの横幅全体
+  const o = L.aiDecide(fleets[0], fleets, {}, seq(0.5));
+  assert.equal(o.type, 'move');
+  assert.ok(o.explore);
+  assert.equal(o.x, laneX);
+  assert.equal(o.y, L.DETACH_EDGE_MARGIN, '青はまず敵陣の端 (上) へ');
+  fleets[0].order = o;
+  assert.equal(L.aiDecide(fleets[0], fleets, {}, seq(0.5)), o, '着くまで続ける');
+  fleets[0].order = null;
+  fleets[0].sweep = true;
+  assert.equal(L.aiDecide(fleets[0], fleets, {}, seq(0.5)).y, L.WORLD.h / 2, '着いたら真ん中へ戻る');
+  const red = Object.assign({}, fleets[0], {team: 'red', order: null, sweep: false});
+  assert.equal(L.aiDecide(red, [red], {}, seq(0.5)).y, L.WORLD.h - L.DETACH_EDGE_MARGIN, '赤は下の端へ');
+});
+
+test('展開隊: 列は生き残っている展開隊で割り直す (沈んだ展開隊の列を空けない)', () => {
+  const mk = (id, lane, ships) => fleet({id, x: 3000, y: 20000, detach: true, lane, lanes: 12, ships});
+  const d = mk('d', 2, 3000);
+  const fleets = [mk('a', 0, 3000), d, mk('dead', 5, 0), mk('b', 9, 3000)];
+  assert.equal(L.aiDecide(d, fleets, {}, seq(0.5)).x, L.WORLD.w * 1.5 / 3, '生き残り 3 つのうち 2 番目');
+});
+
+test('展開隊: 敵が見えていれば、最もよい相手 (旗艦優先) を攻撃しに行く。見失ったら最終確認位置へ', () => {
+  const e = fleet({id: 'e', team: 'red', x: 3000, y: 15000});
+  const rf = fleet({id: 'rf', team: 'red', x: 3000, y: 14000, flagship: true});
+  const fleets = detachScene([e, rf]);
+  const intel = {e: {x: e.x, y: e.y, visible: true}, rf: {x: rf.x, y: rf.y, visible: true}};
+  assert.deepEqual(L.aiDecide(fleets[0], fleets, intel, seq(0.5)), {type: 'attack', targetId: 'rf'});
+  const ghost = {rf: {x: 9000, y: 5000, visible: false}};
+  const o = L.aiDecide(fleets[0], fleets, ghost, seq(0.5));
+  assert.deepEqual([o.type, o.x, o.y], ['move', 9000, 5000]);
+});
+
+test('展開隊 (足止め): 見えている敵が隊長から DELAY_RADIUS (2000) 以内にいれば、その敵に近い DELAY_COUNT (2) つの展開隊がその敵を攻撃しに行く', () => {
+  assert.deepEqual([L.DELAY_RADIUS, L.DELAY_COUNT], [2000, 2]);
+  const lead = fleet({id: 'lead', x: 7200, y: 27000, leader: true});
+  const near = fleet({id: 'near', team: 'red', x: 7200, y: 25500});
+  const rf = fleet({id: 'rf', team: 'red', x: 11200, y: 22000, flagship: true}); // 3 つ目の展開隊の近く (隊長からは遠い)
+  const ds = [0, 1, 2].map(k => fleet({id: 'd' + k, x: 7200 + k * 2000, y: 24000, detach: true, lane: k, lanes: 3, ships: 3000}));
+  const fleets = [lead, near, rf, ...ds];
+  const intel = {near: {x: near.x, y: near.y, visible: true}, rf: {x: rf.x, y: rf.y, visible: true}};
+  assert.deepEqual(L.aiDecide(ds[0], fleets, intel, seq(0.5)), {type: 'attack', targetId: 'near'});
+  assert.deepEqual(L.aiDecide(ds[1], fleets, intel, seq(0.5)), {type: 'attack', targetId: 'near'});
+  assert.deepEqual(L.aiDecide(ds[2], fleets, intel, seq(0.5)), {type: 'attack', targetId: 'rf'}, '3 つ目は足止めに入らない');
+});
+
+test('展開隊: 護衛の隊列と隊形の速さには数えない', () => {
+  const g = L.createGame({speed: 34, defense: 33, attack: 33}, seq(0.5), 'flagship');
+  for(const f of g.fleets) f.ai.nextThink = 999;
+  const escort = g.fleets.find(f => f.team === 'red' && !f.leader);
+  const leader = g.fleets.find(f => f.team === 'red' && f.leader);
+  const before = [L.aiDecide(escort, g.fleets, g.intel.red, seq(0.5)), L.formationSpeedCap(leader, g.fleets)];
+  g.fleets.push(Object.assign({}, escort, {id: 'red-d', detach: true, lane: 0, lanes: 1, ships: 3000, params: {speed: 0, defense: 50, attack: 50}}));
   const after = [L.aiDecide(escort, g.fleets, g.intel.red, seq(0.5)), L.formationSpeedCap(leader, g.fleets)];
   assert.deepEqual(after, before);
 });

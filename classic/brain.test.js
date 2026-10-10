@@ -79,8 +79,20 @@ test('controller: 隊長は隊長用の脳、ほかは護衛用の脳で考え�
   const set = {leader: biasBrain([0, -3, 1, 0, 0, 0, 0]), escort: biasBrain([0, 3, 1, 0, 0, 0, 0])};
   const ctl = B.controller(set);
   const lead = fleet({id: 'l', leader: true}), esc = fleet({id: 'e'});
-  assert.ok(ctl(lead, [lead, esc], {}, seq(0.5)).y < lead.y);
-  assert.ok(ctl(esc, [lead, esc], {}, seq(0.5)).y > esc.y);
+  const intel = {r1: {x: 0, y: 0, visible: false}}; // 手がかりがあるとき (ないときは旧型 AI で探す)
+  assert.ok(ctl(lead, [lead, esc], intel, seq(0.5)).y < lead.y);
+  assert.ok(ctl(esc, [lead, esc], intel, seq(0.5)).y > esc.y);
+});
+
+test('controller: 見えている敵も最終確認位置もないときは、旧型 AI の動き (索敵) で探す。手がかりがあれば脳で考える', () => {
+  const set = {leader: biasBrain([0, -3, 1, 0, 0, 0, 0]), escort: biasBrain([0, 3, 1, 0, 0, 0, 0])};
+  const ctl = B.controller(set);
+  const lead = fleet({id: 'l', leader: true, x: 2400, y: 9000}), esc = fleet({id: 'e', x: 2000, y: 9000});
+  const fleets = [lead, esc];
+  assert.deepEqual(ctl(lead, fleets, {}, seq(0.5, 0.3)), L.aiDecide(lead, fleets, {}, seq(0.5, 0.3)), '隊長は旧型 AI の索敵');
+  assert.deepEqual(ctl(esc, fleets, {}, seq(0.5)), L.aiDecide(esc, fleets, {}, seq(0.5)), '護衛は旧型 AI の隊列');
+  const ghost = {r1: {x: 2400, y: 1000, visible: false}};
+  assert.notDeepEqual(ctl(lead, fleets, ghost, seq(0.5, 0.3)), L.aiDecide(lead, fleets, ghost, seq(0.5, 0.3)), '最終確認位置があれば脳');
 });
 
 test('保存: toPlain と fromPlain で元に戻る。形が違えばエラー。ランダムな脳は -scale〜scale', () => {

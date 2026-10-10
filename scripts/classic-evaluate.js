@@ -9,7 +9,7 @@ const E = require('./classic-evolve.js');
 const {createPool} = require('./pool.js');
 
 function parseArgs(argv){
-  const o = {brains: path.join(__dirname, '..', 'training', 'classic', 'best.json'), games: 200, workers: 5, seed: 424242, 'max-time': 300};
+  const o = {brains: path.join(__dirname, '..', 'training', 'classic', 'best.json'), games: 200, workers: 5, seed: 424242, 'max-time': 600};
   for(let i = 0; i < argv.length; i++){
     const key = argv[i].replace(/^--/, '');
     if(!(key in o)) throw new Error(`知らないオプション: ${argv[i]}`);

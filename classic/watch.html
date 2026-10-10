@@ -40,7 +40,7 @@
     <label>試合</label><div class="row"><button id="restart">新しい試合</button><button id="pause">一時停止</button><button id="autoNext" class="on">自動で次の試合</button></div>
     <label>表示</label><div class="row"><button id="showSensor" class="on">索敵範囲</button><button id="showOrders" class="on">命令</button></div>
     <div class="stat" id="stat"></div>
-    <div class="hint">ホイール: 拡大縮小 / ドラッグ: 視点移動 / ダブルクリック: 全体表示<br>大将戦、制限時間 300 秒 (学習と同じ)。最初は 学習型 AI 対 旧型 AI。「自動で次の試合」がオンなら、決着の 3 秒後に最新の脳を読み込み直し、青と赤の AI を入れ替えて次の試合を始める。◎ は旗艦、小さな点線の丸は偵察の分艦隊</div>
+    <div class="hint">ホイール: 拡大縮小 / ドラッグ: 視点移動 / ダブルクリック: 全体表示<br>大将戦、制限時間 600 秒 (学習と同じ)。最初は 学習型 AI 対 旧型 AI。「自動で次の試合」がオンなら、決着の 3 秒後に最新の脳を読み込み直し、青と赤の AI を入れ替えて次の試合を始める。◎ は旗艦、小さな点線の丸は偵察の分艦隊</div>
     <h2>学習の記録</h2>
     <div id="progress" class="stat" style="margin-top: 0"></div>
     <div id="logSummary" class="stat" style="margin-top: 0"></div>
@@ -63,7 +63,7 @@ const canvas = document.getElementById('c'), ctx = canvas.getContext('2d');
 const $ = id => document.getElementById(id);
 const COLORS = {blue: '#4fa3ff', red: '#ff5a5a', accent: '#ffd34f'};
 const DT = 1 / 60;
-const MAX_TIME = 300;     // 制限時間 (秒)。学習の試合と同じ。過ぎたら時間切れ
+const MAX_TIME = 600;     // 制限時間 (秒)。学習の試合と同じ。過ぎたら時間切れ
 const NEXT_DELAY = 3000;  // 試合が終わってから次の試合を始めるまで (ミリ秒)
 const DIR = '../training/classic/';
 
